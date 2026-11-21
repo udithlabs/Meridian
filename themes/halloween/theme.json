@@ -1,0 +1,257 @@
+// ============================================================================================================
+//  HALLOWEEN  -  a Meridian theme pack
+// ============================================================================================================
+//  A haunted night for the 31st of October: a huge orange moon behind the clock, bats, ghosts, a witch dragging a banner,
+//  a haunted house with flickering windows, jack-o'-lanterns, a spider on its thread, zombie hands, eyes in the dark and
+//  now and then a flash of lightning. The big number is the time. Under it, a countdown to Halloween; on Halloween itself
+//  it counts down to the stroke of midnight, when the spell breaks.
+//
+//  This file is the whole theme. Everything after // is a note for you and is ignored by Meridian. Quick version of the format:
+//    - numbers are fractions of the window: x and w of the WIDTH, y and h of the HEIGHT (0 = left/top, 1 = right/bottom)
+//    - anywhere a number goes you can write a formula in quotes, like "0.5 + 0.01*sin(t)"  (t = time in seconds)
+//    - colours are "#RRGGBB", or "#RRGGBBAA" with transparency, or a palette name like "ink" or "accent"
+//    - save the file and Meridian reloads it by itself within a few seconds
+//    - the full list of layers and formulas is in themes/README.txt (next to this folder)
+//  This pack adds ONE tab to the dock ("Halloween"). Its colours, fonts and artwork are used on that tab and nowhere else:
+//  Sky, Quiet, Timer, Almanac and Widgets look exactly as they always do.
+//  To remove this theme: delete the folder  themes/halloween  (or it hides itself outside the "starts" and "expires" dates below).
+//  All the artwork is original. The pictures are in the  art  folder, and  _source/make_art.py  draws them again if you want to change one.
+// ============================================================================================================
+{
+  "id": "halloween",
+  "name": "Halloween",
+  "author": "Made for Meridian",
+  "version": 1,
+  "description": "A haunted night: monsters, bats, a witch and a Halloween countdown. Appears on 1 October, goes away on 3 November, and comes back every year.",
+
+  "global": false,                      // false: only the tab below. true: can also be chosen as a theme for every tab
+  "yearly": true,                       // true: the dates below come round every year, so Halloween is back next October. Delete this line for a one-off.
+  "starts": "10-01",                    // the tab appears on 1 October (MM-DD; with "yearly" the year is not needed) ...
+  "expires": "11-03",                   // ... and goes away on 3 November. Delete these lines to keep it forever.
+
+  // ---- colours of the Halloween tab itself
+  "base": "night",
+  "palette": {
+    "bgTop":    "#0B0418",
+    "bgBottom": "#3B0F4F",
+    "ink":      "#FFE9C7",               // main text
+    "ink2":     "#FFB45A",               // second text
+    "ink3":     "#C9A0F0",               // quiet text
+    "line":     "#FF9A3A42",
+    "accent":   "#FF7A1A",
+    "accent2":  "#9BFF3A",
+    "panel":    "#FFFFFF14",
+    "plate":    "#240A38",
+    "starVis":  0.6,
+    "neon":     1.0,
+    "dark":     true,
+    "neonColor": "#FF7A1A"
+  },
+
+  // ---- fonts (TrueType files placed INSIDE this folder). A font must contain the characters you use; these do.
+  //      display    = the big clock digits and the big titles      -> Creepster (dripping, creepy letters)
+  //      monoMedium = every small spaced-out line (and the banner) -> Special Elite (an old typewriter)
+  //      To change one: copy another .ttf into the fonts folder and change the path. Keep its licence file in fonts/licenses.
+  "fonts": {
+    "display":    "fonts/Creepster-Regular.ttf",
+    "monoMedium": "fonts/SpecialElite-Regular.ttf",
+    "mono":       "fonts/SpecialElite-Regular.ttf"
+  },
+
+  // ---- dates to count to (midnight where you are). They give  hal_days hal_hrs hal_min hal_sec hal_done hal_daysf ...  and the same for endn_
+  "countdowns": {
+    "hal":  "10-31 00:00",                // Halloween begins (no year needed: this pack is "yearly")
+    "endn": "11-01 00:00"                 // ... and the spell breaks
+  },
+
+  // ---- your own names for numbers used below. Worked out in this order.
+  "vars": {
+    "ar":      "W/H",                                          // how wide the window is compared to its height
+    "pf":      "portrait ? 0.7 : 1",                           // everything on the ground a bit smaller in a tall window
+    "bsz":     "portrait ? 0.7 : 1",                           // bat size
+    "before":  "!hal_done",                                    // before Halloween
+    "hday":    "hal_done && !endn_done",                       // during Halloween (the 31st)
+    "after":   "endn_done",                                    // after it
+    "nxt_days":"floor((((year + 1) % 4 == 0 && ((year + 1) % 100 != 0 || (year + 1) % 400 == 0)) ? 366 : 365) - hal_past / 86400)",   // sleeps until next Halloween, works every year
+    // layout of the clock: the moon sits right behind the big number
+    "moonY":   "portrait ? 0.30 : 0.40",
+    "moonR":   "portrait ? min(0.19, 0.40*ar) : 0.30",
+    "numCap":  "portrait ? 0.165 : 0.27",                      // height of the big number
+    "numY":    "moonY + numCap*0.5",                           // its baseline
+    "titleY":  "numY + (portrait ? 0.078 : 0.105)",            // the green title
+    "cdCap":   "portrait ? 0.05 : 0.07",                       // height of the countdown digits
+    "cdY":     "titleY + (portrait ? 0.075 : 0.115)",
+    "lblY":    "cdY + (portrait ? 0.035 : 0.045)",
+    // the haunted house (and where its windows are)
+    "hh":      "portrait ? 0.30 : 0.50",
+    "hx":      "portrait ? 0.22 : 0.17",
+    "hyb":     "portrait ? 0.945 : 0.935",
+    "hw":      "hh*1.1111/ar",
+    // the pumpkins
+    "px":      "portrait ? 0.60 : 0.50",
+    "pdx":     "portrait ? 0.17 : 0.085",
+    "ph1":     "0.21*(portrait ? 0.8 : 1)",
+    // the witch's three lanes, one after the other (each trip she takes the next one)
+    "lane":    "mod(floor(t/40), 3)",
+    // lightning: every 11 seconds there may be a strike (about two times in three), with a double flicker
+    "lp":      "mod(t, 11)",
+    "strike":  "hash(floor(t/11)*7.3 + 1) > 0.35",
+    "lf":      "strike * ((lp < 0.12) + (lp > 0.25 && lp < 0.42))",
+    "boltX":   "0.12 + 0.76*hash(floor(t/11)*3.1 + 2)"
+  },
+
+  // ============================================================================================================
+  //  the tab
+  // ============================================================================================================
+  "faces": [
+    {
+      "id": "night",
+      "name": "Halloween",              // the name on the dock button
+      "fps": 24,
+      "layers": [
+        // ---- the sky: black violet, going to a rusty glow at the bottom
+        { "type": "gradient", "colors": ["#07030F", "#1B0838", "#3F0F55", "#7A2150", "#C3441F"], "at": [0, 0.35, 0.62, 0.82, 1] },
+        { "type": "stars", "count": 60, "y0": 0, "y1": 0.62, "colors": ["#FFF3E6", "#C8FF8A"], "opacity": "light" },
+
+        // ---- the harvest moon (big, behind the clock) and its glow
+        { "type": "glow", "x": 0.5, "y": "moonY", "rx": "3.0*moonR/ar", "ry": "2.7*moonR", "color": "#FF6A1A", "opacity": "0.40*light" },
+        { "type": "glow", "x": 0.5, "y": "moonY", "rx": "1.6*moonR/ar", "ry": "1.5*moonR", "color": "#FFC15A", "opacity": "0.34*light" },
+        { "type": "image", "src": "art/moon.png", "x": 0.5, "y": "moonY", "h": "2*moonR/0.97", "opacity": "0.6 + 0.4*light" },
+        // ragged clouds drift across the moon, one each way
+        { "type": "image", "src": "art/cloud.png", "x": "-0.3 + mod(t*0.004, 1.6)", "y": "moonY - moonR*0.35", "h": "0.20*pf", "opacity": 0.95 },
+        { "type": "image", "src": "art/cloud.png", "x": "1.3 - mod(t*0.003 + 0.5, 1.6)", "y": "moonY + moonR*0.55", "h": "0.17*pf", "flip": true, "opacity": 0.85 },
+
+        // ---- lightning: a bolt (and a flash, further down). It only exists while  lf  is on.
+        { "type": "image", "src": "art/bolt.png", "when": "lf", "x": "boltX", "y": 0, "anchor": "top-center", "h": "portrait ? 0.45 : 0.62", "w": "(portrait ? 0.45 : 0.62)*0.3/ar" },
+
+        // ---- ghosts, floating (behind the clock text, in front of the moon)
+        { "type": "image", "src": "art/ghost_a.png", "x": "(portrait ? 0.20 : 0.27) + 0.04*sin(t*0.23)", "y": "0.31 + 0.025*sin(t*0.61)", "h": "portrait ? 0.15 : 0.24",
+          "rotate": "5*sin(t*0.5)", "pivot": "center", "opacity": "(0.66 + 0.16*sin(t*0.9))*light" },
+        { "type": "image", "src": "art/ghost_b.png", "x": "(portrait ? 0.80 : 0.76) + 0.035*sin(t*0.19 + 2)", "y": "0.27 + 0.03*sin(t*0.53 + 1)", "h": "portrait ? 0.14 : 0.22",
+          "rotate": "-6*sin(t*0.4 + 1)", "pivot": "center", "opacity": "(0.70 + 0.14*sin(t*0.7 + 1))*light" },
+        { "type": "image", "src": "art/ghost_c.png", "x": "mod(t*0.014 + 0.2, 1.4) - 0.2", "y": "(portrait ? 0.56 : 0.60) + 0.04*sin(t*0.8)", "h": "portrait ? 0.08 : 0.12",
+          "rotate": "8*sin(t*0.9)", "pivot": "center", "opacity": "0.58*light" },
+
+        // ---- bats: each one has its own path, speed and size. Their wings flap by squashing the picture up and down.
+        //      (more of them come out on Halloween itself)
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.040 + 0.15, 1.5) - 0.25", "y": "0.20 + 0.04*sin(t*0.9 + 0) + 0.02*sin(t*2.3 + 0)", "h": "0.060*bsz*(0.35 + 0.65*abs(sin(t*8.0 + 0)))", "w": "0.120*bsz/ar", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.030 + 0.80, 1.5)", "y": "0.30 + 0.04*sin(t*0.9 + 1) + 0.02*sin(t*2.3 + 1)", "h": "0.085*bsz*(0.35 + 0.65*abs(sin(t*9.3 + 1)))", "w": "0.170*bsz/ar", "flip": true, "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.052 + 0.60, 1.5) - 0.25", "y": "0.12 + 0.04*sin(t*0.9 + 2) + 0.02*sin(t*2.3 + 2)", "h": "0.045*bsz*(0.35 + 0.65*abs(sin(t*10.6 + 2)))", "w": "0.090*bsz/ar", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.046 + 0.25, 1.5)", "y": "0.46 + 0.04*sin(t*0.9 + 3) + 0.02*sin(t*2.3 + 3)", "h": "0.050*bsz*(0.35 + 0.65*abs(sin(t*11.9 + 3)))", "w": "0.100*bsz/ar", "flip": true, "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.026 + 0.90, 1.5) - 0.25", "y": "0.36 + 0.04*sin(t*0.9 + 4) + 0.02*sin(t*2.3 + 4)", "h": "0.075*bsz*(0.35 + 0.65*abs(sin(t*8.0 + 4)))", "w": "0.150*bsz/ar", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.060 + 0.55, 1.5)", "y": "0.08 + 0.04*sin(t*0.9 + 5) + 0.02*sin(t*2.3 + 5)", "h": "0.040*bsz*(0.35 + 0.65*abs(sin(t*9.3 + 5)))", "w": "0.080*bsz/ar", "flip": true, "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.034 + 0.40, 1.5) - 0.25", "y": "0.54 + 0.04*sin(t*0.9 + 6) + 0.02*sin(t*2.3 + 6)", "h": "0.055*bsz*(0.35 + 0.65*abs(sin(t*10.6 + 6)))", "w": "0.110*bsz/ar", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.070 + 0.10, 1.5)", "y": "0.25 + 0.04*sin(t*0.9 + 7) + 0.02*sin(t*2.3 + 7)", "h": "0.050*bsz*(0.35 + 0.65*abs(sin(t*11.9 + 7)))", "w": "0.100*bsz/ar", "flip": true, "when": "hday", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.075 + 0.70, 1.5) - 0.25", "y": "0.18 + 0.04*sin(t*0.9 + 8) + 0.02*sin(t*2.3 + 8)", "h": "0.045*bsz*(0.35 + 0.65*abs(sin(t*8.0 + 8)))", "w": "0.090*bsz/ar", "when": "hday", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.055 + 0.35, 1.5)", "y": "0.40 + 0.04*sin(t*0.9 + 9) + 0.02*sin(t*2.3 + 9)", "h": "0.060*bsz*(0.35 + 0.65*abs(sin(t*9.3 + 9)))", "w": "0.120*bsz/ar", "flip": true, "when": "hday", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "mod(t*0.065 + 0.05, 1.5) - 0.25", "y": "0.30 + 0.04*sin(t*0.9 + 10) + 0.02*sin(t*2.3 + 10)", "h": "0.050*bsz*(0.35 + 0.65*abs(sin(t*10.6 + 10)))", "w": "0.100*bsz/ar", "when": "hday", "opacity": "light" },
+        { "type": "image", "src": "art/bat.png", "x": "1.25 - mod(t*0.080 + 0.62, 1.5)", "y": "0.56 + 0.04*sin(t*0.9 + 11) + 0.02*sin(t*2.3 + 11)", "h": "0.040*bsz*(0.35 + 0.65*abs(sin(t*11.9 + 11)))", "w": "0.080*bsz/ar", "flip": true, "when": "hday", "opacity": "light" },
+
+        // ---- the witch drags a banner across now and then. She flies BEHIND the clock and the text, taking a different lane each trip:
+        //      1 behind the big number, 2 high over the moon, 3 behind the title. The message depends on how close Halloween is.
+        { "type": "banner", "y": "lane < 1 ? numY - numCap*0.52 : (lane < 2 ? 0.20 : titleY - 0.02)", "h": "portrait ? 0.035 : 0.045", "size": "portrait ? 0.019 : 0.024",
+          "plane": "art/witch.png", "planeH": "portrait ? 0.07 : 0.115", "period": 40, "fly": 24, "fill": "#2A0F3AF0", "edge": "#FF8A1E", "ink": "#B6FF4A",
+          "text": [
+            { "when": "hday",              "text": ["HAPPY HALLOWEEN!", "TRICK OR TREAT!", "ANY CANDY LEFT?", "BOO! DID I SCARE YOU?", "THE VEIL IS THIN TONIGHT", "DON'T LOOK BEHIND YOU", "SMILE. THE PUMPKINS ARE WATCHING"] },
+            { "when": "after",             "text": ["SEE YOU NEXT YEAR", "SWEEP UP THE COBWEBS", "NO MORE CANDY. SORRY.", "THE GHOSTS WENT HOME"] },
+            { "when": "hal_daysf > 7",     "text": ["THE NIGHT DRAWS NEAR", "STOCK UP ON CANDY", "SOMETHING WICKED THIS WAY COMES", "SHARPEN THE PUMPKIN KNIFE"] },
+            { "when": "hal_daysf > 1",     "text": ["ONLY A FEW SLEEPS LEFT", "CARVE THE PUMPKINS", "THE BATS ARE RESTLESS", "GHOSTS ARE PACKING"] },
+            { "text": ["IT BEGINS AT MIDNIGHT", "TOMORROW THEY RISE", "LAST NIGHT TO HIDE THE CANDY", "CHARGE YOUR TORCH"] }
+          ] },
+
+        // ---- the land: far hills, a dead tree behind the house, the house, the right-hand tree, graves, hands, near hills
+        { "type": "image", "src": "art/hills_far.png", "x": 0.5, "y": 1.0, "anchor": "bottom-center", "w": 1.02, "h": "portrait ? 0.20 : 0.30" },
+        { "type": "image", "src": "art/tree_b.png", "x": "portrait ? 0.02 : 0.03", "y": 1.0, "anchor": "bottom-center", "h": "0.62*pf", "rotate": "0.7*sin(t*0.41)" },
+        { "type": "image", "src": "art/house.png", "x": "hx", "y": "hyb", "anchor": "bottom-center", "h": "hh" },
+        // the windows breathe: soft warm lights on top of the lit windows, each flickering at its own speed
+        { "type": "glow", "x": "hx + (0.321 - 0.5)*hw", "y": "hyb - hh + 0.676*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*7.0 + 0) + 0.08*sin(t*15.3 + 0))*light" },   // w1
+        { "type": "glow", "x": "hx + (0.639 - 0.5)*hw", "y": "hyb - hh + 0.676*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*8.7 + 1) + 0.08*sin(t*17.4 + 2))*light" },   // w2
+        { "type": "glow", "x": "hx + (0.482 - 0.5)*hw", "y": "hyb - hh + 0.587*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*10.4 + 2) + 0.08*sin(t*19.5 + 4))*light" },   // w3
+        { "type": "glow", "x": "hx + (0.656 - 0.5)*hw", "y": "hyb - hh + 0.319*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*12.1 + 3) + 0.08*sin(t*21.6 + 6))*light" },   // tw
+        { "type": "glow", "x": "hx + (0.174 - 0.5)*hw", "y": "hyb - hh + 0.756*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*13.8 + 4) + 0.08*sin(t*23.7 + 8))*light" },   // ww
+        { "type": "glow", "x": "hx + (0.480 - 0.5)*hw", "y": "hyb - hh + 0.362*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*15.5 + 5) + 0.08*sin(t*25.8 + 10))*light" },   // attic
+        { "type": "glow", "x": "hx + (0.480 - 0.5)*hw", "y": "hyb - hh + 0.833*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*17.2 + 6) + 0.08*sin(t*27.9 + 12))*light" },   // door
+        { "type": "glow", "x": "hx + (0.180 - 0.5)*hw", "y": "hyb - hh + 0.609*hh", "r": "0.10*hh", "color": "#FFB02E", "opacity": "max(0, 0.20 + 0.12*sin(t*18.9 + 7) + 0.08*sin(t*30.0 + 14))*light" },   // wa
+        { "type": "image", "src": "art/tree_a.png", "x": "portrait ? 0.93 : 0.90", "y": 1.01, "anchor": "bottom-center", "h": "0.72*pf", "rotate": "0.8*sin(t*0.37 + 2)" },
+        { "type": "image", "src": "art/graves.png", "x": "portrait ? 0.76 : 0.72", "y": 1.0, "anchor": "bottom-center", "h": "portrait ? 0.15 : 0.20" },
+        // two zombie hands climb out behind the near hills and sink back, each at its own pace
+        { "type": "image", "src": "art/hand.png", "x": "portrait ? 0.78 : 0.66", "y": "1.0 + 0.22*(1 - clamp(1.8*sin(t*0.31), 0, 1))", "anchor": "bottom-center", "h": "0.19*pf", "rotate": "2*sin(t*1.3)" },
+        { "type": "image", "src": "art/hand.png", "x": "portrait ? 0.92 : 0.83", "y": "1.0 + 0.22*(1 - clamp(1.8*sin(t*0.27 + 2.4), 0, 1))", "anchor": "bottom-center", "h": "0.15*pf", "flip": true, "rotate": "-2*sin(t*1.1)" },
+        { "type": "image", "src": "art/hills_near.png", "x": 0.5, "y": 1.0, "anchor": "bottom-center", "w": 1.02, "h": "portrait ? 0.18 : 0.24" },
+        // the black cat on the ridge
+        { "type": "image", "src": "art/cat.png", "when": "!portrait", "x": 0.775, "y": 0.885, "anchor": "bottom-center", "h": 0.13 },
+        // three jack-o'-lanterns, with a warm light that flickers like a candle
+        { "type": "glow", "x": "px", "y": 0.99, "rx": "0.26*pf", "ry": 0.09, "color": "#FF8A1E", "opacity": "(0.26 + 0.07*sin(t*6.3) + 0.05*sin(t*11.7))*light" },
+        { "type": "image", "src": "art/pumpkin_b.png", "x": "px - pdx", "y": 1.01, "anchor": "bottom-center", "h": "0.145*pf" },
+        { "type": "image", "src": "art/pumpkin_c.png", "x": "px + pdx", "y": 1.01, "anchor": "bottom-center", "h": "0.155*pf" },
+        { "type": "image", "src": "art/pumpkin_a.png", "x": "px", "y": 1.01, "anchor": "bottom-center", "h": "ph1" },
+        { "type": "glow", "x": "px", "y": "1.01 - 0.38*ph1", "r": "0.55*ph1", "color": "#FFAA33", "opacity": "max(0, 0.30 + 0.12*sin(t*7.3) + 0.08*sin(t*13.1 + 1))*light" },
+        { "type": "glow", "x": "px - pdx", "y": "1.01 - 0.38*0.145*pf", "r": "0.55*0.145*pf", "color": "#FFAA33", "opacity": "max(0, 0.28 + 0.12*sin(t*8.1 + 2) + 0.08*sin(t*14.9))*light" },
+        { "type": "glow", "x": "px + pdx", "y": "1.01 - 0.38*0.155*pf", "r": "0.55*0.155*pf", "color": "#FFAA33", "opacity": "max(0, 0.28 + 0.12*sin(t*6.7 + 4) + 0.08*sin(t*12.3 + 3))*light" },
+        // eyes in the dark: they open, blink, and close again. Somebody is watching.
+        { "type": "image", "src": "art/eyes.png", "x": "portrait ? 0.43 : 0.285", "y": "portrait ? 0.80 : 0.865", "h": "0.034*(0.12 + 0.88*(mod(t + 3.7, 7.3) > 0.2))*pf",
+          "w": "0.034*2.286*pf/ar", "opacity": "0.9*(mod(t*0.5, 9) < 6.5)" },
+        { "type": "image", "src": "art/eyes.png", "when": "!portrait", "x": 0.585, "y": 0.9, "h": "0.026*(0.12 + 0.88*(mod(t + 1.1, 5.9) > 0.2))", "w": "0.026*2.286/ar",
+          "opacity": "0.85*(mod(t*0.5 + 4, 11) < 7.5)" },
+
+        // ---- a spider on a thread in the top left corner, slowly going up and down, under a cobweb
+        { "type": "image", "src": "art/web.png", "x": 0, "y": 0, "anchor": "top-left", "h": "portrait ? 0.26 : 0.40", "w": "(portrait ? 0.26 : 0.40)/ar", "opacity": 0.8 },
+        { "type": "image", "src": "art/web.png", "x": 1, "y": 0, "anchor": "top-right", "h": "portrait ? 0.22 : 0.34", "w": "(portrait ? 0.22 : 0.34)/ar", "flip": true, "opacity": 0.7 },
+        { "type": "image", "src": "art/spider.png", "x": "portrait ? 0.12 : 0.085", "y": "0.09 + 0.11*(0.5 + 0.5*sin(t*0.4))", "anchor": "top-center", "h": "0.11*pf", "rotate": "6*sin(t*0.9)", "pivot": "top-center" },
+        { "type": "line", "x": "portrait ? 0.12 : 0.085", "y": 0, "x2": "portrait ? 0.12 : 0.085", "y2": "0.09 + 0.11*(0.5 + 0.5*sin(t*0.4)) + 0.002", "thick": 0.0022, "color": "#E6E2FFB4" },
+
+        // ---- fog creeping along the ground (three slow, wide, faint lights)
+        { "type": "gradient", "y0": 0.74, "y1": 1, "colors": ["#2A0F3F00", "#2A0F3F70"] },
+        { "type": "glow", "x": "0.30 + 0.22*sin(t*0.045)", "y": 0.90, "rx": 0.46, "ry": 0.075, "color": "#9BFFC8", "opacity": "0.11*light" },
+        { "type": "glow", "x": "0.72 + 0.20*sin(t*0.038 + 2)", "y": 0.84, "rx": 0.50, "ry": 0.065, "color": "#C9A0F0", "opacity": "0.10*light" },
+        { "type": "glow", "x": "0.50 + 0.30*sin(t*0.031 + 4)", "y": 0.96, "rx": 0.55, "ry": 0.06, "color": "#9BFFC8", "opacity": "0.10*light" },
+
+        // ---- Halloween itself: a rain of orange, green and purple confetti
+        { "type": "confetti", "when": "hday", "count": 44, "colors": ["#FF7A1A", "#9BFF3A", "#B26BFF", "#FFC15A"] },
+
+        // ---- the flash of lightning lights the whole sky for a moment
+        { "type": "glow", "when": "lf", "x": 0.5, "y": 0.3, "rx": 1.3, "ry": 1.1, "color": "#D6C8FF", "opacity": "0.40" },
+
+        // ---- weather: this pack always looks the same (gloom and haze stay 0 unless the file says "weather": true), so this layer draws nothing
+        //      unless you switch that on
+        { "type": "shade", "alpha": "0.40*gloom + 0.20*haze", "alpha2": "0.28*haze" },
+
+        // ---- the text
+        { "type": "text", "text": "THE NIGHT OF ALL HALLOWS", "x": 0.05, "y": 0.075, "font": "monoMedium", "size": "min(0.026, 0.028*W/H)", "align": "left", "color": "#9BFF3A", "tracking": 0.22, "opacity": 0.95, "maxw": "portrait ? 0.9 : 0.5" },
+        { "type": "text", "text": "{weekday}  {day} {monthname}", "when": "!portrait", "x": 0.95, "y": 0.075, "font": "monoMedium", "size": 0.026, "align": "right", "color": "#FFB45A", "tracking": 0.16, "opacity": 0.95, "upper": true },
+        { "type": "text", "text": "{weekdayShort} {day} {mon}", "when": "portrait", "x": 0.95, "y": 0.115, "font": "monoMedium", "size": "0.026*0.8", "align": "right", "color": "#FFB45A", "tracking": 0.16, "opacity": 0.9, "upper": true },
+
+        // the big number: the time (a dark halo so it reads over both the moon and the sky)
+        { "type": "text", "digits": true, "font": "display", "cap": "numCap", "x": 0.5, "y": "numY", "maxw": "portrait ? 0.86 : 0.62",
+          "color": "#FFF4DA", "color2": "#FFC987", "tracking": 0.02, "neon": "#1A0626", "neonStrength": 0.6, "text": "{hm}" },
+
+        // the green title
+        { "type": "text", "font": "display", "size": "portrait ? 0.05 : 0.075", "x": 0.5, "y": "titleY", "maxw": 0.9, "color": "#CFFF74", "color2": "#56E01C", "tracking": 0.03,
+          "neon": "#2BFF6A", "neonStrength": 0.7,
+          "text": [
+            { "when": "hday",                "text": "HAPPY HALLOWEEN" },
+            { "when": "after",               "text": "SEE YOU NEXT YEAR" },
+            { "when": "hal_daysf > 1",       "text": "HALLOWEEN IS COMING" },
+            { "text": "IT BEGINS AT MIDNIGHT" }
+          ] },
+
+        // the countdown
+        { "type": "text", "digits": true, "font": "display", "cap": "cdCap", "x": 0.5, "y": "cdY", "maxw": 0.7, "color": "#FFB45A", "color2": "#FF7A1A", "gap": 0.55, "tracking": 0.04,
+          "neon": "#1A0626", "neonStrength": 0.9,
+          "text": [
+            { "when": "hday",                "text": "{endn_hrs:2}:{endn_min:2}:{endn_sec:2}" },
+            { "when": "after",               "text": "{nxt_days}" },
+            { "when": "hal_days > 0",        "text": "{hal_days:2}:{hal_hrs:2}:{hal_min:2}:{hal_sec:2}" },
+            { "text": "{hal_hrs:2}:{hal_min:2}:{hal_sec:2}" }
+          ] },
+        { "type": "text", "font": "monoMedium", "size": "portrait ? 0.016 : 0.019", "x": 0.5, "y": "lblY", "maxw": 0.9, "tracking": 0.22, "color": "#FFE9C7", "opacity": 0.88, "upper": true,
+          "text": [
+            { "when": "hday",                "text": "until the spell breaks at midnight" },
+            { "when": "after",               "text": "sleeps until next Halloween" },
+            { "when": "hal_days > 0",        "text": "days · hours · minutes · seconds to Halloween" },
+            { "text": "hours · minutes · seconds to Halloween" }
+          ] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+Building Meridian-Setup (the graphical setup program)
+=====================================================
+
+It is one 64-bit program that carries Meridian inside itself. There is no installer framework: the wizard is drawn by the same
+Direct2D/DirectWrite code (gfx.cpp), fonts and Moon (moonsprite.cpp) as Meridian, so it looks like the app and needs no extra DLLs.
+
+  setup_main.cpp  the window and its pages (Welcome, Make it yours, While you're away, What's new, progress with the filling Moon, All set, uninstall)
+  install.cpp     what it does to the PC: files, shortcuts, registry, screen saver, undo (no window code, also used by /S)
+  inflate.h       a small deflate decoder (so no zlib), plus CRC-32
+  payload.h       reads the packed files out of the program's own resources
+  pack.py         packs <app folder> into payload.bin and copies the "what's new" list out of ..\src\scene_settings.cpp into notes.txt
+  setup.rc / setup.manifest   icon, fonts, the packed data, 64-bit manifest (per-monitor DPI, no administrator rights)
+
+To build:
+  1. Build Meridian.exe first (..\build.bat on Windows, ..\build.sh on Linux): the setup packs the folder above this one by default,
+     which must hold Meridian.exe, README.txt, themes\ and licenses\.  (Or pass your own folders: build-setup.bat <app-folder> <licenses-folder>)
+  2. Windows (MinGW-w64 with g++ and windres on PATH, and Python 3):   build-setup.bat
+     Linux (mingw-w64 cross compiler, python3):                      ./build.sh
+  The result is Meridian-Setup-<version>.exe in this folder. Change the version in four places: here and in setup_main.cpp, install.cpp,
+  setup.rc / setup.manifest / the two build scripts (search for "2.9.7").
+
+What the finished setup does
+  - installs for the current user only (no administrator needed) into %LOCALAPPDATA%\Programs\Meridian, or a folder you pick
+  - shortcuts, "open when I sign in", GTA VI / Halloween packs, and the While-you're-away page: Meridian as the screen saver after 1-60 minutes of no use
+    (the old one is remembered) and, if you like, the PC to sleep after another 20-120 minutes (stored in HKCU\Software\Meridian\Saver, SleepAfterMinutes)
+  - adds itself to Settings > Apps; the uninstaller is a copy of the setup (uninstall.exe)
+  - run it again over an older Meridian (also the 2.6.x one) and it updates it, keeping settings, places, notes and your own theme packs
+  - when Meridian is already installed its first page offers Update and Uninstall (Customise and What's new are links); Uninstall shows the same
+    "Remove Meridian?" page as Settings > Apps, and Cancel goes back. Opened as <install folder>\uninstall.exe it hands over to a copy in %TEMP% first,
+    because a running program cannot delete itself
+
+Command line
+  Meridian-Setup-2.9.7.exe /S                      silent install, default choices (exit code 0 = fine, 2 = failed, 3 = Meridian would not close, 4 = already running)
+  Meridian-Setup-2.9.7.exe /S /D=C:\Tools\Meridian other folder (supports quotes or unquoted paths)
+  /ScreenSaver=5   also make it the screen saver after 5 minutes (1-60)     /StartWithWindows   also open it when you sign in
+  /SleepAfter=60   also put the PC to sleep after Meridian has been on 60 more minutes (20-120; turns the screen saver on too)
+  /NoSleep         no sleep step (removes an earlier one)
+  /NoDesktop  /NoStartMenu  /NoGTA  /NoHalloween                     leave those out
+  <install folder>\uninstall.exe /uninstall [/S] [/DeleteSettings]   the uninstaller (the same as Settings > Apps > Uninstall)
+
+Not code-signed
+  The setup (like Meridian.exe) has no publisher signature. Windows SmartScreen may say "Windows protected your PC" (More info > Run anyway),
+  and Windows 11's Smart App Control can refuse unsigned programs outright: turn it off in Windows Security > App & browser control,
+  or sign the exe with a code-signing certificate:  signtool sign /fd sha256 /a Meridian-Setup-2.9.7.exe

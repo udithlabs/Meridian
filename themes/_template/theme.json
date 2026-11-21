@@ -1,0 +1,70 @@
+// ============================================================================================================
+//  STARTER THEME  -  copy this folder, rename the copy (it must NOT start with an underscore), then edit.
+// ============================================================================================================
+//  Everything after // is a note for you; Meridian ignores it. The full list of what you can write is in
+//  themes/README.txt (one folder up). Save the file and Meridian reloads it by itself within a few seconds.
+//  This starter adds ONE tab called "My tab": a coloured sky, a sun that bobs gently, the time, the date and a
+//  countdown to a day of your choice. Change anything and watch it change.
+//
+//  Numbers are fractions of the window:  x and w of the WIDTH,  y and h of the HEIGHT  (0 = left/top, 1 = right/bottom).
+//  Anywhere a number goes you may write a formula in quotes, like  "0.5 + 0.02*sin(t)"   (t = time, in seconds).
+//  Colours:  "#RRGGBB"   "#RRGGBBAA" (AA = transparency)   or a palette name such as "ink" and "accent".
+// ============================================================================================================
+{
+  "id": "mytheme",                       // short name, letters / digits / - / _  (defaults to the folder name)
+  "name": "My theme",                    // shown in Settings > Themes
+  "author": "me",
+  "version": 1,
+  "description": "A starter theme with one tab.",
+
+  // "weather": true,                    // remove the // to let cloud and fog tint this pack. Default false: a pack always looks the same, whatever the weather
+  "global": false,                       // false: only the tab(s) below.  true: also usable as a theme for every tab (then add a "backdrop")
+  // "starts":  "2026-12-01",            // remove the // at the start of a line to use it: hidden before this day
+  // "expires": "2027-01-10",            // ... and hidden from this day on. Delete the lines to keep the theme forever.
+  // "yearly": true,                     // for an occasion that comes every year: write the dates without a year, e.g. "starts": "10-01", "expires": "11-03" (both needed)
+
+  "base": "night",                       // start from a built-in look: day, sunlit, sunlit2, dawn, sunset, dusk, night, midnight, ember
+  "palette": {                           // change only what you want; leave the rest out
+    "ink":    "#F4F0FF",                 // main text
+    "ink2":   "#C9BFF0",                 // second text
+    "accent": "#7CC4FF"
+  },
+
+  // "fonts": { "display": "fonts/YourFont.ttf" },     // your own font file in this folder (roles: display light medium serif serifItalic mono monoMedium)
+
+  "countdowns": {
+    "party": "2027-01-01 00:00"          // a date to count to ("YYYY-MM-DD HH:MM", your local time). Gives: party_days party_hrs party_min party_sec party_done ...
+  },
+
+  "vars": {                              // your own names for numbers; used below in formulas
+    "horizon": "portrait ? 0.78 : 0.74"  // where the ground starts (fraction of height); "portrait" is 1 in a tall window
+  },
+
+  "faces": [
+    {
+      "id": "main",
+      "name": "My tab",                  // the label on the dock button
+      "fps": 15,                         // frames a second this tab needs; 0 = nothing moves (cheapest)
+      "layers": [                        // drawn from the back to the front
+        // sky: bands of colour from top to the horizon
+        { "type": "gradient", "y0": 0, "y1": "horizon", "colors": ["#0B1030", "#2A2F7A", "#E0688A"] },
+        // a few twinkling stars ("light" is 1 in clear weather, and stays 1 in cloud or fog too: a pack ignores the weather unless it says "weather": true)
+        { "type": "stars", "count": 60, "y0": 0, "y1": "horizon*0.7", "opacity": "light" },
+        // a soft glow and a sun that bobs up and down
+        { "type": "glow", "x": 0.5, "y": "horizon", "rx": 0.5, "ry": 0.25, "color": "#FFB36B", "opacity": "0.5*light" },
+        { "type": "circle", "x": 0.5, "y": "horizon - 0.04 + 0.008*sin(t*0.5)", "r": 0.09, "color": "#FFE9A8", "color2": "#FF9E6B" },
+        // the ground
+        { "type": "rect", "x": 0, "y": "horizon", "w": 1, "h": "1 - horizon", "color": "#12081F" },
+        // the time, big, and the date under it
+        { "type": "text", "text": "{time}", "digits": true, "font": "display", "cap": 0.16, "x": 0.5, "y": 0.34, "maxw": 0.8, "color": "ink" },
+        { "type": "text", "text": "{weekday}  {day} {monthname}", "upper": true, "font": "monoMedium", "size": 0.026, "x": 0.5, "y": 0.43, "tracking": 0.3, "color": "ink2", "maxw": 0.9 },
+        // a countdown line; it changes by itself when the date is reached (first case that is true wins)
+        { "type": "text", "font": "monoMedium", "size": 0.026, "x": 0.5, "y": 0.92, "tracking": 0.2, "color": "accent", "maxw": 0.9,
+          "text": [
+            { "when": "party_done", "text": "HAPPY NEW YEAR" },
+            { "text": "{party_days} DAYS  {party_hrs:2}:{party_min:2}:{party_sec:2}  TO GO" }
+          ] }
+      ]
+    }
+  ]
+}

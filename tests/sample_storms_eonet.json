@@ -1,0 +1,6 @@
+{"title":"EONET Events","events":[
+ {"id":"EONET_9001","title":"Tropical Cyclone MONTHA","closed":null,"categories":[{"id":"severeStorms","title":"Severe Storms"}],"sources":[{"id":"GDACS"}],
+  "geometry":[{"magnitudeValue":45.0,"magnitudeUnit":"kts","date":"2026-10-25T06:00:00Z","type":"Point","coordinates":[85.0,10.5]},
+              {"magnitudeValue":55.0,"magnitudeUnit":"kts","date":"2026-10-26T06:00:00Z","type":"Point","coordinates":[86.5,12.0]}]},
+ {"id":"EONET_9002","title":"Severe Weather over Nebraska","closed":null,"categories":[{"id":"severeStorms"}],"geometry":[{"date":"2026-10-26T00:00:00Z","type":"Point","coordinates":[-98.0,41.0]}]}
+]}

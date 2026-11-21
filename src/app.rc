@@ -1,0 +1,38 @@
+#include "resource.h"
+IDI_APP ICON "../assets/app.ico"
+1 24 "../assets/app.manifest"
+IDR_FONT_SORA200 RCDATA "../assets/fonts/Sora-ExtraLight.ttf"
+IDR_FONT_SORA300 RCDATA "../assets/fonts/Sora-Light.ttf"
+IDR_FONT_SORA500 RCDATA "../assets/fonts/Sora-Medium.ttf"
+IDR_FONT_SERIF   RCDATA "../assets/fonts/InstrumentSerif-Regular.ttf"
+IDR_FONT_SERIF_I RCDATA "../assets/fonts/InstrumentSerif-Italic.ttf"
+IDR_FONT_MONO    RCDATA "../assets/fonts/DMMono-Regular.ttf"
+IDR_FONT_MONO_M  RCDATA "../assets/fonts/DMMono-Medium.ttf"
+IDR_UFO_SONG        RCDATA "../assets/ufo_song.m4a"
+IDR_RESEARCHED_SONG RCDATA "../assets/researched.m4a"
+
+1 VERSIONINFO
+FILEVERSION 2,9,7,0
+PRODUCTVERSION 2,9,7,0
+FILEOS 0x4
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Meridian"
+      VALUE "FileDescription", "Meridian 2.9.7 ""Snowfall"" - always-on sky clock (Sonnet Edition)"
+      VALUE "FileVersion", "2.9.7.0"
+      VALUE "InternalName", "Meridian"
+      VALUE "LegalCopyright", "Fonts: Sora, Instrument Serif, DM Mono (SIL OFL 1.1). Weather: Open-Meteo."
+      VALUE "OriginalFilename", "Meridian.exe"
+      VALUE "ProductName", "Meridian - Sonnet Edition"
+      VALUE "ProductVersion", "2.9.7.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

@@ -1,0 +1,33 @@
+# Build outputs
+/build/
+/build-dev/
+/build-tests/
+/setup/build/
+*.o
+*.obj
+*.res
+*.exe
+*.scr
+*.zip
+*.dll
+*.pdb
+
+# Meridian runtime & user state
+settings.ini
+forecast.json
+air.json
+weather.log
+crash.log
+crash/
+holidays.txt
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/
+.idea/
+__pycache__/
+*.pyc
