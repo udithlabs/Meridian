@@ -977,6 +977,11 @@ void tabSkyMap(UI& u, float x, float y, float w, float h) {
         auto lines = g.wrap(F_LIGHT, 14.5f * s, L"The Sun, Moon, planets, stars and the compass letters all turn together, so nothing moves relative to anything else. Turn it off and the map stays facing the direction it stopped at. Free rotate redraws the sky 30 times a second, which uses a little more power than the usual once a second.", rw, 0, 8);
         for (auto& l : lines) { g.text(F_LIGHT, 14.5f * s, rx, ry + 12 * s, l, P.ink3); ry += 21 * s; }
     }
+    ry += 16 * s;
+    u.divider(rx, ry, rw); ry += 18 * s;
+    u.sectionLabel(rx, ry, "Star patterns"); ry += 26 * s;
+    ry += u.toggle(rx, ry, rw, "Show star patterns during the day", "Off by default — constellations appear only at night", st.dayStars);
+    (void)h;
 }
 
 // ---------------------------------------------------------------- the Quiet face
@@ -1350,8 +1355,8 @@ const std::vector<Release>& releaseNotes() {
             "Focus tab: a brand-new dedicated Focus Studio tab (key 6) pairs an independent focus timer (default 25m Pomodoro) with a smaller live clock, live weather card, frosted focus medallion, calm breathing halo and a collapsible side Ambience & Theme orb that smoothly expands on hover (Off, Live, Rain, Snow, Clouds, Fog, Storm or Stars) — completely clutter-free at rest, clear of the main bottom dock, and leaving the classic Timer tab untouched.",
             "Daylight Saving Time: zones that observe DST now stay accurate across spring-forward and fall-back nights, display a subtle DST indicator when active, show a 48-hour clock-change notice in Today, and use per-year Windows Dynamic DST rules across 31 World Clock cities — while countries without DST stay completely untouched.",
             "Air quality, weather sources & Golden Hour: the Sky weather block displays a custom air-waves emblem and color-coded AQI badge backed by staggered multi-source AQI (Open-Meteo, WeatherAPI.com, OpenWeatherMap and WAQI); four new weather fallbacks (Bright Sky, NWS / NOAA, WeatherAPI.com and OpenWeatherMap) join hardened WinHTTP recovery (longer timeouts, request staggering and TLS 1.2 + HTTP/1.1 retry on E_ABORT 2147500036); Almanac adds exact morning and evening Golden Hour and Blue Hour spans.",
-            "Living night sky & shooting stars: Midnight meteors now ignite from a pinpoint, flare and shimmer with warm-to-white color temperature and ablating sparks, and follow a calm weekly directional stream across a 6-week cycle; the evening saucer sports a 3x supersampled sculpted hull and a silky C2-smooth flight arc.",
-            "Quality of life & precision polish: optional Soft hourly chime (off by default in Settings > Elements), optional Saved place local time in Settings > Place, global Celsius and km defaults, optically centered circular panel arrows, a custom vector Back button in About, and case-insensitive hidden soundtracks and jukebox controls inside Settings > About.",
+            "Living night sky, 42-constellation atlas & compass fix: the Sky map now uses natural compass East/West orientation (N up, E right, S down, W left), deepens Midnight/Night/Ember dome skies to true dark cosmos, and renders 42 accurate year-round constellations across both hemispheres with spectral star colors, trimmed filigree threads and diamond glints — visible strictly at night by default (even on dark themes), with an optional daytime toggle in Settings > Sky Map; shooting stars ignite, flare and stream across a 6-week alternating cycle.",
+            "Quality of life & precision polish: fluid liquid-glass pill-to-dock hover expansion (hovering the bottom-center pill smoothly morphs it into the full navigation dock at screen refresh rate without accidental corner triggers), optional Soft hourly chime (off by default in Settings > Elements), optional Saved place local time in Settings > Place, global Celsius and km defaults, optically centered circular panel arrows, a custom vector Back button in About, and case-insensitive hidden soundtracks and jukebox controls inside Settings > About.",
         }, "21 Nov 2026"},
         {"2.9.6", "Compass", {
             "Compass. Effortless navigation through rotating panels and widget pages, neutral privacy defaults, and hidden soundtracks waiting inside About.",

@@ -468,46 +468,257 @@ static double HM(double h, double m) { return h + m / 60.0; }
 static double DM(double d, double m) { return d < 0 ? -(-d + m / 60.0) : (d + m / 60.0); }
 
 const std::vector<Star>& stars() {
+    // Accurate J2000 bright star catalog covering all 24h of RA and both hemispheres, with real B-V spectral color indices.
     static const std::vector<Star> S = {
-        {"Sirius", HM(6,45.1), DM(-16,43), -1.46}, {"Canopus", HM(6,24.0), DM(-52,42), -0.74},
-        {"Arcturus", HM(14,15.7), DM(19,11), -0.05}, {"Rigil Kent", HM(14,39.6), DM(-60,50), -0.01},
-        {"Vega", HM(18,36.9), DM(38,47), 0.03}, {"Capella", HM(5,16.7), DM(46,0), 0.08},
-        {"Rigel", HM(5,14.5), DM(-8,12), 0.13}, {"Procyon", HM(7,39.3), DM(5,13), 0.34},
-        {"Achernar", HM(1,37.7), DM(-57,14), 0.46}, {"Betelgeuse", HM(5,55.2), DM(7,24), 0.50},
-        {"Hadar", HM(14,3.8), DM(-60,22), 0.61}, {"Altair", HM(19,50.8), DM(8,52), 0.76},
-        {"Acrux", HM(12,26.6), DM(-63,6), 0.77}, {"Aldebaran", HM(4,35.9), DM(16,31), 0.85},
-        {"Antares", HM(16,29.4), DM(-26,26), 0.96}, {"Spica", HM(13,25.2), DM(-11,10), 0.97},
-        {"Pollux", HM(7,45.3), DM(28,2), 1.14}, {"Fomalhaut", HM(22,57.7), DM(-29,37), 1.16},
-        {"Deneb", HM(20,41.4), DM(45,17), 1.25}, {"Mimosa", HM(12,47.7), DM(-59,41), 1.25},
-        {"Regulus", HM(10,8.4), DM(11,58), 1.35}, {"Adhara", HM(6,58.6), DM(-28,58), 1.50},
-        {"Castor", HM(7,34.6), DM(31,53), 1.58}, {"Shaula", HM(17,33.6), DM(-37,6), 1.62},
-        {"Gacrux", HM(12,31.2), DM(-57,7), 1.64}, {"Bellatrix", HM(5,25.1), DM(6,21), 1.64},
-        {"Elnath", HM(5,26.3), DM(28,36), 1.65}, {"Miaplacidus", HM(9,13.2), DM(-69,43), 1.67},
-        {"Alnilam", HM(5,36.2), DM(-1,12), 1.69}, {"Alnair", HM(22,8.2), DM(-46,58), 1.74},
-        {"Alnitak", HM(5,40.8), DM(-1,57), 1.74}, {"Alioth", HM(12,54.0), DM(55,58), 1.76},
-        {"Dubhe", HM(11,3.7), DM(61,45), 1.81}, {"Mirfak", HM(3,24.3), DM(49,52), 1.79},
-        {"Wezen", HM(7,8.4), DM(-26,24), 1.83}, {"Sargas", HM(17,37.3), DM(-43,0), 1.86},
-        {"Kaus Australis", HM(18,24.2), DM(-34,23), 1.85}, {"Avior", HM(8,22.5), DM(-59,31), 1.86},
-        {"Alkaid", HM(13,47.5), DM(49,19), 1.86}, {"Menkalinan", HM(5,59.5), DM(44,57), 1.90},
-        {"Atria", HM(16,48.7), DM(-69,2), 1.92}, {"Alhena", HM(6,37.7), DM(16,24), 1.93},
-        {"Peacock", HM(20,25.6), DM(-56,44), 1.94}, {"Alsephina", HM(8,44.7), DM(-54,43), 1.93},
-        {"Mirzam", HM(6,22.7), DM(-17,57), 1.98}, {"Alphard", HM(9,27.6), DM(-8,40), 1.98},
-        {"Polaris", HM(2,31.8), DM(89,16), 1.98}, {"Hamal", HM(2,7.2), DM(23,28), 2.00},
-        {"Diphda", HM(0,43.6), DM(-17,59), 2.04}, {"Nunki", HM(18,55.3), DM(-26,18), 2.05},
-        {"Menkent", HM(14,6.7), DM(-36,22), 2.06}, {"Saiph", HM(5,47.8), DM(-9,40), 2.06},
-        {"Alpheratz", HM(0,8.4), DM(29,5), 2.06}, {"Rasalhague", HM(17,34.9), DM(12,34), 2.08},
-        {"Kochab", HM(14,50.7), DM(74,9), 2.08}, {"Denebola", HM(11,49.1), DM(14,34), 2.14},
-        {"Mintaka", HM(5,32.0), -0.30, 2.23}, {"Eltanin", HM(17,56.6), DM(51,29), 2.23},
-        {"Schedar", HM(0,40.5), DM(56,32), 2.24}, {"Naos", HM(8,3.6), DM(-40,0), 2.25},
-        {"Enif", HM(21,44.2), DM(9,52), 2.40}, {"Markab", HM(23,5.5), DM(15,13), 2.49},
-        {"Algol", HM(3,8.2), DM(40,57), 2.12}, {"Mizar", HM(13,23.9), DM(54,56), 2.23},
-        {"Merak", HM(11,1.8), DM(56,23), 2.37}, {"Phecda", HM(11,53.8), DM(53,41), 2.44},
-        {"Megrez", HM(12,15.4), DM(57,2), 3.31}, {"Imai", HM(12,15.1), DM(-58,45), 2.80},
-        {"Meissa", HM(5,35.1), DM(9,56), 3.39}, {"Dschubba", HM(16,0.3), DM(-22,37), 2.32},
-        {"Acrab", HM(16,5.4), DM(-19,48), 2.62}, {"Tau Sco", HM(16,35.9), DM(-28,13), 2.82},
-        {"Larawag", HM(16,50.2), DM(-34,18), 2.29}, {"Mu Sco", HM(16,51.9), DM(-38,3), 3.08},
-        {"Zeta Sco", HM(16,54.6), DM(-42,22), 3.62}, {"Eta Sco", HM(17,12.9), DM(-43,14), 3.33},
-        {"Iota Sco", HM(17,47.6), DM(-40,8), 3.03}, {"Girtab", HM(17,42.5), DM(-39,2), 2.41},
+        // ---- First-magnitude jewels & brightest stars ----
+        {"Sirius",         HM(6,45.1),  DM(-16,43), -1.46,  0.00f},
+        {"Canopus",        HM(6,24.0),  DM(-52,42), -0.74,  0.15f},
+        {"Arcturus",       HM(14,15.7), DM(19,11),  -0.05,  1.23f},
+        {"Rigil Kent",     HM(14,39.6), DM(-60,50), -0.01,  0.71f},
+        {"Vega",           HM(18,36.9), DM(38,47),   0.03,  0.00f},
+        {"Capella",        HM(5,16.7),  DM(46,0),    0.08,  0.80f},
+        {"Rigel",          HM(5,14.5),  DM(-8,12),   0.13, -0.03f},
+        {"Procyon",        HM(7,39.3),  DM(5,13),    0.34,  0.42f},
+        {"Achernar",       HM(1,37.7),  DM(-57,14),  0.46, -0.16f},
+        {"Betelgeuse",     HM(5,55.2),  DM(7,24),    0.50,  1.85f},
+        {"Hadar",          HM(14,3.8),  DM(-60,22),  0.61, -0.23f},
+        {"Altair",         HM(19,50.8), DM(8,52),    0.76,  0.22f},
+        {"Acrux",          HM(12,26.6), DM(-63,6),   0.77, -0.24f},
+        {"Aldebaran",      HM(4,35.9),  DM(16,31),   0.85,  1.54f},
+        {"Antares",        HM(16,29.4), DM(-26,26),  0.96,  1.83f},
+        {"Spica",          HM(13,25.2), DM(-11,10),  0.97, -0.23f},
+        {"Pollux",         HM(7,45.3),  DM(28,2),    1.14,  1.00f},
+        {"Fomalhaut",      HM(22,57.7), DM(-29,37),  1.16,  0.09f},
+        {"Deneb",          HM(20,41.4), DM(45,17),   1.25,  0.09f},
+        {"Mimosa",         HM(12,47.7), DM(-59,41),  1.25, -0.23f},
+        {"Regulus",        HM(10,8.4),  DM(11,58),   1.35, -0.11f},
+        {"Adhara",         HM(6,58.6),  DM(-28,58),  1.50, -0.21f},
+        {"Castor",         HM(7,34.6),  DM(31,53),   1.58,  0.03f},
+        {"Shaula",         HM(17,33.6), DM(-37,6),   1.62, -0.22f},
+        {"Gacrux",         HM(12,31.2), DM(-57,7),   1.64,  1.59f},
+        {"Bellatrix",      HM(5,25.1),  DM(6,21),    1.64, -0.22f},
+        {"Elnath",         HM(5,26.3),  DM(28,36),   1.65, -0.13f},
+        {"Miaplacidus",    HM(9,13.2),  DM(-69,43),  1.67,  0.00f},
+        {"Alnilam",        HM(5,36.2),  DM(-1,12),   1.69, -0.19f},
+        {"Alnair",         HM(22,8.2),  DM(-46,58),  1.74, -0.13f},
+        {"Alnitak",        HM(5,40.8),  DM(-1,57),   1.74, -0.21f},
+        {"Alioth",         HM(12,54.0), DM(55,58),   1.76, -0.02f},
+        {"Regor",          HM(8,9.5),   DM(-47,20),  1.78, -0.22f},
+        {"Mirfak",         HM(3,24.3),  DM(49,52),   1.79,  0.48f},
+        {"Dubhe",          HM(11,3.7),  DM(61,45),   1.81,  1.07f},
+        {"Wezen",          HM(7,8.4),   DM(-26,24),  1.83,  0.67f},
+        {"Kaus Australis", HM(18,24.2), DM(-34,23),  1.85, -0.03f},
+        {"Sargas",         HM(17,37.3), DM(-43,0),   1.86,  0.40f},
+        {"Avior",          HM(8,22.5),  DM(-59,31),  1.86,  1.28f},
+        {"Alkaid",         HM(13,47.5), DM(49,19),   1.86, -0.19f},
+        {"Menkalinan",     HM(5,59.5),  DM(44,57),   1.90,  0.03f},
+        {"Atria",          HM(16,48.7), DM(-69,2),   1.92,  1.44f},
+        {"Alhena",         HM(6,37.7),  DM(16,24),   1.93,  0.00f},
+        {"Alsephina",      HM(8,44.7),  DM(-54,43),  1.93,  0.04f},
+        {"Peacock",        HM(20,25.6), DM(-56,44),  1.94, -0.20f},
+        {"Mirzam",         HM(6,22.7),  DM(-17,57),  1.98, -0.23f},
+        {"Alphard",        HM(9,27.6),  DM(-8,40),   1.98,  1.44f},
+        {"Polaris",        HM(2,31.8),  DM(89,16),   1.98,  0.60f},
+        {"Hamal",          HM(2,7.2),   DM(23,28),   2.00,  1.15f},
+        {"Diphda",         HM(0,43.6),  DM(-17,59),  2.04,  1.02f},
+        {"Nunki",          HM(18,55.3), DM(-26,18),  2.05, -0.22f},
+        {"Menkent",        HM(14,6.7),  DM(-36,22),  2.06,  1.01f},
+        {"Saiph",          HM(5,47.8),  DM(-9,40),   2.06, -0.17f},
+        {"Alpheratz",      HM(0,8.4),   DM(29,5),    2.06, -0.11f},
+        {"Mirach",         HM(1,9.7),   DM(35,37),   2.07,  1.58f},
+        {"Rasalhague",     HM(17,34.9), DM(12,34),   2.08,  0.15f},
+        {"Kochab",         HM(14,50.7), DM(74,9),    2.08,  1.47f},
+        {"Tiaki",          HM(22,42.7), DM(-46,53),  2.11,  1.61f},
+        {"Algol",          HM(3,8.2),   DM(40,57),   2.12, -0.05f},
+        {"Denebola",       HM(11,49.1), DM(14,34),   2.14,  0.09f},
+        {"Almach",         HM(2,3.9),   DM(42,20),   2.18,  1.20f},
+        {"Suhail",         HM(9,8.0),   DM(-43,26),  2.21,  1.66f},
+        {"Alphecca",       HM(15,34.7), DM(26,43),   2.22, -0.02f},
+        {"Mintaka",        HM(5,32.0),  -0.30,       2.23, -0.22f},
+        {"Eltanin",        HM(17,56.6), DM(51,29),   2.23,  1.52f},
+        {"Mizar",          HM(13,23.9), DM(54,56),   2.23,  0.02f},
+        {"Sadr",           HM(20,22.2), DM(40,15),   2.23,  0.67f},
+        {"Schedar",        HM(0,40.5),  DM(56,32),   2.24,  1.17f},
+        {"Naos",           HM(8,3.6),   DM(-40,0),   2.25, -0.27f},
+        {"Aspidiske",      HM(9,17.1),  DM(-59,17),  2.25,  0.18f},
+        {"Caph",           HM(0,9.2),   DM(59,9),    2.27,  0.34f},
+        {"Larawag",        HM(16,50.2), DM(-34,18),  2.29,  1.15f},
+        {"Dschubba",       HM(16,0.3),  DM(-22,37),  2.32, -0.12f},
+        {"Merak",          HM(11,1.8),  DM(56,23),   2.37, -0.02f},
+        {"Izar",           HM(14,45.0), DM(27,4),    2.37,  0.97f},
+        {"Ankaa",          HM(0,26.3),  DM(-42,18),  2.38,  1.09f},
+        {"Enif",           HM(21,44.2), DM(9,52),    2.40,  1.53f},
+        {"Girtab",         HM(17,42.5), DM(-39,2),   2.41, -0.22f},
+        {"Scheat",         HM(23,3.8),  DM(28,5),    2.42,  1.67f},
+        {"Phecda",         HM(11,53.8), DM(53,41),   2.44,  0.00f},
+        {"Alderamin",      HM(21,18.6), DM(62,35),   2.44,  0.22f},
+        {"Aludra",         HM(7,24.1),  DM(-29,18),  2.45, -0.08f},
+        {"Gamma Cas",      HM(0,56.7),  DM(60,43),   2.47, -0.15f},
+        {"Gienah Cyg",     HM(20,46.2), DM(33,58),   2.48,  1.03f},
+        {"Markab",         HM(23,5.5),  DM(15,13),   2.49, -0.04f},
+        {"Kappa Vel",      HM(9,22.1),  DM(-55,1),   2.50, -0.18f},
+        {"Menkar",         HM(3,2.3),   DM(4,5),     2.54,  1.64f},
+        {"Zosma",          HM(11,14.1), DM(20,31),   2.56,  0.12f},
+        {"Arneb",          HM(5,32.7),  DM(-17,49),  2.58,  0.21f},
+        {"Gienah Crv",     HM(12,15.8), DM(-17,33),  2.59, -0.11f},
+        {"Ascella",        HM(19,2.6),  DM(-29,53),  2.60,  0.08f},
+        {"Algieba",        HM(10,20.0), DM(19,50),   2.08,  1.15f},
+        {"Zubeneschamali", HM(15,17.0), DM(-9,23),   2.61, -0.11f},
+        {"Acrab",          HM(16,5.4),  DM(-19,48),  2.62, -0.07f},
+        {"Sheratan",       HM(1,54.6),  DM(20,48),   2.64,  0.13f},
+        {"Kraz",           HM(12,34.4), DM(-23,24),  2.65,  0.89f},
+        {"Mahasim",        HM(5,59.7),  DM(37,13),   2.65, -0.08f},
+        {"Phact",          HM(5,39.6),  DM(-34,4),   2.65, -0.12f},
+        {"Ruchbah",        HM(1,25.8),  DM(60,14),   2.68,  0.13f},
+        {"Muphrid",        HM(13,54.7), DM(18,24),   2.68,  0.58f},
+        {"Hassaleh",       HM(4,57.0),  DM(33,10),   2.69,  1.53f},
+        {"Kaus Media",     HM(18,21.0), DM(-29,50),  2.70,  1.38f},
+        {"Tarazed",        HM(19,46.3), DM(10,37),   2.72,  1.52f},
+        {"Lesath",         HM(17,30.8), DM(-37,18),  2.70, -0.22f},
+        {"Zubenelgenubi",  HM(14,50.9), DM(-16,2),   2.75,  0.15f},
+        {"Kornephoros",    HM(16,30.2), DM(21,29),   2.77,  0.94f},
+        {"Rastaban",       HM(17,30.4), DM(52,18),   2.79,  0.98f},
+        {"Imai",           HM(12,15.1), DM(-58,45),  2.80, -0.23f},
+        {"Kaus Borealis",  HM(18,28.0), DM(-25,25),  2.81,  1.04f},
+        {"Zeta Her",       HM(16,41.3), DM(31,36),   2.81,  0.65f},
+        {"Tau Sco",        HM(16,35.9), DM(-28,13),  2.82, -0.25f},
+        {"Algenib",        HM(0,13.2),  DM(15,11),   2.83, -0.23f},
+        {"Nihal",          HM(5,28.2),  DM(-20,46),  2.84,  0.82f},
+        {"Alcyone",        HM(3,47.5),  DM(24,6),    2.87, -0.09f},
+        {"Fawaris",        HM(19,45.0), DM(45,8),    2.87, -0.03f},
+        {"Vindemiatrix",   HM(13,2.2),  DM(10,58),   2.85,  0.94f},
+        {"Tejat",          HM(6,23.0),  DM(22,31),   2.87,  1.64f},
+        {"Porrima",        HM(12,41.7), DM(-1,27),   2.74,  0.36f},
+        {"Gomeisa",        HM(7,27.2),  DM(8,17),    2.89, -0.09f},
+        {"Sadalsuud",      HM(21,31.6), DM(-5,34),   2.90,  0.83f},
+        {"Atik",           HM(3,54.1),  DM(31,53),   2.85,  0.12f},
+        {"Cursa",          HM(5,7.8),   DM(-5,5),    2.79,  0.13f},
+        {"Acamar",         HM(2,58.3),  DM(-40,18),  2.90,  0.14f},
+        {"Alnasl",         HM(18,5.8),  DM(-30,25),  2.98,  1.00f},
+        {"Zaurak",         HM(3,58.0),  DM(-13,31),  2.95,  1.59f},
+        {"Sadalmelik",     HM(22,5.8),  DM(-0,19),   2.95,  0.98f},
+        {"Algorab",        HM(12,29.9), DM(-16,31),  2.95, -0.05f},
+        {"Algenubi",       HM(9,45.9),  DM(23,46),   2.98,  0.80f},
+        {"Mebsuta",        HM(6,43.9),  DM(25,8),    2.98,  1.40f},
+        {"Tianguan",       HM(5,37.6),  DM(21,9),    3.00, -0.19f},
+        {"Minkar",         HM(12,10.1), DM(-22,37),  3.00,  1.12f},
+        {"Okab",           HM(19,5.4),  DM(13,52),   2.99,  0.01f},
+        {"Aldhanab",       HM(22,42.7), DM(-51,19),  3.00,  0.03f},
+        {"Seginus",        HM(14,32.1), DM(38,18),   3.03,  0.19f},
+        {"Iota Sco",       HM(17,47.6), DM(-40,8),   3.03,  0.51f},
+        {"Furud",          HM(6,20.3),  DM(-30,4),   3.02, -0.19f},
+        {"Pherkad",        HM(15,20.7), DM(71,50),   3.05,  0.05f},
+        {"Albireo",        HM(19,30.7), DM(27,58),   3.08,  1.13f},
+        {"Mu Sco",         HM(16,51.9), DM(-38,3),   3.08, -0.20f},
+        {"Athebyne",       HM(16,24.0), DM(61,31),   2.74,  0.91f},
+        {"Aldhibah",       HM(17,8.8),  DM(65,43),   3.17, -0.12f},
+        {"Alfirk",         HM(21,28.7), DM(70,34),   3.23, -0.22f},
+        {"Errai",          HM(23,39.3), DM(77,38),   3.21,  1.03f},
+        {"Theta Car",      HM(10,43.0), DM(-64,24),  2.76, -0.22f},
+        {"Upsilon Car",    HM(9,47.1),  DM(-65,4),   2.97,  0.27f},
+        {"Markeb",         HM(9,22.1),  DM(-55,1),   2.47, -0.18f},
+        {"Beta TrA",       HM(15,55.1), DM(-63,26),  2.85,  0.29f},
+        {"Gamma TrA",      HM(15,18.9), DM(-68,41),  2.87,  0.00f},
+        {"Pi Her",         HM(17,15.0), DM(36,49),   3.16,  1.44f},
+        {"Sarin",          HM(17,15.0), DM(24,50),   3.14,  0.08f},
+        {"Rasalgethi",     HM(17,14.6), DM(14,23),   3.18,  1.44f},
+        {"Skat",           HM(22,54.7), DM(-15,49),  3.27,  0.05f},
+        {"Theta Aql",      HM(20,11.3), DM(-0,49),   3.23, -0.07f},
+        {"Eta Sco",        HM(17,12.9), DM(-43,14),  3.33,  0.41f},
+        {"Megrez",         HM(12,15.4), DM(57,2),    3.31,  0.08f},
+        {"Chertan",        HM(11,14.2), DM(15,26),   3.34,  0.00f},
+        {"Segin",          HM(1,54.4),  DM(63,40),   3.37, -0.15f},
+        {"Delta And",      HM(0,39.3),  DM(30,52),   3.27,  1.28f},
+        {"Edasich",        HM(15,24.9), DM(58,58),   3.29,  1.17f},
+        {"Zeta Cep",       HM(22,10.9), DM(58,12),   3.35,  1.57f},
+        {"Meissa",         HM(5,35.1),  DM(9,56),    3.39, -0.18f},
+        {"Adhafera",       HM(10,16.7), DM(23,25),   3.44,  0.31f},
+        {"Homam",          HM(22,41.5), DM(10,50),   3.40, -0.09f},
+        {"Sulafat",        HM(18,58.9), DM(32,41),   3.24, -0.05f},
+        {"Sheliak",        HM(18,50.1), DM(33,22),   3.45,  0.00f},
+        {"Iota Cep",       HM(22,49.7), DM(66,12),   3.52,  1.05f},
+        {"Nekkar",         HM(15,1.9),  DM(40,23),   3.50,  0.97f},
+        {"Heze",           HM(13,34.7), DM(-0,36),   3.37,  0.11f},
+        {"Auva",           HM(12,55.6), DM(3,24),    3.38,  1.65f},
+        {"Zavijava",       HM(11,50.7), DM(1,46),    3.61,  0.55f},
+        {"Ain",            HM(4,28.6),  DM(19,11),   3.53,  1.01f},
+        {"Wasat",          HM(7,20.1),  DM(21,59),   3.53,  0.34f},
+        {"Matar",          HM(22,43.0), DM(30,13),   2.94,  0.86f},
+        {"Biham",          HM(22,10.2), DM(6,12),    3.53,  0.08f},
+        {"Zeta Sco",       HM(16,54.6), DM(-42,22),  3.62,  1.36f},
+        {"Eta Her",        HM(16,42.9), DM(38,55),   3.53,  0.92f},
+        {"Eps Per",        HM(3,57.9),  DM(40,1),    2.89, -0.18f},
+        {"Delta Per",      HM(3,42.9),  DM(47,47),   3.01, -0.13f},
+        {"Gamma Per",      HM(3,4.8),   DM(53,30),   2.93,  0.70f},
+        {"Rasalas",        HM(9,52.8),  DM(26,0),    3.88,  1.22f},
+        {"Baten Kaitos",   HM(1,51.5),  DM(-10,20),  3.73,  1.08f},
+        {"Tau Cet",        HM(1,44.1),  DM(-15,56),  3.50,  0.72f},
+        {"Kaffaljidhma",   HM(2,43.3),  DM(3,14),    3.47,  0.09f},
+        {"Mira",           HM(2,19.3),  DM(-2,59),   3.04,  1.42f},
+        {"Alshain",        HM(19,55.3), DM(6,24),    3.71,  0.86f},
+        {"Lambda Aql",     HM(19,6.2),  DM(-4,53),   3.43, -0.09f},
+        {"Rana",           HM(3,43.2),  DM(-9,46),   3.54,  0.92f},
+        {"Thuban",         HM(14,4.4),  DM(64,23),   3.65, -0.05f},
+        {"Grumium",        HM(17,53.5), DM(56,52),   3.75,  1.18f},
+        {"Kuma",           HM(17,32.2), DM(55,11),   4.88,  0.25f},
+        {"Nusakan",        HM(15,27.8), DM(29,6),    3.68,  0.28f},
+        {"Gamma CrB",      HM(15,42.7), DM(26,18),   3.84, -0.01f},
+        {"Delta CrB",      HM(15,49.6), DM(26,4),    4.63,  0.80f},
+        {"Eps CrB",        HM(15,57.6), DM(26,53),   4.15,  1.23f},
+        {"Theta CrB",      HM(15,32.9), DM(31,22),   4.14, -0.13f},
+        {"Alrescha",       HM(2,2.0),   DM(2,46),    3.82,  0.02f},
+        {"Fumalsamakah",   HM(23,17.2), DM(3,17),    4.48, -0.13f},
+        {"Omega Psc",      HM(23,59.3), DM(6,52),    4.01,  0.42f},
+        {"Gamma Psc",      HM(23,17.2), DM(3,17),    3.70,  0.92f},
+        {"Eta Psc",        HM(1,31.5),  DM(15,21),   3.62,  0.97f},
+        {"Torcular",       HM(1,45.4),  DM(9,9),     4.26,  0.96f},
+        {"Sadachbia",      HM(22,21.7), DM(-1,23),   3.84, -0.05f},
+        {"Albali",         HM(20,47.7), DM(-9,30),   3.77,  0.00f},
+        {"Ancha",          HM(22,16.8), DM(-7,47),   4.16,  0.98f},
+        {"Beta Phe",       HM(1,6.1),   DM(-46,43),  3.31,  0.89f},
+        {"Gamma Phe",      HM(1,28.4),  DM(-43,19),  3.41,  1.57f},
+        {"Delta Phe",      HM(1,31.3),  DM(-49,4),   3.95,  0.99f},
+        {"Beta Pav",       HM(20,45.0), DM(-66,12),  3.42,  0.16f},
+        {"Delta Pav",      HM(20,8.7),  DM(-66,11),  3.56,  0.76f},
+        {"Eta Pav",        HM(17,46.0), DM(-64,43),  3.62,  1.17f},
+        {"Eps Cen",        HM(13,39.9), DM(-53,28),  2.30, -0.22f},
+        {"Zeta Cen",       HM(13,55.5), DM(-47,17),  2.55, -0.22f},
+        {"Eta Cen",        HM(14,35.5), DM(-42,9),   2.31, -0.19f},
+        {"Muhlifain",      HM(12,41.5), DM(-48,58),  2.17, -0.01f},
+        {"Eps Her",        HM(17,0.3),  DM(30,56),   3.92, -0.01f},
+        {"Mekbuda",        HM(7,4.1),   DM(20,34),   3.79,  0.80f},
+        {"Prima Hyadum",   HM(4,19.8),  DM(15,38),   3.65,  0.99f},
+        {"Secunda Hyadum", HM(4,22.9),  DM(17,33),   3.76,  0.99f},
+        {"Mesarthim",      HM(1,53.5),  DM(19,18),   3.88, -0.04f},
+        {"41 Ari",         HM(2,50.0),  DM(27,16),   3.63, -0.10f},
+        {"Eps PsA",        HM(22,40.7), DM(-27,3),   4.17, -0.11f},
+        {"Delta PsA",      HM(22,55.9), DM(-32,32),  4.21,  0.92f},
+        {"Beta PsA",       HM(22,31.5), DM(-32,21),  4.29,  0.01f},
+        {"Iota PsA",       HM(21,44.9), DM(-33,2),   4.34, -0.06f},
+        {"Delta Gru",      HM(22,29.3), DM(-43,30),  3.97,  0.99f},
+        {"Eps Gru",        HM(22,48.6), DM(-51,19),  3.49,  0.08f},
+        {"Eps Lep",        HM(5,5.5),   DM(-22,22),  3.19,  1.46f},
+        {"Mu Lep",         HM(5,12.9),  DM(-16,12),  3.29, -0.11f},
+        {"Zeta Lep",       HM(5,47.0),  DM(-14,49),  3.55,  0.10f},
+        {"Muliphein",      HM(7,3.8),   DM(-15,38),  4.12, -0.11f},
+        {"Minchir",        HM(8,46.8),  DM(6,25),    3.11,  1.00f},
+        {"Ashlesha",       HM(8,46.8),  DM(6,25),    3.38,  0.68f},
+        {"Zeta Hya",       HM(8,55.4),  DM(5,57),    3.11,  1.00f},
+        {"Nu Hya",         HM(10,49.6), DM(-16,12),  3.11,  1.25f},
+        {"Brachium",       HM(15,4.1),  DM(-25,17),  3.29,  1.70f},
+        {"Upsilon Lib",    HM(15,37.0), DM(-28,8),   3.60,  1.38f},
+        {"Phi Sgr",        HM(18,45.7), DM(-26,59),  3.17, -0.11f},
+        {"Tau Sgr",        HM(19,6.9),  DM(-27,40),  3.32,  1.19f},
+        {"Rho Boo",        HM(14,31.8), DM(30,22),   3.58,  1.29f},
+        {"Mu And",         HM(0,56.8),  DM(38,30),   3.87,  0.13f},
+        {"Syrma",          HM(14,16.0), DM(-6,0),    4.08,  0.51f},
+        {"Yildun",         HM(17,32.2), DM(86,35),   4.36,  0.02f},
+        {"Eps UMi",        HM(16,46.0), DM(82,2),    4.23,  0.89f},
+        {"Zeta UMi",       HM(15,44.1), DM(77,48),   4.32,  0.04f},
+        {"Eta UMi",        HM(16,17.5), DM(75,45),   4.95,  0.37f},
+        {"Fang",           HM(15,58.9), DM(-26,7),   2.89, -0.19f},
+        {"Zeta Lyr",       HM(18,44.8), DM(37,36),   4.36,  0.19f},
+        {"Eps Lyr",        HM(18,44.3), DM(39,40),   4.67,  0.16f},
     };
     return S;
 }
@@ -518,22 +729,82 @@ const std::vector<Constellation>& constellations() {
     auto idx = [](const char* n) -> int {
         const auto& s = stars();
         for (size_t i = 0; i < s.size(); ++i) if (std::strcmp(s[i].name, n) == 0) return (int)i;
-        return 0;
+        return -1;
     };
     auto chain = [&](std::initializer_list<const char*> names) {
-        std::vector<ConstellationLine> L; const char* prev = nullptr;
-        for (const char* n : names) { if (prev) L.push_back({idx(prev), idx(n)}); prev = n; }
+        std::vector<ConstellationLine> L; int prev = -1;
+        for (const char* n : names) {
+            int cur = idx(n);
+            if (prev >= 0 && cur >= 0 && prev != cur) L.push_back({prev, cur});
+            prev = cur;
+        }
         return L;
     };
-    auto join = [](std::vector<ConstellationLine> a, const std::vector<ConstellationLine>& b) { a.insert(a.end(), b.begin(), b.end()); return a; };
-    C.push_back({"Orion", join(join(join(chain({"Betelgeuse", "Meissa", "Bellatrix"}), chain({"Betelgeuse", "Alnitak", "Alnilam", "Mintaka", "Bellatrix"})),
-                                   chain({"Alnitak", "Saiph", "Rigel", "Mintaka"})), {})});
-    C.push_back({"Crux", join(chain({"Acrux", "Gacrux"}), chain({"Mimosa", "Imai"}))});
-    C.push_back({"Big Dipper", chain({"Dubhe", "Merak", "Phecda", "Megrez", "Alioth", "Mizar", "Alkaid"}) });
-    C.back().lines.push_back({idx("Megrez"), idx("Dubhe")});
-    C.push_back({"Scorpius", chain({"Acrab", "Dschubba", "Antares", "Tau Sco", "Larawag", "Mu Sco", "Zeta Sco", "Eta Sco", "Sargas", "Iota Sco", "Girtab", "Shaula"})});
-    C.push_back({"Summer Triangle", chain({"Vega", "Altair", "Deneb", "Vega"})});
-    C.push_back({"Pointers", chain({"Rigil Kent", "Hadar"})});
+    auto join = [](std::vector<ConstellationLine> a, const std::vector<ConstellationLine>& b) {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
+    };
+
+    // ---- Northern Circumpolar & High North ----
+    C.push_back({"Ursa Major",   join(chain({"Dubhe", "Merak", "Phecda", "Megrez", "Alioth", "Mizar", "Alkaid"}), chain({"Megrez", "Dubhe"}))});
+    C.push_back({"Ursa Minor",   join(chain({"Polaris", "Yildun", "Eps UMi", "Zeta UMi", "Kochab", "Pherkad", "Eta UMi"}), chain({"Eta UMi", "Zeta UMi"}))});
+    C.push_back({"Cassiopeia",   chain({"Caph", "Schedar", "Gamma Cas", "Ruchbah", "Segin"})});
+    C.push_back({"Cepheus",      join(chain({"Errai", "Alfirk", "Alderamin", "Zeta Cep", "Iota Cep", "Errai"}), chain({"Alfirk", "Iota Cep"}))});
+    C.push_back({"Draco",        join(chain({"Eltanin", "Rastaban", "Kuma", "Grumium", "Eltanin"}), chain({"Grumium", "Aldhibah", "Athebyne", "Edasich", "Thuban"}))});
+    C.push_back({"Perseus",      join(chain({"Gamma Per", "Mirfak", "Delta Per", "Eps Per", "Atik"}), chain({"Mirfak", "Algol"}))});
+
+    // ---- Autumn Sky (overhead Sept-Dec, rich across Tropics & Northern Hemisphere) ----
+    C.push_back({"Pegasus",      join(join(chain({"Alpheratz", "Scheat", "Markab", "Algenib", "Alpheratz"}), chain({"Markab", "Homam", "Biham", "Enif"})), chain({"Scheat", "Matar"}))});
+    C.push_back({"Andromeda",    join(chain({"Alpheratz", "Delta And", "Mirach", "Almach"}), chain({"Mirach", "Mu And"}))});
+    C.push_back({"Aries",        chain({"41 Ari", "Hamal", "Sheratan", "Mesarthim"})});
+    C.push_back({"Cetus",        join(chain({"Menkar", "Kaffaljidhma", "Mira", "Baten Kaitos", "Diphda"}), chain({"Baten Kaitos", "Tau Cet", "Diphda"}))});
+    C.push_back({"Pisces",       join(chain({"Gamma Psc", "Omega Psc", "Alrescha"}), chain({"Alrescha", "Torcular", "Eta Psc"}))});
+    C.push_back({"Aquarius",     join(chain({"Albali", "Sadalsuud", "Sadalmelik", "Sadachbia"}), chain({"Sadalmelik", "Ancha", "Skat"}))});
+    C.push_back({"Piscis Austrinus", chain({"Fomalhaut", "Eps PsA", "Iota PsA", "Beta PsA", "Delta PsA", "Fomalhaut"})});
+    C.push_back({"Grus",         join(chain({"Alnair", "Delta Gru", "Tiaki", "Eps Gru"}), chain({"Tiaki", "Aldhanab"}))});
+    C.push_back({"Phoenix",      chain({"Ankaa", "Beta Phe", "Delta Phe", "Gamma Phe", "Ankaa"})});
+
+    // ---- Winter Sky (overhead Dec-Mar) ----
+    C.push_back({"Orion",        join(join(chain({"Betelgeuse", "Meissa", "Bellatrix"}), chain({"Betelgeuse", "Alnitak", "Alnilam", "Mintaka", "Bellatrix"})),
+                                      chain({"Alnitak", "Saiph", "Rigel", "Mintaka"}))});
+    C.push_back({"Taurus",       join(join(chain({"Elnath", "Ain", "Prima Hyadum", "Aldebaran", "Tianguan"}), chain({"Ain", "Secunda Hyadum", "Prima Hyadum"})),
+                                      chain({"Ain", "Alcyone"}))});
+    C.push_back({"Auriga",       chain({"Capella", "Menkalinan", "Mahasim", "Elnath", "Hassaleh", "Capella"})});
+    C.push_back({"Gemini",       join(join(chain({"Castor", "Mebsuta", "Tejat"}), chain({"Pollux", "Wasat", "Mekbuda", "Alhena"})), chain({"Castor", "Pollux"}))});
+    C.push_back({"Canis Major",  join(join(chain({"Mirzam", "Sirius", "Muliphein"}), chain({"Sirius", "Wezen", "Aludra"})), chain({"Wezen", "Adhara", "Furud"}))});
+    C.push_back({"Canis Minor",  chain({"Procyon", "Gomeisa"})});
+    C.push_back({"Eridanus",     chain({"Cursa", "Zaurak", "Rana", "Acamar", "Achernar"})});
+    C.push_back({"Lepus",        chain({"Mu Lep", "Eps Lep", "Nihal", "Arneb", "Zeta Lep", "Mu Lep"})});
+
+    // ---- Spring Sky (overhead Mar-Jun) ----
+    C.push_back({"Leo",          join(chain({"Rasalas", "Algenubi", "Adhafera", "Algieba", "Regulus", "Chertan", "Denebola", "Zosma", "Algieba"}), chain({"Zosma", "Chertan"}))});
+    C.push_back({"Bootes",       join(chain({"Arcturus", "Izar", "Nekkar", "Seginus", "Rho Boo", "Arcturus"}), chain({"Arcturus", "Muphrid"}))});
+    C.push_back({"Virgo",        join(chain({"Vindemiatrix", "Auva", "Porrima", "Zavijava"}), chain({"Porrima", "Spica", "Heze", "Auva"}))});
+    C.push_back({"Corvus",       chain({"Gienah Crv", "Algorab", "Kraz", "Minkar", "Gienah Crv"})});
+    C.push_back({"Hydra",        chain({"Minchir", "Zeta Hya", "Alphard", "Nu Hya"})});
+    C.push_back({"Libra",        join(chain({"Zubeneschamali", "Zubenelgenubi", "Brachium", "Upsilon Lib"}), chain({"Zubeneschamali", "Brachium"}))});
+
+    // ---- Summer Sky (overhead Jun-Sep) ----
+    C.push_back({"Scorpius",     join(chain({"Acrab", "Dschubba", "Antares", "Tau Sco", "Larawag", "Mu Sco", "Zeta Sco", "Eta Sco", "Sargas", "Iota Sco", "Girtab", "Shaula", "Lesath"}),
+                                      chain({"Fang", "Dschubba"}))});
+    C.push_back({"Sagittarius",  join(join(chain({"Alnasl", "Kaus Media", "Kaus Borealis", "Phi Sgr", "Nunki", "Tau Sgr", "Ascella", "Kaus Australis", "Alnasl"}),
+                                           chain({"Kaus Media", "Kaus Australis"})),
+                                      chain({"Kaus Media", "Phi Sgr", "Ascella"}))});
+    C.push_back({"Cygnus",       join(chain({"Deneb", "Sadr", "Albireo"}), chain({"Fawaris", "Sadr", "Gienah Cyg"}))});
+    C.push_back({"Lyra",         join(chain({"Vega", "Eps Lyr", "Zeta Lyr", "Vega"}), chain({"Zeta Lyr", "Sheliak", "Sulafat", "Zeta Lyr"}))});
+    C.push_back({"Aquila",       join(chain({"Tarazed", "Altair", "Alshain", "Theta Aql"}), chain({"Okab", "Altair", "Lambda Aql"}))});
+    C.push_back({"Corona Borealis", chain({"Theta CrB", "Nusakan", "Alphecca", "Gamma CrB", "Delta CrB", "Eps CrB"})});
+    C.push_back({"Hercules",     join(join(chain({"Kornephoros", "Zeta Her", "Eta Her", "Pi Her", "Eps Her", "Zeta Her"}), chain({"Kornephoros", "Rasalgethi"})),
+                                      chain({"Eps Her", "Sarin"}))});
+
+    // ---- Deep Southern Sky (always gleaming for Tropics & Southern Hemisphere) ----
+    C.push_back({"Crux",         join(chain({"Acrux", "Gacrux"}), chain({"Mimosa", "Imai"}))});
+    C.push_back({"Centaurus",    join(chain({"Rigil Kent", "Hadar", "Eps Cen", "Zeta Cen", "Eta Cen"}), chain({"Muhlifain", "Eps Cen", "Menkent"}))});
+    C.push_back({"Carina",       join(chain({"Canopus", "Avior", "Aspidiske", "Theta Car", "Miaplacidus", "Upsilon Car"}), chain({"Avior", "Upsilon Car"}))});
+    C.push_back({"Vela",         chain({"Regor", "Alsephina", "Kappa Vel", "Suhail", "Regor"})});
+    C.push_back({"Pavo",         chain({"Peacock", "Beta Pav", "Delta Pav", "Eta Pav"})});
+    C.push_back({"Triangulum Australe", chain({"Atria", "Beta TrA", "Gamma TrA", "Atria"})});
+
     return C;
 }
 

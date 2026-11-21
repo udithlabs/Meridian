@@ -184,8 +184,11 @@ void App::renderTimer(Gfx& g, int w, int h) {
             }
         }
     }
-    // hint line
-    g.text(F_MONO, 13.f * s, cx, H - 40 * s, T.mode == 1 ? L"SPACE START/STOP  \xB7  L LAP  \xB7  R RESET" : L"0\u20139 SET TIME  \xB7  +/\u2212 ADJUST  \xB7  SPACE START/PAUSE  \xB7  R RESET", mulA(P.ink3, 0.8f), Align::Center, 0.12f);
+    // hint line (fades out cleanly whenever the bottom dock blooms open)
+    const float hintA = (1.f - smoothstep(0.f, 0.35f, dockT)) * 0.8f;
+    if (hintA > 0.02f) {
+        g.text(F_MONO, 13.f * s, cx, H - 40 * s, T.mode == 1 ? L"SPACE START/STOP  \xB7  L LAP  \xB7  R RESET" : L"0\u20139 SET TIME  \xB7  +/\u2212 ADJUST  \xB7  SPACE START/PAUSE  \xB7  R RESET", mulA(P.ink3, hintA), Align::Center, 0.12f);
+    }
 }
 
 // ---------------------------------------------------------------- Focus Studio (dedicated lo-fi focus sanctuary tab)
@@ -414,11 +417,12 @@ void App::renderFocus(Gfx& g, int w, int h) {
         }
 
         // Smooth hover morph with generous hysteresis so moving across buttons never flickers shut
-        const bool inOrb = mouseX >= 0 && mx >= orbX - 14.f * s && mx <= orbX + orbD + 14.f * s &&
+        const bool ptrInWin = mouseX >= 0 && mouseX <= W && mouseY >= 0 && mouseY <= H;
+        const bool inOrb = ptrInWin && mx >= orbX - 14.f * s && mx <= orbX + orbD + 14.f * s &&
                            my >= orbY - 14.f * s && my <= orbY + orbD + 14.f * s;
-        const bool inExp = mouseX >= 0 && mx >= expX - 22.f * s && mx <= expX + expW + 22.f * s &&
+        const bool inExp = ptrInWin && mx >= expX - 22.f * s && mx <= expX + expW + 22.f * s &&
                            my >= expY - 22.f * s && my <= expY + expH + 22.f * s;
-        focusOrbTarget = ((inOrb || (focusOrbT > 0.04f && inExp)) && !showSettings && !showHelp) ? 1.f : 0.f;
+        focusOrbTarget = ((inOrb || (focusOrbT > 0.04f && inExp)) && !showSettings && !showHelp && !isSaver) ? 1.f : 0.f;
         const float kOrb = 1.f - std::exp(-(float)dt * (focusOrbTarget > focusOrbT ? 15.f : 7.5f));
         focusOrbT += (focusOrbTarget - focusOrbT) * kOrb;
         if (std::fabs(focusOrbT - focusOrbTarget) < 0.004f) focusOrbT = focusOrbTarget;
@@ -495,7 +499,8 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 if (canHit) addHit(*this, bx - 3.f * s, by - 3.f * s, d + 6.f * s, d + 6.f * s, hitId);
             };
 
-            g.pushClip(curX + 1.f, curY + 1.f, std::max(1.f, curW - 2.f), std::max(1.f, curH - 2.f));
+            if (e > 0.35f) addHit(*this, curX, curY, curW, curH, HIT_DOCK_BG);
+            g.pushRoundRectClip(curX + 1.f, curY + 1.f, std::max(1.f, curW - 2.f), std::max(1.f, curH - 2.f), std::max(0.5f, curR - 1.f));
             if (useSidePanel) {
                 const float eyY = expY + pad + g.capHeight(F_MONO, 10.5f * s);
                 g.text(F_MONO, 10.5f * s, expX + pad, eyY, L"AMBIENCE", Pb.ink3, Align::Left, 0.20f);
@@ -546,7 +551,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 if (canHit) addHit(*this, lx + navD, navY, thBoxW, navD, HIT_THEME);
                 drawThemeNav(rx, navY, navD, +1, HIT_THEME);
             }
-            g.popClip();
+            g.popRoundRectClip();
         }
     }
 

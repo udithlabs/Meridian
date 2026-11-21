@@ -16,12 +16,13 @@ Meridian is a native, single-file Windows desktop clock and screen saver written
   - **Timer (`3`)** — Clean countdown timer, stopwatch with laps, and desk alarm.
   - **Almanac (`4`)** — Detailed Sun & Moon telemetry, exact morning & evening **Golden Hour** and **Blue Hour** spans, planetary visibility, and 7-day forecast.
   - **Widgets (`5`)** — Modular pages for World Clocks (31 cities with per-year Windows Dynamic DST), Month Calendar, Moon Phases, Hourly Forecast, Daylight, Sky, Air Quality, System stats, Countdown, and Notes.
-  - **Focus Studio (`6`)** — Dedicated lo-fi focus sanctuary with its own independent Pomodoro timer (`25m` default), smaller live clock & weather corner cards, frosted focus medallion with breathing halo, and a **collapsible floating Ambience & Theme orb** (`Off · Live · Rain · Snow · Clouds · Fog · Storm · Stars`) that expands smoothly on hover and stays completely out of the way while you work.
+  - **Focus Studio (`6`)** — Dedicated lo-fi focus sanctuary with its own independent Pomodoro timer (`25m` default), smaller live clock & weather corner cards, frosted focus medallion with breathing halo, and a **collapsible floating Ambience & Theme orb** (`Off · Live · Rain · Snow · Clouds · Fog · Storm · Stars`) that expands smoothly on hover (paired with a matching **fluid liquid-glass pill-to-dock morph** on the bottom navigation bar across every face).
 
 ![Meridian Focus Studio](docs/screenshots/focus.png)
 ![Meridian Focus Studio Orb Expanded](docs/screenshots/focus-menu.png)
 
-- **Layered Snowfall & Shooting-Star Physics**
+- **42-Constellation Artistic Sky Atlas, Layered Snowfall & Shooting-Star Physics**
+  - Natural compass Sky Map orientation (`N` up, `E` right, `S` down, `W` left), true dark cosmic Midnight/Night/Ember dome palettes, and **42 accurate J2000 constellations** across both hemispheres with real spectral star colors, trimmed filigree lines, and diamond glints — appearing strictly at night by default (even on dark themes), with an optional daytime toggle in **Settings → Sky Map**.
   - Calm three-depth snowfall behind both the Quiet and Sky faces (plus a `SNOW` preview chip in **Settings → Quiet**).
   - Midnight meteors ignite from a pinpoint, flare with warm-to-white color temperature and shedding sparks, and stream in a weekly alternating 6-week directional loop.
 - **Daylight Saving Time (DST Zones Only)**

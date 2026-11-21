@@ -1,6 +1,7 @@
 // Meridian: frame composition, the Sky and Quiet faces, dock and overlays.
 #include "scene.h"
 #include "reveal.h"
+#include "dockanim.h"
 #include "ufo_audio.h"
 #include <cmath>
 #include <algorithm>
@@ -290,7 +291,8 @@ void App::renderQuiet(Gfx& g, int w, int h) {
 }
 
 // ---------------------------------------------------------------- Dock
-// Rests as a faint handle at the bottom edge; hovering the bottom strip slides the dock up, leaving it slides back down.
+// Rests as a sleek bottom-center pill; hovering over the pill fluidly morphs it into the frosted navigation dock
+// (matching the Focus Studio Orb liquid-glass animation), and leaving smoothly collapses it back into the pill.
 void App::renderDock(Gfx& g, int w, int h) {
     const float W = (float)w, H = (float)h, s = layoutScale(w, h);
     const float bh = 38 * s, pad = 20 * s, gap = 6 * s, fs = 14.f;
@@ -313,52 +315,88 @@ void App::renderDock(Gfx& g, int w, int h) {
         }
     }
     float total = 0; std::vector<float> ws;
-    float dockFs = fs, dockPad = pad, dockGap = gap;
+    float dockFs = fs, dockPad = pad, dockGap = gap, dockInset = 12 * s;
     auto measureDock = [&]() {
         ws.clear(); total = 0;
-        for (auto& b : bs) { float bw = b.label == L"|" ? 10 * s : g.textWidth(F_MONO_M, dockFs * s, b.label, 0.08f) + dockPad * 2; ws.push_back(bw); total += bw + dockGap; }
-        total -= dockGap;
+        for (auto& b : bs) {
+            float bw = b.label == L"|" ? std::max(4.f, 10.f * s * (dockFs / fs)) : g.textWidth(F_MONO_M, dockFs * s, b.label, 0.08f) + dockPad * 2;
+            ws.push_back(bw); total += bw + dockGap;
+        }
+        if (!ws.empty()) total -= dockGap;
     };
     measureDock();
-    const float maxTotal = std::max(240.f * s, W - 44.f * s);
+    const float maxOuterW = std::max(160.f, W - 24.f * s);
+    const float maxTotal = std::max(120.f, maxOuterW - 2.f * dockInset);
     if (total > maxTotal) {
-        const float f = std::max(0.55f, maxTotal / total);
-        dockFs *= f; dockPad *= f; dockGap *= f;
+        const float f = std::max(0.42f, maxTotal / total);
+        dockFs *= f; dockPad *= f; dockGap *= f; dockInset *= std::max(0.6f, f);
         measureDock();
+        const float maxTotal2 = std::max(120.f, maxOuterW - 2.f * dockInset);
+        if (total > maxTotal2 && total > 1.f) {
+            const float f2 = std::max(0.55f, maxTotal2 / total);
+            dockFs *= f2; dockPad = std::max(3.f, dockPad * f2); dockGap = std::max(2.f, dockGap * f2);
+            measureDock();
+        }
     }
-    const float px = (W - total) * 0.5f - 12 * s, py0 = H - 28 * s - bh - 10 * s;
 
-    // hover logic: trigger strip along the bottom edge; once open, stay open while the pointer is over the dock
-    const bool trig = mouseX >= 0 && mouseY >= H - 84 * s;
-    const bool inDock = mouseX >= px - 30 * s && mouseX <= px + total + 54 * s && mouseY >= py0 - 44 * s;
-    dockTarget = ((trig || (dockT > 0.04f && inDock)) && !showSettings && !showHelp) ? 1.f : 0.f;
-    const float k = 1.f - std::exp(-(float)dt * (dockTarget > dockT ? 16.f : 6.5f));
-    dockT += (dockTarget - dockT) * k;
-    if (std::fabs(dockT - dockTarget) < 0.004f) dockT = dockTarget;
-    const float e = smoothstep(0.f, 1.f, dockT);
+    dockanim::Input din{};
+    din.W = W; din.H = H; din.s = s;
+    din.expW = total + 2.f * dockInset;
+    din.expH = bh + 20.f * s;
+    din.mouseX = mouseX; din.mouseY = mouseY;
+    din.idleSec = (float)std::max(0.0, now - lastMouseMove);
+    din.dt = (float)dt;
+    din.blocked = showSettings || showHelp || isSaver;
+    din.overrideT = dockOverride;
+    dockanim::State dst{dockT, dockTarget};
+    const dockanim::Frame df = dockanim::step(din, dst);
+    dockT = dst.t; dockTarget = dst.target;
+    if (!df.visible) return;
 
-    // handle: a faint pill that shows after the pointer moves, so the dock can be found
-    const float idle = (float)(now - lastMouseMove);
-    const float hint = (1.f - clamp01((idle - 2.4f) / 0.7f)) * (1.f - e);
-    if (hint > 0.01f && !showSettings) {
-        const float hw = 72 * s, hh = std::max(3.f, 4.f * s), hx = (W - hw) * 0.5f, hy = H - 20 * s;
-        g.fillRoundRect(hx, hy, hw, hh, hh * 0.5f, mulA(pal.ink2, 0.42f * hint));
+    // Subtle accent wake-up glow when pointer touches the resting pill
+    if (df.pillGlowA > 0.01f) {
+        g.glowEllipse(df.curX + df.curW * 0.5f, df.curY + df.curH * 0.5f, df.curW * 0.65f, std::max(10.f * s, df.curH * 1.8f), pal.accent, 0.16f * df.pillGlowA);
     }
-    if (e <= 0.01f) return;
+    // Soft shadow emerging smoothly as the pill inflates into the floating dock
+    if (df.shadowA > 0.005f) {
+        g.fillRoundRect(df.curX, df.curY + 3.f * s, df.curW, df.curH, df.curR, Color{0, 0, 0, (pal.dark ? 0.22f : 0.11f) * df.shadowA});
+    }
+    // Single seamless liquid-glass capsule morphing from resting pill into frosted dock plate
+    const Color pillBase = mulA(df.inPill ? lerp(pal.ink2, pal.ink, 0.35f) : pal.ink2, pal.dark ? 0.45f : 0.48f);
+    const Color dockBase = withA(pal.plate, pal.dark ? 0.94f : 0.96f);
+    const Color fillC = mulA(lerp(pillBase, dockBase, smoothstep(0.05f, 0.52f, df.e)), df.vis);
+    g.fillRoundRect(df.curX, df.curY, df.curW, df.curH, df.curR, fillC);
+    if (df.rimA > 0.005f) {
+        const Color rimC = (df.inPill && df.e < 0.45f)
+            ? lerp(withA(pal.accent, 0.55f * df.rimA), mulA(pal.line, df.rimA), smoothstep(0.10f, 0.45f, df.e))
+            : mulA(pal.line, (0.95f + 0.15f * df.e) * df.rimA);
+        g.strokeRoundRect(df.curX + 0.5f, df.curY + 0.5f, std::max(1.f, df.curW - 1.f), std::max(1.f, df.curH - 1.f), std::max(0.5f, df.curR - 0.5f), rimC, std::max(1.f, s));
+    }
+    // Absorb clicks over the dock capsule / active pill so tapping gaps never accidentally toggles fullscreen
+    if (df.swallowClick) {
+        if (df.e > 0.30f) addHit(*this, df.curX, df.curY, df.curW, df.curH, HIT_DOCK_BG);
+        else addHit(*this, df.pillX - 24.f * s, df.pillY - 18.f * s, df.pillW + 48.f * s, H - (df.pillY - 18.f * s), HIT_DOCK_BG);
+    }
 
-    const float py = py0 + (1.f - e) * 30 * s;                       // slides up from below
-    Palette Pd = pal;
-    for (Color* col : {&Pd.ink, &Pd.ink2, &Pd.ink3, &Pd.line, &Pd.panel, &Pd.plate, &Pd.accent}) col->a *= e;
-    Ctx c{g, *this, Pd, W, H, s};
-    const float bx0 = px, bw0 = total + 24 * s, by0 = py - 10 * s, bhh = bh + 20 * s;
-    g.fillRoundRect(bx0, by0 + 3 * s, bw0, bhh, bhh * 0.5f, Color{0, 0, 0, 0.18f * e});              // soft shadow
-    g.fillRoundRect(bx0, by0, bw0, bhh, bhh * 0.5f, withA(Pd.plate, 0.94f * e));
-    g.strokeRoundRect(bx0 + 0.5f, by0 + 0.5f, bw0 - 1, bhh - 1, bhh * 0.5f, Pd.line, std::max(1.f, s));
-    float x = px + 12 * s;
-    for (size_t i = 0; i < bs.size(); ++i) {
-        if (bs[i].label == L"|") g.line(x + ws[i] * 0.5f, py + 8 * s, x + ws[i] * 0.5f, py + bh - 8 * s, Pd.line, std::max(1.f, s), false);
-        else drawButton(c, x, py, ws[i], bh, bs[i].label, bs[i].active, e > 0.6f ? bs[i].id : 0, F_MONO_M, dockFs);
-        x += ws[i] + dockGap;
+    // Navigation buttons smoothly bloom inside the rounded capsule clip as it opens past 36%
+    if (df.contentA > 0.02f) {
+        Palette Pd = pal;
+        for (Color* col : {&Pd.ink, &Pd.ink2, &Pd.ink3, &Pd.line, &Pd.panel, &Pd.plate, &Pd.accent}) col->a *= df.contentA;
+        Ctx c{g, *this, Pd, W, H, s};
+        const float btnY = (df.curY + df.curH * 0.5f) - bh * 0.5f;
+        const bool needClip = df.e < 0.995f || total > df.curW - 2.f * s;
+        if (needClip) g.pushRoundRectClip(df.curX + 1.f, df.curY + 1.f, std::max(1.f, df.curW - 2.f), std::max(1.f, df.curH - 2.f), std::max(0.5f, df.curR - 1.f));
+        float x = (W - total) * 0.5f;
+        for (size_t i = 0; i < bs.size(); ++i) {
+            if (bs[i].label == L"|") {
+                g.line(x + ws[i] * 0.5f, btnY + 8.f * s, x + ws[i] * 0.5f, btnY + bh - 8.f * s, Pd.line, std::max(1.f, s), false);
+            } else {
+                const int hitId = dockanim::buttonClickable(df, x, ws[i], s) ? bs[i].id : 0;
+                drawButton(c, x, btnY, ws[i], bh, bs[i].label, bs[i].active, hitId, F_MONO_M, dockFs);
+            }
+            x += ws[i] + dockGap;
+        }
+        if (needClip) g.popRoundRectClip();
     }
 }
 

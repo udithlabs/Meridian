@@ -46,7 +46,7 @@ float hf(long long i, int salt) {
 
 Pt dp(float cx, float cy, float R, double alt, double az) {
     float r = R * (float)(90.0 - alt) / 90.f;
-    return {cx - r * (float)std::sin(astro::rad(az - gSkyHeading)), cy - r * (float)std::cos(astro::rad(az - gSkyHeading))};
+    return {cx + r * (float)std::sin(astro::rad(az - gSkyHeading)), cy - r * (float)std::cos(astro::rad(az - gSkyHeading))};
 }
 
 struct V3 { double x, y, z; };

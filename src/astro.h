@@ -90,7 +90,7 @@ PlanetInfo planetInfo(int id, double unixSec, const Geo& g);
 const char* planetName(int id);
 
 // ---- Stars ----
-struct Star { const char* name; double raH; double decDeg; double mag; };
+struct Star { const char* name; double raH; double decDeg; double mag; float bv = 0.0f; };
 const std::vector<Star>& stars();
 struct ConstellationLine { int a, b; };            // indices into stars()
 struct Constellation { const char* name; std::vector<ConstellationLine> lines; };

@@ -118,6 +118,8 @@ public:
     void ringMask(float cx, float cy, float r, float outer, const Color& top, const Color& bottom, float gradY0, float gradY1);
     void pushClip(float x, float y, float w, float h);
     void popClip();
+    void pushRoundRectClip(float x, float y, float w, float h, float r);
+    void popRoundRectClip();
     void pushCircleClip(float cx, float cy, float r);
     void popCircleClip();
     // draw only in the ring: inside the square of half-size `outer` around (cx,cy) but outside the circle of radius r (used to put a glow back around the dome)
@@ -183,6 +185,9 @@ private:
     ID2D1Layer* ringLayer_ = nullptr; ID2D1PathGeometry* ringGeom_ = nullptr;
     ID2D1Layer* circleLayer_ = nullptr; ID2D1EllipseGeometry* circleGeom_ = nullptr;
     float circleCx_ = -1e9f, circleCy_ = -1e9f, circleR_ = -1.f;
+    ID2D1Layer* rrLayer_ = nullptr; ID2D1RoundedRectangleGeometry* rrGeom_ = nullptr;
+    float rrX_ = -1e9f, rrY_ = -1e9f, rrW_ = -1.f, rrH_ = -1.f, rrR_ = -1.f;
+    bool rrPushed_ = false;
 
     ID2D1Factory* d2d_ = nullptr;
     IDWriteFactory* dw_ = nullptr;

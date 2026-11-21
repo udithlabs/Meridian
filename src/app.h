@@ -72,7 +72,7 @@ struct Settings {
     int evDays = 5;
     // elements of the Sky face that can be switched off
     bool elToday = true, elWeather = true, elSunMoon = true, elBand = true, elLabels = true, elConst = true,
-         elMilky = true, elEcliptic = true, elClouds = true, elTracks = true;
+         elMilky = true, elEcliptic = true, elClouds = true, elTracks = true, dayStars = false;
     // widgets
     std::vector<int> widgets = {WG_WORLD, WG_MONTH, WG_PHASES, WG_WEEK, WG_HOURLY, WG_HOLIDAYS, WG_DAYLIGHT, WG_SKY, WG_AIR, WG_YEAR};   // enabled widgets, in display order (WIDGETS face)
     int pinned = -1;                        // widget that joins the rotating panel of the Sky face
@@ -165,7 +165,7 @@ struct HitRect { float x, y, w, h; int id; };
 struct EventHit { float x, y, w, h; int idx; bool round; };      // hover target for a sky event (screen coordinates)
 struct HolHit { float x, y, w, h; int key; };                      // hover target for a holiday date (key = y*10000 + m*100 + d)
 enum Cmd { CMD_TOPMOST = 1, CMD_FULLSCREEN, CMD_KEEPAWAKE, CMD_WEATHER_CFG, CMD_WEATHER_REFRESH, CMD_GEO, CMD_GEO_SOON, CMD_SAVE, CMD_OPEN_INI, CMD_OPEN_LOG, CMD_STORM_CFG, CMD_OPEN_THEMES, CMD_RESCAN_THEMES, CMD_STORM_REFRESH, CMD_LOCATE, CMD_OPEN_LOCATION_SETTINGS, CMD_OPEN_HOLIDAYS };
-enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PREV = 205, HIT_FULLSCREEN = 201, HIT_HELP = 202, HIT_PIN = 203, HIT_SETTINGS = 204,
+enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PREV = 205, HIT_FULLSCREEN = 201, HIT_HELP = 202, HIT_PIN = 203, HIT_SETTINGS = 204, HIT_DOCK_BG = 206,
              HIT_TAB0 = 300, HIT_PRESET0 = 320, HIT_START = 340, HIT_RESET = 341, HIT_LAP = 342,
              HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 380,
              HIT_PACKFACE0 = 400 };          // 400..463: the dock buttons of pack tabs
@@ -199,10 +199,12 @@ public:
     bool isSaver = false;
     bool wantRecreate = false;
     double lastItemsAt = -1e9;
-    float dockT = 0, dockTarget = 0;        // auto-hide dock: 0 hidden .. 1 shown
-    bool dockBusy() const { return std::fabs(dockT - dockTarget) > 0.004f; }
+    float dockT = 0, dockTarget = 0;        // auto-hide dock: 0 resting pill .. 1 expanded dock
+    float dockOverride = -1.f;              // >= 0 pins dock morph progress for dev screenshots
+    bool dockBusy() const { return !showSettings && !showHelp && !isSaver && dockOverride < 0.f && std::fabs(dockT - dockTarget) > 0.004f; }
+    bool dockPillFading() const { const double id = now - lastMouseMove; return !showSettings && !showHelp && !isSaver && dockT <= 0.004f && id >= 2.35 && id <= 3.18; }
     float focusOrbT = 0, focusOrbTarget = 0; // Focus Studio collapsible orb -> expanded Ambience/Theme card: 0 orb .. 1 card
-    bool focusOrbBusy() const { return std::fabs(focusOrbT - focusOrbTarget) > 0.004f; }
+    bool focusOrbBusy() const { return st.face == FACE_FOCUS && !showSettings && !showHelp && !isSaver && std::fabs(focusOrbT - focusOrbTarget) > 0.004f; }
 
     // time
     double now = 0;

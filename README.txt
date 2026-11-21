@@ -348,12 +348,16 @@ New in 2.9.7 "Snowfall"  (21 November 2026)
     staggering, and TLS 1.2 + HTTP/1.1 retry to eliminate E_ABORT 2147500036 drops), 4 new weather fallback APIs
     (Bright Sky / DWD, NWS / NOAA, WeatherAPI.com, OpenWeatherMap) for 8 total sources, multi-source Air Quality
     fallback with a custom air-waves emblem badge on Sky, frost/wind-chill/heat/UV cues, and Golden & Blue Hour in Almanac.
-  - Living night sky: shooting stars now ignite from a pinpoint, flare and shimmer with color-temperature gradients and
-    shedding sparks, and stream in a calm weekly alternating 6-week loop; the Midnight saucer sports a 3x supersampled
-    sculpted model and silky C2-smooth flight path.
-  - QOL & precision polish: optional Soft hourly chime (off by default in Settings > Elements), optional Saved place
-    local time in Settings > Place, global Celsius & km defaults, optically centered circular panel arrows, custom
-    vector Back button in About, and case-insensitive hidden soundtracks and jukebox controls in Settings > About.
+  - Living night sky, 42-constellation atlas & compass fix: natural compass East/West orientation on the Sky dome
+    (N up, E right, S down, W left), deeper obsidian Midnight/Night/Ember dome skies, and 42 accurate year-round
+    constellations across both hemispheres with spectral star colors, trimmed filigree lines and diamond glints —
+    visible strictly at night by default with an optional daytime toggle in Settings > Sky Map; shooting stars ignite,
+    flare and stream in a 6-week alternating loop; the Midnight saucer sports a 3x supersampled sculpted model.
+  - QOL & precision polish: fluid liquid-glass pill-to-dock hover expansion (hovering the bottom-center pill
+    smoothly morphs it into the navigation dock at screen refresh rate without accidental corner triggers),
+    optional Soft hourly chime (off by default in Settings > Elements), optional Saved place local time in
+    Settings > Place, global Celsius & km defaults, optically centered circular panel arrows, custom vector
+    Back button in About, and case-insensitive hidden soundtracks and jukebox controls in Settings > About.
 
 New in 2.9.6 "Compass"  (21 November 2026)
   Easier panel navigation, clean privacy defaults, and hidden soundtracks inside About:

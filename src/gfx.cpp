@@ -96,7 +96,7 @@ const Palette PAL_NIGHT = [] {
     p.panel = {1, 1, 1, 0.04f};
     p.plate = rgb(0x080C17); p.starVis = 1; p.dark = true;
     p.nightness = 1;
-    p.skyZen = rgb(0x050A1A); p.skyHor = rgb(0x142348); p.skyNZen = rgb(0x050A1A); p.skyNHor = rgb(0x142348); p.skyOwn = 1;                 // the sky map's own colours
+    p.skyZen = rgb(0x030612); p.skyHor = rgb(0x0B1630); p.skyNZen = rgb(0x030612); p.skyNHor = rgb(0x0B1630); p.skyOwn = 1;                 // deep velvet nocturnal navy
     return p;
 }();
 // Midnight: the deepest of the night themes, almost black with a breath of indigo toward the bottom, cool white text and a soft violet accent. Its scenery
@@ -110,7 +110,7 @@ const Palette PAL_MIDNIGHT = [] {
     p.panel = {1, 1, 1, 0.035f};
     p.plate = rgb(0x050915); p.starVis = 1; p.dark = true;
     p.nightness = 1;
-    p.skyZen = rgb(0x03051A); p.skyHor = rgb(0x151C58); p.skyNZen = rgb(0x03051A); p.skyNHor = rgb(0x151C58); p.skyOwn = 1;                 // the sky map's own colours
+    p.skyZen = rgb(0x02030A); p.skyHor = rgb(0x080C22); p.skyNZen = rgb(0x02030A); p.skyNHor = rgb(0x080C22); p.skyOwn = 1;                 // deep obsidian-indigo cosmos (never bright sky blue)
     return p;
 }();
 const Palette PAL_EMBER = [] {
@@ -121,7 +121,7 @@ const Palette PAL_EMBER = [] {
     p.accent = rgb(0xE85A32); p.accent2 = rgb(0xC0432A);
     p.panel = {208 / 255.f, 72 / 255.f, 43 / 255.f, 0.07f};
     p.plate = rgb(0x030000); p.starVis = 0.5f; p.ember = 1; p.dark = true;
-    p.skyZen = rgb(0x050A1A); p.skyHor = rgb(0x142348); p.skyNZen = rgb(0x050A1A); p.skyNHor = rgb(0x142348); p.skyOwn = 1;                 // the sky map's own colours
+    p.skyZen = rgb(0x040101); p.skyHor = rgb(0x160504); p.skyNZen = rgb(0x040101); p.skyNHor = rgb(0x160504); p.skyOwn = 1;                 // deep obsidian-crimson bedtime dome
     return p;
 }();
 
@@ -437,7 +437,7 @@ bool Gfx::init() {
 }
 
 void Gfx::clearGlowCache() { for (auto& kv : glowCache_) if (kv.second) kv.second->Release(); glowCache_.clear(); }
-void Gfx::invalidateDeviceResources() { clearGlowCache(); rel(ringLayer_); rel(ringGeom_); rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f; rel(spriteRt_); savedRt_ = nullptr; rel(brush_); rel(roundStroke_); }
+void Gfx::invalidateDeviceResources() { clearGlowCache(); rel(ringLayer_); rel(ringGeom_); rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f; rel(rrLayer_); rel(rrGeom_); rrW_ = -1.f; rrPushed_ = false; rel(spriteRt_); savedRt_ = nullptr; rel(brush_); rel(roundStroke_); }
 
 static bool makeDeviceResources(ID2D1Factory* f, ID2D1RenderTarget* rt, ID2D1SolidColorBrush** brush, ID2D1StrokeStyle** ss) {
     if (FAILED(rt->CreateSolidColorBrush(ColorF(1, 1, 1, 1), brush))) return false;
@@ -705,6 +705,29 @@ void Gfx::popRingClip() {
 
 void Gfx::pushClip(float x, float y, float w, float h) { rt_->PushAxisAlignedClip(RectF(x, y, x + w, y + h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE); }
 void Gfx::popClip() { rt_->PopAxisAlignedClip(); }
+
+void Gfx::pushRoundRectClip(float x, float y, float w, float h, float r) {
+    rrPushed_ = false;
+    if (!rt_ || !d2d_ || w <= 0.f || h <= 0.f) return;
+    const float rr = std::max(0.f, std::min(r, std::min(w, h) * 0.5f));
+    if (!rrGeom_ || std::fabs(x - rrX_) > 0.01f || std::fabs(y - rrY_) > 0.01f ||
+        std::fabs(w - rrW_) > 0.01f || std::fabs(h - rrH_) > 0.01f || std::fabs(rr - rrR_) > 0.01f) {
+        rel(rrGeom_);
+        if (FAILED(d2d_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(RectF(x, y, x + w, y + h), rr, rr), &rrGeom_))) {
+            rrGeom_ = nullptr;
+            return;
+        }
+        rrX_ = x; rrY_ = y; rrW_ = w; rrH_ = h; rrR_ = rr;
+    }
+    if (!rrLayer_ && FAILED(rt_->CreateLayer(nullptr, &rrLayer_))) { rrLayer_ = nullptr; return; }
+    if (!rrLayer_ || !rrGeom_) return;
+    rt_->PushLayer(D2D1::LayerParameters(RectF(x - 1.f, y - 1.f, x + w + 1.f, y + h + 1.f), rrGeom_), rrLayer_);
+    rrPushed_ = true;
+}
+void Gfx::popRoundRectClip() {
+    if (rrPushed_ && rt_) rt_->PopLayer();
+    rrPushed_ = false;
+}
 
 void Gfx::pushCircleClip(float cx, float cy, float r) {
     if (!rt_ || !d2d_ || r <= 0.f) return;

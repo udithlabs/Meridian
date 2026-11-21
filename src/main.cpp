@@ -303,6 +303,7 @@ void loadSettings() {
     st.elLabels = ini.getBool("elements", "labels", st.elLabels); st.elConst = ini.getBool("elements", "constellations", st.elConst);
     st.elMilky = ini.getBool("elements", "milky_way", st.elMilky); st.elEcliptic = ini.getBool("elements", "ecliptic", st.elEcliptic);
     st.elClouds = ini.getBool("elements", "clouds", st.elClouds); st.elTracks = ini.getBool("elements", "tracks", st.elTracks);
+    st.dayStars = ini.getBool("elements", "day_stars", st.dayStars);
     st.elEvents = ini.getBool("panel", "sky_events", st.elEvents); st.elWorld = ini.getBool("panel", "world_clocks", st.elWorld);
     st.elHolidays = ini.getBool("panel", "holidays", st.elHolidays); st.holCal = ini.getBool("panel", "calendar_holidays", st.holCal);
     st.panelSecs = (int)std::max(4.0, std::min(120.0, ini.getNum("panel", "seconds", st.panelSecs)));
@@ -411,8 +412,8 @@ bool saveSettings() {                                      // false only when th
     o += "weatherapi_key=" + st.weatherApiKey + "\nopenweather_key=" + st.openWeatherKey + "\n\n";
     o += "[sky]\n; events appear on the sky map when they are this many days away or less. 1 = on, 0 = off\n";
     o += fmt("days=%d\nmeteors=%d\nplanets=%d\neclipses=%d\nchips=%d\nanimate=%d\n\n", st.evDays, st.evMeteors, st.evPlanets, st.evEclipses, st.evChips, st.evAnimate);
-    o += fmt("[elements]\n; parts of the Sky face. 1 = on, 0 = off\ntoday=%d\nweather=%d\nsun_moon=%d\nday_band=%d\nlabels=%d\nconstellations=%d\nmilky_way=%d\necliptic=%d\nclouds=%d\ntracks=%d\n\n",
-             st.elToday, st.elWeather, st.elSunMoon, st.elBand, st.elLabels, st.elConst, st.elMilky, st.elEcliptic, st.elClouds, st.elTracks);
+    o += fmt("[elements]\n; parts of the Sky face. 1 = on, 0 = off\ntoday=%d\nweather=%d\nsun_moon=%d\nday_band=%d\nlabels=%d\nconstellations=%d\nmilky_way=%d\necliptic=%d\nclouds=%d\ntracks=%d\nday_stars=%d\n\n",
+             st.elToday, st.elWeather, st.elSunMoon, st.elBand, st.elLabels, st.elConst, st.elMilky, st.elEcliptic, st.elClouds, st.elTracks, st.dayStars ? 1 : 0);
     o += fmt("[panel]\n; the left side of the Sky face rotates between Today (see today= above), Sky events, Holidays and World clocks. 1 = on, 0 = off\nsky_events=%d\nholidays=%d\nworld_clocks=%d\n", st.elEvents, st.elHolidays, st.elWorld);
     o += fmt("; seconds each panel stays, and how the next one arrives: slide, rise or fade\nseconds=%d\ntransition=%s\npause_on_hover=%d\ndots=%d\n", st.panelSecs, st.panelStyle == 1 ? "rise" : st.panelStyle == 2 ? "fade" : "slide", st.panelHold, st.panelDots);
     o += fmt("; mark holidays on the month calendar widget (hover a date for details)\ncalendar_holidays=%d\n\n", st.holCal);
@@ -1058,8 +1059,9 @@ void perform(int id) {
     else if (id == HIT_THEME) cycleTheme(1);
     else if (id == HIT_THEME_PREV) cycleTheme(-1);
     else if (id == HIT_FULLSCREEN) setFullscreen(!a.st.fullscreen);
-    else if (id == HIT_HELP) a.showHelp = !a.showHelp;
-    else if (id == HIT_SETTINGS) { a.showSettings = !a.showSettings; a.dockT = 0; }
+    else if (id == HIT_HELP) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; }
+    else if (id == HIT_SETTINGS) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; }
+    else if (id == HIT_DOCK_BG) { /* passive: absorbs gap/pill clicks without toggling fullscreen */ }
     else if (id == HIT_PIN) { a.st.topmost = !a.st.topmost; applyTopmost(); toast(a.st.topmost ? L"Kept on top" : L"Normal window"); markDirty(); }
     else if (id >= HIT_TAB0 && id < HIT_TAB0 + 3) { t.mode = id - HIT_TAB0; t.entry.clear(); }
     else if (id >= HIT_PRESET0 && id < HIT_PRESET0 + 7) { a.timerSetDuration(TIMER_PRESETS[id - HIT_PRESET0]); t.entry.clear(); markDirty(); }
@@ -1166,9 +1168,9 @@ void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
         else if (st.fullscreen) setFullscreen(false);
         return;
     }
-    if (vk == VK_F1 || vk == VK_OEM_2 || (vk == 'I' && !a.inAboutTab())) { a.showHelp = !a.showHelp; a.secretBuf.clear(); return; }
+    if (vk == VK_F1 || vk == VK_OEM_2 || (vk == 'I' && !a.inAboutTab())) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; a.secretBuf.clear(); return; }
     if (a.showHelp) { a.showHelp = false; return; }
-    if (vk == VK_OEM_COMMA) { a.showSettings = !a.showSettings; a.dockT = 0; if (!a.showSettings) markDirty(); return; }
+    if (vk == VK_OEM_COMMA) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; if (!a.showSettings) markDirty(); return; }
     if (alt && vk == VK_RETURN) { setFullscreen(!st.fullscreen); return; }
     if (vk == VK_F11 || (vk == 'F' && !ctrl && !a.showSettings)) { setFullscreen(!st.fullscreen); return; }
     if (a.showSettings) {                                           // Settings overlay is modal: do not leak clock hotkeys behind it
@@ -1296,8 +1298,8 @@ void showContextMenu(HWND hwnd, POINT pt) {                       // pt in scree
             else toast(L"Could not change the startup setting");
             break;
         }
-        case M_SETTINGS: a.showSettings = !a.showSettings; a.dockT = 0; if (!a.showSettings) markDirty(); break;
-        case M_HELP: a.showHelp = !a.showHelp; break;
+        case M_SETTINGS: a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; if (!a.showSettings) markDirty(); break;
+        case M_HELP: a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; break;
         case M_EXIT: PostMessageW(hwnd, WM_CLOSE, 0, 0); break;
         default: break;
     }
@@ -1454,7 +1456,7 @@ void renderFrame() {
     saveIfDue(now);
 
     // schedule the next frame
-    bool fast = (now - a.faceChangedAt < 0.7) || (now - a.lastMouseMove < 0.8) || (now < a.toastUntil) || !paletteSettled() || a.dockBusy() || a.focusOrbBusy() || a.eventsBusy() || a.holBusy() || a.panelBusy() || a.animatingOther() || a.packBusy() ||
+    bool fast = (now - a.faceChangedAt < 0.7) || (now - a.lastMouseMove < 0.8) || (now < a.toastUntil) || !paletteSettled() || a.dockBusy() || a.dockPillFading() || a.focusOrbBusy() || a.eventsBusy() || a.holBusy() || a.panelBusy() || a.animatingOther() || a.packBusy() ||
                 (a.st.face == FACE_TIMER && (a.timer.swRunning || a.timer.finished || a.timer.ringing || a.timer.entry.size() > 0)) ||
                 (a.st.face == FACE_FOCUS && (a.focus.running || a.focus.finished || a.focus.entry.size() > 0));
     // Rain, snow and wind are drawn on the screen's own beat: one frame per refresh (two when the screen runs faster than 90 Hz). Drawing waits for the
@@ -1464,7 +1466,7 @@ void renderFrame() {
     const bool focusSmooth = a.focusFxBusy() && a.st.quietSmooth &&
         (a.st.focusFx == 2 || a.st.focusFx == 3 || a.st.focusFx == 6 || a.st.focusFx == 7 ||
          (a.st.focusFx == 1 && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] > 0.05f)));
-    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] > 0.05f)) || focusSmooth || spaceNow || a.revealBusy();     // (the screen saver's start moves on the screen's own beat too)
+    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] > 0.05f)) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy();     // fluid UI morphs (dock + focus orb) & saver reveal run on screen refresh too
     G.smooth = smooth;
     double next;
     a.frameTarget = 0;
@@ -1520,6 +1522,21 @@ bool handleClick(float x, float y) {
     return false;
 }
 
+void syncMouseFromCursor(HWND hwnd, bool requireVisible = false) {
+    App& a = G.app;
+    POINT ptScreen{}; RECT rc{};
+    if (hwnd && GetCursorPos(&ptScreen)) {
+        if (requireVisible && WindowFromPoint(ptScreen) != hwnd) { a.mouseX = a.mouseY = -1.f; return; }
+        POINT pt = ptScreen;
+        if (ScreenToClient(hwnd, &pt) && GetClientRect(hwnd, &rc) &&
+            pt.x >= 0 && pt.x < rc.right && pt.y >= 0 && pt.y < rc.bottom) {
+            a.mouseX = (float)pt.x; a.mouseY = (float)pt.y;
+            return;
+        }
+    }
+    a.mouseX = a.mouseY = -1.f;
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     App& a = G.app;
     if (G.saver) {                                                  // screen saver: any use of the keyboard or mouse gives the screen back
@@ -1553,6 +1570,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (wp != SIZE_MINIMIZED && G.gfx.width() > 0) {
                 G.gfx.resize(LOWORD(lp), HIWORD(lp));
                 if (!a.st.fullscreen && wp != SIZE_MAXIMIZED) { RECT r; GetWindowRect(hwnd, &r); a.st.winW = r.right - r.left; a.st.winH = r.bottom - r.top; }
+                syncMouseFromCursor(hwnd);
                 renderFrame(); markDirty();
             }
             return 0;
@@ -1596,7 +1614,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             POINT pt{(LONG)(short)LOWORD(lp), (LONG)(short)HIWORD(lp)};
             if (lp != -1 && DefWindowProcW(hwnd, WM_NCHITTEST, 0, lp) != HTCLIENT) return DefWindowProcW(hwnd, msg, wp, lp);   // title bar: Windows' own menu
             if (lp == -1) { RECT r; GetWindowRect(hwnd, &r); pt.x = (r.left + r.right) / 2; pt.y = (r.top + r.bottom) / 2; }
-            showContextMenu(hwnd, pt); a.lastMouseMove = unixNow(); invalidate(); return 0;
+            showContextMenu(hwnd, pt); syncMouseFromCursor(hwnd); a.lastMouseMove = unixNow(); invalidate(); return 0;
         }
         case WM_MOUSEWHEEL: {
             int d = GET_WHEEL_DELTA_WPARAM(wp);
@@ -1618,7 +1636,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SETCURSOR:
             if (LOWORD(lp) == HTCLIENT && a.st.fullscreen && unixNow() - a.lastMouseMove > 3.5) { SetCursor(nullptr); return TRUE; }
             break;
-        case WM_ACTIVATE: if (LOWORD(wp) != WA_INACTIVE) { a.lastMouseMove = unixNow(); invalidate(); } return 0;
+        case WM_ACTIVATE:
+            if (LOWORD(wp) != WA_INACTIVE) { syncMouseFromCursor(hwnd); a.lastMouseMove = unixNow(); invalidate(); }
+            else { syncMouseFromCursor(hwnd, true); invalidate(); }
+            return 0;
         case WM_DISPLAYCHANGE: case WM_DPICHANGED:
             if (msg == WM_DPICHANGED) { RECT* r = (RECT*)lp; SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE); }
             G.refreshAt = -1e9; G.noVsync = false; G.shortRun = 0;       // look at the screen's refresh rate again
@@ -1649,7 +1670,7 @@ struct ShotArgs {
     double advance = 0;                                                  // --advance S: let S seconds pass after the clicks (for a test shot of a fade)
     int panel = -1, transPrev = -1; float transK = -1; std::string panels; int style = -1; int calMonth = 0;
     float heading = -1; int spin = 0, quiet = -1, wgper = -1, wgpage = -1; double spinAt = 0;
-    int focusfx = -1; bool alien = false; float meteor = -1.f;
+    int focusfx = -1; bool alien = false, dayStars = false; float meteor = -1.f, dockT = -1.f;
     int bench = 0, benchTheme2 = -1, benchSwitch = 30; double benchFps = 24;      // --bench N: time N frames, switching theme at frame benchSwitch; writes a text report to --shot
 };
 
@@ -1721,6 +1742,7 @@ int runShot(const ShotArgs& sa) {
     a.lastMouseMove = (sa.dock || sa.hint || sa.mx >= 0) ? now : -1e9;
     if (sa.mx >= 0) { a.mouseX = sa.mx; a.mouseY = sa.my; a.lastMouseMove = 1e12; }       // (the pointer counts as having just moved, so hover cards show)
     if (sa.dock) { a.mouseX = sa.w * 0.5f; a.mouseY = (float)sa.h - 24.f; a.dockT = a.dockTarget = 1.f; }
+    if (sa.dockT >= 0.f) a.dockOverride = sa.dockT;
     if (sa.bright > 0) a.st.brightness = sa.bright / 100.f;
     if (sa.settings) { a.showSettings = true; a.settingsTab = sa.tab; a.aboutSub = sa.aboutSub; }
     // screenshots of Settings > Place in each state: 1 searching, 2 failed, 3 found by IP address, 4 not found yet, 5 found by Windows location
@@ -1756,6 +1778,7 @@ int runShot(const ShotArgs& sa) {
     if (sa.quiet >= 0) a.st.quietPreview = sa.quiet;
     if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(7, sa.focusfx));
     if (sa.alien) { a.st.aliensEnabled = true; a.alienSeq = 1; a.alienAt = now - 4.2; }
+    if (sa.dayStars) a.st.dayStars = true;
     if (sa.meteor > 0.f) a.meteorDemoU = sa.meteor;
     if (sa.wgper >= 0) a.st.wgPerPage = sa.wgper;
     a.update(G.gfx);
@@ -1834,6 +1857,7 @@ bool parseArgs(ShotArgs& sa, bool& isShot) {
         else if (k == L"--fahrenheit") sa.useF = true;
         else if (k == L"--help-overlay") sa.help = true;
         else if (k == L"--dock") sa.dock = true;
+        else if (k == L"--dockt" && i + 1 < argc) sa.dockT = (float)num(++i);
         else if (k == L"--hint") sa.hint = true;
         else if (k == L"--mouse" && i + 2 < argc) { sa.mx = (float)num(++i); sa.my = (float)num(++i); }
         else if (k == L"--wxprov" && i + 1 < argc) sa.wxprov = (int)num(++i);
@@ -1873,6 +1897,7 @@ bool parseArgs(ShotArgs& sa, bool& isShot) {
         else if (k == L"--quiet" && i + 1 < argc) sa.quiet = (int)num(++i);
         else if ((k == L"--focusfx" || k == L"--timerfx") && i + 1 < argc) sa.focusfx = (int)num(++i);
         else if (k == L"--alien") sa.alien = true;
+        else if (k == L"--daystars") sa.dayStars = true;
         else if (k == L"--meteor" && i + 1 < argc) sa.meteor = (float)num(++i);
         else if (k == L"--wgper" && i + 1 < argc) sa.wgper = (int)num(++i);
         else if (k == L"--wgpage" && i + 1 < argc) sa.wgpage = (int)num(++i);

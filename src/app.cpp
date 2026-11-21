@@ -205,7 +205,7 @@ static float northRotationOnDome(double alt, double az, const Geo& g) {
     auto proj = [](const double v[3], double& x, double& y) {
         double alt2 = std::asin(std::max(-1.0, std::min(1.0, v[2]))), az2 = std::atan2(v[1], v[0]);
         double r = (3.14159265358979 / 2 - alt2);
-        x = -r * std::sin(az2); y = -r * std::cos(az2);
+        x = r * std::sin(az2); y = -r * std::cos(az2);
     };
     double x0, y0, x1, y1; proj(m, x0, y0); proj(p, x1, y1);
     return (float)deg(std::atan2(x1 - x0, -(y1 - y0)));
@@ -224,7 +224,7 @@ static float northRotationInView(double alt, double az, const Geo& g) {
     return (float)deg(std::atan2(tx, ty));
 }
 
-float moonDomeRotation(const MoonInfo& m, const Geo& g) { return northRotationOnDome(m.hor.alt, m.hor.az, g) + gSkyHeading; }   // the whole map turns with the heading
+float moonDomeRotation(const MoonInfo& m, const Geo& g) { return northRotationOnDome(m.hor.alt, m.hor.az, g) - gSkyHeading; }   // compass projection: turning heading rotates the dome counter-clockwise
 float moonViewRotation(const MoonInfo& m, const Geo& g) { return northRotationInView(m.hor.alt, m.hor.az, g); }
 
 void App::refreshMoonSprites(gfx::Gfx& g) {

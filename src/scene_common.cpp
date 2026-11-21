@@ -81,8 +81,27 @@ static float hashf(int i, int salt) {
 }
 
 static Pt domePt(float cx, float cy, float R, double alt, double az) {
+    // Standard compass projection: North (0) up, East (90) right, South (180) down, West (270) left (matching Settings > Sky Map).
     float r = R * (float)(90.0 - alt) / 90.f;
-    return {cx - r * (float)std::sin(astro::rad(az - gSkyHeading)), cy - r * (float)std::cos(astro::rad(az - gSkyHeading))};
+    return {cx + r * (float)std::sin(astro::rad(az - gSkyHeading)), cy - r * (float)std::cos(astro::rad(az - gSkyHeading))};
+}
+
+// Refined astronomical spectral color from real B-V color index (-0.25 sapphire blue -> 0.0 diamond white -> +1.85 warm amber-ruby)
+static Color starSpectral(float bv) {
+    if (bv < 0.0f) {
+        const float t = clamp01((bv + 0.25f) / 0.25f);
+        return lerp(rgb(0xA8CEFF), rgb(0xEFF5FF), t);
+    }
+    if (bv < 0.65f) {
+        const float t = clamp01(bv / 0.65f);
+        return lerp(rgb(0xEFF5FF), rgb(0xFFF4DC), t);
+    }
+    if (bv < 1.25f) {
+        const float t = clamp01((bv - 0.65f) / 0.60f);
+        return lerp(rgb(0xFFF4DC), rgb(0xFFD699), t);
+    }
+    const float t = clamp01((bv - 1.25f) / 0.60f);
+    return lerp(rgb(0xFFD699), rgb(0xFFA86B), t);
 }
 
 // ---------------------------------------------------------------- the sky dome
@@ -90,13 +109,18 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
     Gfx& g = c.g; App& a = c.a; const Palette& P = c.P; const float s = c.s;
     const double now = a.now; const astro::Geo& geo = a.st.geo;
     const double sunAlt = a.sun.hor.alt;
-    const float night = smoothstep(-4.f, -14.f, (float)sunAlt);
+    const float night = smoothstep(-4.f, -12.f, (float)sunAlt);
     const float cloud = a.wx.valid ? std::min(1.f, (float)a.wx.cur.cloud / 100.f) : 0.f;
-    const float lightLoss = (1.f - 0.65f * a.gloom) * (1.f - 0.85f * a.haze);     // cloud and fog hide stars, and dim the Sun and Moon
-    // The theme paints the sky map (Palette::skyOwn: 1 in every fixed theme, 0 in Auto, which follows the real Sun). A dark theme keeps a hint of stars even
-    // while the Sun is up, a Sunset or a Dusk sky a little less, a light one none (Palette::starVis says how much); at night they are out in full.
+    // The theme paints the sky dome (Palette::skyOwn: 1 in every fixed theme, 0 in Auto, which follows the real Sun).
+    // Star patterns follow REAL night (sunAlt < -4 deg) even on dark themes like Midnight during the day —
+    // unless the user explicitly enables "Star patterns during the day" (Settings > Sky Map).
     const float own = clamp01(P.skyOwn);
-    const float starA = std::max(night, own * clamp01(P.starVis) * 0.5f) * (1.f - 0.45f * P.ember) * lightLoss;
+    const bool lightDome = !P.dark && night < 0.5f;
+    const float dayStarBase = a.st.dayStars ? (lightDome ? 0.55f : 0.82f) : 0.f;
+    const float starVisRaw = std::max(night, dayStarBase);
+    // Soften gently under heavy overcast/fog without double-attenuating constellations away on partly cloudy nights
+    const float wxStarFade = (1.f - 0.36f * cloud) * (1.f - 0.30f * a.gloom) * (1.f - 0.62f * a.haze);
+    const float starA = starVisRaw * (1.f - 0.32f * P.ember) * wxStarFade;
     const float o = R + 36 * s;
     auto T = [&](Color col) { return tint(P, col); };
     auto dim = [&](Color col) { float k = 1.f - 0.5f * P.ember; col.r *= k; col.g *= k; col.b *= k; return col; };
@@ -150,7 +174,7 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
     if (tw > 0.01f) {
         float rr = std::max(0.62f * R, std::min(1.04f * R, R * (float)(90.0 - a.sun.hor.alt) / 90.f));
         float az = (float)astro::rad(a.sun.hor.az - gSkyHeading);
-        float gx = cx - rr * std::sin(az), gy = cy - rr * std::cos(az);
+        float gx = cx + rr * std::sin(az), gy = cy - rr * std::cos(az);
         Color warm = lerp(rgb(0xFF9A4D), rgb(0xB4508E), smoothstep(-2.f, -9.f, (float)sunAlt));
         g.glow(gx, gy, 1.55f * R, dim(T(hor)), tw * 0.55f * (1.f - 0.5f * cloud));
         g.glow(gx, gy, 1.05f * R, dim(T(warm)), tw * 0.95f * (1.f - 0.5f * cloud));
@@ -175,27 +199,33 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
         }
     }
 
-    // star positions (only computed when stars are actually visible)
+    // star positions (accurate J2000 -> precessed -> observer's real lat/lon & sidereal time; computed only when stars are visible)
     const auto& S = astro::stars();
     std::vector<Horizontal> sh;
+    std::vector<Pt> sp;
+    std::vector<float> sr;
     if (starA > 0.02f) {
         sh.resize(S.size());
+        sp.resize(S.size());
+        sr.resize(S.size());
         for (size_t i = 0; i < S.size(); ++i) {
             Equatorial e{S[i].raH * 15.0, S[i].decDeg};
             sh[i] = astro::toHorizontal(astro::precessJ2000(e, now), now, geo);
+            sp[i] = domePt(cx, cy, R, sh[i].alt, sh[i].az);
+            sr[i] = std::max(1.05f, 2.75f - 0.36f * (float)S[i].mag) * s;
         }
     }
 
     if (starA > 0.02f && a.st.elMilky) {
         // Milky Way band
-        float mwA = starA * (1.f - 0.85f * cloud);
+        float mwA = starA * (1.f - 0.55f * cloud) * (lightDome ? 0.35f : 1.0f);
         std::vector<Pt> run;
         auto flush = [&]() {
             if (run.size() >= 2) {
                 Color mw = T(Color{0.70f, 0.78f, 1.0f, 1.f});
                 for (int k = 0; k < 8; ++k) {
                     float t = k / 7.f;
-                    g.polyline(run, false, withA(mw, 0.016f * mwA), (0.27f - 0.22f * t) * R, true);
+                    g.polyline(run, false, withA(mw, 0.017f * mwA), (0.27f - 0.22f * t) * R, true);
                 }
             }
             run.clear();
@@ -206,12 +236,10 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
         }
         flush();
         Horizontal gc = astro::toHorizontal(astro::precessJ2000(astro::galacticToEquatorialJ2000(0.0, 0.0), now), now, geo);
-        if (gc.alt > 0) { Pt p = domePt(cx, cy, R, gc.alt, gc.az); g.glow(p.x, p.y, 0.2f * R, T(Color{0.85f, 0.85f, 1.f, 1.f}), 0.07f * mwA); }
+        if (gc.alt > 0) { Pt p = domePt(cx, cy, R, gc.alt, gc.az); g.glow(p.x, p.y, 0.2f * R, T(Color{0.85f, 0.85f, 1.f, 1.f}), 0.08f * mwA); }
     }
 
     // altitude rings, ecliptic
-    Color ringC = mulA(withA(P.dark ? Color{1, 1, 1, 1} : Color{1, 1, 1, 1}, 1.f), 0.0f);
-    (void)ringC;
     g.strokeCircle(cx, cy, R * 2.f / 3.f, Color{1, 1, 1, 0.07f}, std::max(1.f, s));
     g.strokeCircle(cx, cy, R / 3.f, Color{1, 1, 1, 0.07f}, std::max(1.f, s));
     if (a.st.elEcliptic) {
@@ -225,27 +253,107 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
         }
     }
 
-    // constellation lines and stars
+    // Artistic constellation filigree, spectral stars, diamond glints, and de-cluttered constellation watermarks
     if (starA > 0.02f) {
-        if (a.st.elConst) for (const auto& con : astro::constellations())
-            for (const auto& ln : con.lines) {
-                const Horizontal &h1 = sh[ln.a], &h2 = sh[ln.b];
-                if (h1.alt < 1 || h2.alt < 1) continue;
-                Pt p1 = domePt(cx, cy, R, h1.alt, h1.az), p2 = domePt(cx, cy, R, h2.alt, h2.az);
-                g.line(p1.x, p1.y, p2.x, p2.y, T(Color{0.75f, 0.82f, 1.f, 0.26f * starA * (1.f - 0.8f * cloud)}), std::max(1.f, 1.0f * s), false);
+        const Color lineTint = lightDome
+            ? lerp(P.ink, rgb(0xFFFFFF), 0.35f)
+            : T(lerp(rgb(0x95B4FF), P.accent2, 0.38f));
+
+        if (a.st.elConst) {
+            const auto& cons = astro::constellations();
+            // Pass 1: dual-layer artistic filigree lines (trimmed cleanly shy of star jewels!)
+            for (const auto& con : cons) {
+                for (const auto& ln : con.lines) {
+                    if (ln.a < 0 || ln.b < 0 || (size_t)ln.a >= S.size() || (size_t)ln.b >= S.size()) continue;
+                    const Horizontal &h1 = sh[ln.a], &h2 = sh[ln.b];
+                    if (h1.alt < 1.5 || h2.alt < 1.5) continue;
+                    const Pt &p1 = sp[ln.a], &p2 = sp[ln.b];
+                    const float dx = p2.x - p1.x, dy = p2.y - p1.y;
+                    const float len = std::sqrt(dx * dx + dy * dy);
+                    const float g1 = sr[ln.a] + 2.4f * s, g2 = sr[ln.b] + 2.4f * s;
+                    if (len <= g1 + g2 + 2.f * s) continue;
+                    const float ux = dx / len, uy = dy / len;
+                    const float x1 = p1.x + ux * g1, y1 = p1.y + uy * g1;
+                    const float x2 = p2.x - ux * g2, y2 = p2.y - uy * g2;
+                    const float altF = smoothstep(1.5f, 14.f, (float)std::min(h1.alt, h2.alt));
+                    const float la = starA * altF;
+                    if (la < 0.02f) continue;
+                    // Soft celestial aura under crisp hairline silk thread
+                    if (!lightDome) {
+                        g.line(x1, y1, x2, y2, withA(lineTint, 0.11f * la), std::max(2.2f, 2.8f * s), true);
+                    }
+                    g.line(x1, y1, x2, y2, withA(lineTint, (lightDome ? 0.36f : 0.42f) * la), std::max(0.95f, 1.05f * s), true);
+                }
             }
+
+            // Pass 2: subtle wide-tracked uppercase constellation watermarks (de-cluttered so labels never collide)
+            if (labels && a.st.elLabels && starA > 0.25f) {
+                std::vector<Pt> placed;
+                const Pt moonChk = (a.moon.appAlt > -0.7) ? domePt(cx, cy, R, std::max(0.0, a.moon.appAlt), a.moon.hor.az) : Pt{-9999.f, -9999.f};
+                const Pt sunChk  = (a.sun.appAlt > -0.6)  ? domePt(cx, cy, R, std::max(0.0, a.sun.appAlt),  a.sun.hor.az)  : Pt{-9999.f, -9999.f};
+                const float nfs = std::max(8.5f, 9.2f * s);
+                for (const auto& con : cons) {
+                    if (placed.size() >= 9) break;
+                    std::vector<int> uniq;
+                    for (const auto& ln : con.lines) {
+                        if (std::find(uniq.begin(), uniq.end(), ln.a) == uniq.end()) uniq.push_back(ln.a);
+                        if (std::find(uniq.begin(), uniq.end(), ln.b) == uniq.end()) uniq.push_back(ln.b);
+                    }
+                    if (uniq.empty()) continue;
+                    int visN = 0; float sx = 0.f, sy = 0.f; double avgAlt = 0.0;
+                    for (int idx : uniq) {
+                        if (idx < 0 || (size_t)idx >= S.size()) continue;
+                        if (sh[idx].alt >= 10.0) { sx += sp[idx].x; sy += sp[idx].y; avgAlt += sh[idx].alt; ++visN; }
+                    }
+                    if (visN < 2 || visN * 2 < (int)uniq.size()) continue;
+                    const float lx = sx / (float)visN, ly = sy / (float)visN + 11.f * s;
+                    const float distC = std::hypot(lx - cx, ly - cy);
+                    if (distC > R * 0.84f || distC < 24.f * s) continue;
+                    if (std::hypot(lx - moonChk.x, ly - moonChk.y) < 38.f * s) continue;
+                    if (std::hypot(lx - sunChk.x,  ly - sunChk.y)  < 34.f * s) continue;
+                    bool clash = false;
+                    for (const Pt& q : placed) {
+                        if (std::fabs(lx - q.x) < 76.f * s && std::fabs(ly - q.y) < 22.f * s) { clash = true; break; }
+                    }
+                    if (clash) continue;
+                    placed.push_back({lx, ly});
+                    const float ca = smoothstep(10.f, 24.f, (float)(avgAlt / visN)) * starA;
+                    const Color cCol = lightDome ? mulA(P.ink, 0.34f * ca) : withA(lineTint, 0.34f * ca);
+                    g.text(F_MONO, nfs, lx, ly, Ws(util::upper(con.name)), cCol, Align::Center, 0.20f);
+                }
+            }
+        }
+
+        // Pass 3: Spectral star jewels + 1st-magnitude 4-point diffraction diamond glints
         for (size_t i = 0; i < S.size(); ++i) {
             const Horizontal& h = sh[i];
             if (h.alt < 1.0) continue;
-            float vis = smoothstep(1.f, 10.f, (float)h.alt) * starA * (1.f - 0.82f * cloud);
-            float mag = (float)S[i].mag;
-            float r = std::max(1.0f, 2.5f - 0.36f * mag) * s;
-            float al = clamp01(1.25f - 0.17f * mag) * vis;
-            Pt p = domePt(cx, cy, R, h.alt, h.az);
-            if (mag < 1.0f) g.glow(p.x, p.y, r * 5.f, T(Color{0.85f, 0.9f, 1.f, 1.f}), 0.20f * vis);
-            g.fillCircle(p.x, p.y, r, T(Color{0.94f, 0.96f, 1.f, al}));
-            if (labels && a.st.elLabels && mag < 0.6f && h.alt > 8 && vis > 0.4f)
-                g.text(F_MONO, 12.f * s, (p.x > cx + 0.45f * R) ? p.x - r - 5 * s : p.x + r + 5 * s, p.y + 4 * s, Ws(S[i].name), T(Color{0.85f, 0.9f, 1.f, 0.38f * vis}), (p.x > cx + 0.45f * R) ? Align::Right : Align::Left, 0.06f);
+            const float vis = smoothstep(1.f, 10.f, (float)h.alt) * starA;
+            const float mag = (float)S[i].mag;
+            const float r = sr[i];
+            const float al = clamp01(1.22f - 0.17f * mag) * vis;
+            const Pt& p = sp[i];
+            const Color baseStar = lightDome ? Color{1.f, 1.f, 1.f, 1.f} : T(starSpectral(S[i].bv));
+            if (mag < 1.6f && !lightDome) {
+                const float gInt = (mag < 0.6f ? 0.28f : 0.16f) * vis;
+                g.glow(p.x, p.y, r * (mag < 0.6f ? 5.6f : 4.0f), baseStar, gInt);
+            }
+            if (mag < 0.85f && vis > 0.35f) {
+                const float spk = r * (lightDome ? 2.4f : 3.2f);
+                const Color sc2 = withA(baseStar, (lightDome ? 0.42f : 0.36f) * vis);
+                const float sw = std::max(0.75f, 0.85f * s);
+                g.line(p.x - spk, p.y, p.x + spk, p.y, sc2, sw, true);
+                g.line(p.x, p.y - spk, p.x, p.y + spk, sc2, sw, true);
+            }
+            g.fillCircle(p.x, p.y, r, withA(baseStar, al));
+            if (mag < 1.8f && !lightDome) {
+                g.fillCircle(p.x, p.y, r * 0.52f, Color{1.f, 1.f, 1.f, std::min(1.f, al * 0.92f)});
+            }
+            if (labels && a.st.elLabels && mag < 0.55f && h.alt > 10 && vis > 0.4f) {
+                const bool left = p.x > cx + 0.45f * R;
+                g.text(F_MONO, 11.f * s, left ? p.x - r - 5 * s : p.x + r + 5 * s, p.y + 3.5f * s,
+                       Ws(S[i].name), withA(baseStar, (lightDome ? 0.50f : 0.44f) * vis), left ? Align::Right : Align::Left, 0.06f);
+            }
         }
     }
 
@@ -310,7 +418,7 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
     g.popCircleClip();
     (void)o;
 
-    // rim, ticks, cardinal letters
+    // rim, ticks, cardinal letters (standard compass orientation: N up, E right, S down, W left)
     {   // the rim: derived from the already-mooded horizon colour so overcast gloom never leaves a bright neon ring, and clear light themes stay visible
         const Color h = hor;
         const Color target = P.dark ? Color{1.f, 1.f, 1.f, 1.f} : P.ink;
@@ -321,14 +429,14 @@ void drawDome(Ctx& c, float cx, float cy, float R, bool labels) {
         float ang = (float)astro::rad(i * 10.0 - gSkyHeading);
         float len = (i % 9 == 0) ? 11.f * s : (i % 3 == 0 ? 7.f * s : 4.f * s);
         float r0 = R + 5 * s, r1 = r0 + len;
-        g.line(cx - r0 * std::sin(ang), cy - r0 * std::cos(ang), cx - r1 * std::sin(ang), cy - r1 * std::cos(ang), mulA(P.ink, (i % 9 == 0) ? 0.5f : 0.22f), std::max(1.f, 1.1f * s), false);
+        g.line(cx + r0 * std::sin(ang), cy - r0 * std::cos(ang), cx + r1 * std::sin(ang), cy - r1 * std::cos(ang), mulA(P.ink, (i % 9 == 0) ? 0.5f : 0.22f), std::max(1.f, 1.1f * s), false);
     }
     {
         float lr = R + 30 * s; float fs = 15.f * s;
         struct L { const wchar_t* t; float ang; bool n; } ls[4] = {{L"N", 0, true}, {L"E", 90, false}, {L"S", 180, false}, {L"W", 270, false}};
         for (auto& l : ls) {
             float ang = (float)astro::rad(l.ang - gSkyHeading);
-            float px = cx - lr * std::sin(ang), py = cy - lr * std::cos(ang);
+            float px = cx + lr * std::sin(ang), py = cy - lr * std::cos(ang);
             g.text(F_MONO_M, fs, px, py + g.capHeight(F_MONO_M, fs) * 0.5f, l.t, l.n ? P.accent : P.ink2, Align::Center, 0.0f);
         }
     }
