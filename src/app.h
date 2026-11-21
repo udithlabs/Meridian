@@ -17,6 +17,7 @@
 #include "util.h"
 #include "themes.h"
 #include "textedit.h"
+#include "glassfx.h"
 
 namespace app {
 
@@ -35,8 +36,8 @@ constexpr int THEME_ORDER[THEME_COUNT] = {THEME_AUTO, THEME_DAY, THEME_SUNLIT, T
 inline int themeSlot(int theme) { for (int i = 0; i < THEME_COUNT; ++i) if (THEME_ORDER[i] == theme) return i; return 0; }
 
 // The version shown in Settings > About. Change it here (and in src/app.rc) when you make a new build.
-constexpr const char* MERIDIAN_VERSION = "2.9.7";
-constexpr const char* MERIDIAN_CODENAME = "Snowfall";
+constexpr const char* MERIDIAN_VERSION = "2.9.8";
+constexpr const char* MERIDIAN_CODENAME = "Glass";
 // An "edition" is a name for one hand-made line of the app (the Astra Edition is another one). It is shown in Settings > About and in the setup.
 constexpr const char* MERIDIAN_EDITION = "Sonnet Edition";
 
@@ -59,7 +60,7 @@ struct Settings {
     int emberFrom = 22, emberTo = 6;
     bool hourlyChime = false;               // optional gentle glass chime on the hour (off by default; silent at bedtime & saver)
     bool placeLocalTime = false;            // when viewing a saved place (N), show the clock in that place's own local timezone
-    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars
+    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars, 8 blizzard
     int winX = -1, winY = -1, winW = 1280, winH = 720;
     std::vector<today::CustomEvent> events;
     std::vector<astro::Geo> places;
@@ -101,7 +102,7 @@ struct Settings {
     // weather drawn behind the clock on the Quiet face
     bool quietFx = true;
     float quietStrength = 1.0f;             // 0.5..2: how strong the Quiet-face weather is drawn
-    int quietPreview = 0;                   // 0 live weather, 1 clouds, 2 wind, 3 clouds and wind, 4 rain, 5 tornado storm, 6 thunder with no rain, 7 thunderstorm with rain, 8 fog, 9 sun flare, 10 snow
+    int quietPreview = 0;                   // 0 live weather, 1 clouds, 2 wind, 3 clouds and wind, 4 rain, 5 tornado storm, 6 thunder with no rain, 7 thunderstorm with rain, 8 fog, 9 sun flare, 10 snow, 11 blizzard
     bool spaceFx = true;                    // Midnight: the stars, meteors, comet and saucer behind the Quiet and Sky faces
     bool aliensEnabled = true;              // hidden toggle on Settings > About (aliensdontexist / aliensdoexisit)
     bool skyRain = true;                    // rain & snow fall behind the map on the Sky face too
@@ -168,6 +169,7 @@ enum Cmd { CMD_TOPMOST = 1, CMD_FULLSCREEN, CMD_KEEPAWAKE, CMD_WEATHER_CFG, CMD_
 enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PREV = 205, HIT_FULLSCREEN = 201, HIT_HELP = 202, HIT_PIN = 203, HIT_SETTINGS = 204, HIT_DOCK_BG = 206,
              HIT_TAB0 = 300, HIT_PRESET0 = 320, HIT_START = 340, HIT_RESET = 341, HIT_LAP = 342,
              HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 380,
+             HIT_FCARD_CLOCK = 390, HIT_FCARD_WEATHER = 391,
              HIT_PACKFACE0 = 400 };          // 400..463: the dock buttons of pack tabs
 
 struct SysInfo {
@@ -205,6 +207,21 @@ public:
     bool dockPillFading() const { const double id = now - lastMouseMove; return !showSettings && !showHelp && !isSaver && dockT <= 0.004f && id >= 2.35 && id <= 3.18; }
     float focusOrbT = 0, focusOrbTarget = 0; // Focus Studio collapsible orb -> expanded Ambience/Theme card: 0 orb .. 1 card
     bool focusOrbBusy() const { return st.face == FACE_FOCUS && !showSettings && !showHelp && !isSaver && std::fabs(focusOrbT - focusOrbTarget) > 0.004f; }
+    glassfx::Engine glass;                   // Liquid Glass tactile button/card springs, specular sheen, click ripples & sliding pills
+    bool glassBusy() const { return !isSaver && glass.busy(); }
+    uint64_t glassKeyForHit(int id) const {
+        if (id <= 0 || id == HIT_DOCK_BG) return 0;
+        if (id >= HIT_ACTION0) {
+            const uint64_t idx = (uint64_t)(id - HIT_ACTION0);
+            if (showSettings) {
+                if (idx < 16) return 0x21000000ULL | idx;  // Settings chrome (scrim, card, 12 sidebar tabs, DONE) persists across tab switches
+                return 0x20000000ULL | ((uint64_t)std::max(0, settingsTab) << 16) | idx;
+            }
+            return 0x30000000ULL | ((uint64_t)std::max(0, st.face) << 16) | idx;
+        }
+        return (uint64_t)id;
+    }
+    uint64_t nextActionGlassKey() const { return glassKeyForHit(HIT_ACTION0 + (int)actions.size()); }
 
     // time
     double now = 0;
@@ -322,17 +339,17 @@ public:
     void skyHeadingSet(double deg);         // face this direction (keeps spinning from there when free rotate is on)
     void skySpinChanged();                  // call after st.skySpin / speed / direction changed
     // weather on the Quiet / Sky / Focus Studio faces: eased strengths of each effect
-    float qfx[7] = {0, 0, 0, 0, 0, 0, 0};   // clouds, wind, rain, tornado, thunder, fog, snow (eased)
-    float qfxT[7] = {0, 0, 0, 0, 0, 0, 0};  // what the weather asks for right now
+    float qfx[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // clouds, wind, rain, tornado, thunder, fog, snow, blizzard (eased)
+    float qfxT[8] = {0, 0, 0, 0, 0, 0, 0, 0};  // what the weather asks for right now
     float gloom = 0, haze = 0;              // the light under weather, 0..1: heavy cloud or storm, and fog (drives moodPalette)
     int spriteBudget = 2;                   // cached weather images (re)drawn per frame at most, so a colour change never causes one long frame
-    bool weatherBusy() const { for (int i = 0; i < 7; ++i) if (std::fabs(qfx[i] - qfxT[i]) > 0.004f) return true; return false; }
+    bool weatherBusy() const { for (int i = 0; i < 8; ++i) if (std::fabs(qfx[i] - qfxT[i]) > 0.004f) return true; return false; }
     float fxQuality = 1.f, fxLate = 1.f;    // 0.3..1: how much detail the weather draws; lowered automatically if frames arrive late
     // Monotonic weather clocks so a new forecast or window resize never causes a jump.
-    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0;
+    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0, fxBlizzT = 0;
     float fxWk = 0;                         // wind speed (km/h) eased toward the forecast
-    // wind, rain, snow, thunder and the tornado get smooth frame pacing
-    int quietFps() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] > 0.05f) ? (st.quietSmooth ? 60 : 30) : 15; }
+    // wind, rain, snow, blizzard, thunder and the tornado get smooth frame pacing
+    int quietFps() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] + qfx[7] > 0.05f) ? (st.quietSmooth ? 60 : 30) : 15; }
     double alienAt = -1e9;                 // when the saucer was called with the U key (Midnight)
     uint64_t alienSeq = 0;                 // increments each time U calls the saucer, so stereo audio restarts cleanly
     bool aliensNuts = false;               // hidden "aliensarenuts" mode: saucer flies twice every minute (stopped by "aliennohere")
@@ -349,8 +366,8 @@ public:
     void beginLeave() { if (leaveArmed) return; leaveArmed = true; leaveDone = false; leaveStart = -1.0; leaveFrom = (revealArmed && revealP >= 0.0 && revealP < 1.0) ? revealP : 1.0; revealArmed = false; }
     bool revealBusy() const { return revealArmed || leaveArmed; }
     bool focusFxBusy() const { return st.face == FACE_FOCUS && st.focusFx > 0; }
-    bool quietFxBusy() const { return (st.face == FACE_QUIET && st.quietFx && (qfx[0] + qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[5] + qfx[6] > 0.01f)) || skyRainBusy() || focusFxBusy(); }
-    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f); }
+    bool quietFxBusy() const { return (st.face == FACE_QUIET && st.quietFx && (qfx[0] + qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[5] + qfx[6] + qfx[7] > 0.01f)) || skyRainBusy() || focusFxBusy(); }
+    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f || qfx[7] > 0.01f); }
     bool isDstActive() const;               // true ONLY in timezones that observe DST while DST is currently in effect (always false in Sri Lanka, etc.)
     // named storms: everything active in the world, and the ones inside the chosen radius (nearest first)
     storms::Data stormData;

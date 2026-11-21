@@ -17,7 +17,7 @@ static const wchar_t* DESKTOP_KEY   = L"Control Panel\\Desktop";
 static const wchar_t* BACKUP_KEY    = L"Software\\Meridian\\ScreenSaverBackup";
 static const wchar_t* APP_KEY       = L"Software\\Meridian";
 static const wchar_t* SAVER_KEY     = L"Software\\Meridian\\Saver";      // SleepAfterMinutes lives here; Meridian reads it when it runs as the screen saver
-static const char* APP_VERSION      = "2.9.7";
+static const char* APP_VERSION      = "2.9.8";
 
 // ------------------------------------------------------------------ small helpers
 std::wstring widen(const std::string& s) {

@@ -24,6 +24,7 @@ run ufo_audio_test tests/ufo_audio_test.cpp
 run regression_292_test tests/regression_292_test.cpp src/astro.cpp src/expr.cpp src/holidays.cpp src/skyevents.cpp src/storms.cpp src/today.cpp src/weather.cpp
 run regression_295_test tests/regression_295_test.cpp src/astro.cpp src/storms.cpp src/weather.cpp
 run regression_297_test tests/regression_297_test.cpp src/astro.cpp src/holidays.cpp src/skyevents.cpp src/today.cpp src/weather.cpp
+run regression_298_test tests/regression_298_test.cpp
 # the setup's install-folder check (header only, no Windows needed)
 echo "== pathcheck_test"; $CXX $FLAGS -I setup tests/pathcheck_test.cpp -o "$OUT/pathcheck_test" && "$OUT/pathcheck_test"
 echo "== song_test"; $CXX $FLAGS -I setup tests/song_test.cpp -o "$OUT/song_test" && "$OUT/song_test"          # (the setup's music: how it is kept, the decoding and the volume)

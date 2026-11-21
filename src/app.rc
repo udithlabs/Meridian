@@ -12,8 +12,8 @@ IDR_UFO_SONG        RCDATA "../assets/ufo_song.m4a"
 IDR_RESEARCHED_SONG RCDATA "../assets/researched.m4a"
 
 1 VERSIONINFO
-FILEVERSION 2,9,7,0
-PRODUCTVERSION 2,9,7,0
+FILEVERSION 2,9,8,0
+PRODUCTVERSION 2,9,8,0
 FILEOS 0x4
 FILETYPE 0x1
 BEGIN
@@ -22,13 +22,13 @@ BEGIN
     BLOCK "040904B0"
     BEGIN
       VALUE "CompanyName", "Meridian"
-      VALUE "FileDescription", "Meridian 2.9.7 ""Snowfall"" - always-on sky clock (Sonnet Edition)"
-      VALUE "FileVersion", "2.9.7.0"
+      VALUE "FileDescription", "Meridian 2.9.8 ""Glass"" - always-on sky clock (Sonnet Edition)"
+      VALUE "FileVersion", "2.9.8.0"
       VALUE "InternalName", "Meridian"
       VALUE "LegalCopyright", "Fonts: Sora, Instrument Serif, DM Mono (SIL OFL 1.1). Weather: Open-Meteo."
       VALUE "OriginalFilename", "Meridian.exe"
       VALUE "ProductName", "Meridian - Sonnet Edition"
-      VALUE "ProductVersion", "2.9.7.0"
+      VALUE "ProductVersion", "2.9.8.0"
     END
   END
   BLOCK "VarFileInfo"

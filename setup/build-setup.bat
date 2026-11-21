@@ -1,5 +1,5 @@
 @echo off
-rem Build Meridian-Setup-2.9.7.exe on Windows (64-bit, one file).
+rem Build Meridian-Setup-2.9.8.exe on Windows (64-bit, one file).
 rem Needs what build.bat needs (MinGW-w64: g++ and windres on PATH) plus Python 3 (the "python" command) to pack the files.
 rem Build Meridian.exe first (..\build.bat): the setup carries the folder above this one (Meridian.exe, README.txt, themes\, licenses\).
 rem   build-setup.bat [app-folder] [licenses-folder]
@@ -32,7 +32,7 @@ copy /y %BUILD%\payload.bin . >nul
 copy /y %BUILD%\notes.txt . >nul
 windres -O coff -I . -I ..\src setup.rc %BUILD%\setup_rc.o || exit /b 1
 del payload.bin notes.txt
-echo LD Meridian-Setup-2.9.7.exe
-g++ -static -mwindows -O2 -o Meridian-Setup-2.9.7.exe %OBJS% %BUILD%\setup_rc.o -ld2d1 -ldwrite -lwindowscodecs -ldwmapi -lole32 -loleaut32 -luuid -lshell32 -lgdi32 -luser32 -ladvapi32 -lwinmm || exit /b 1
-strip --strip-all Meridian-Setup-2.9.7.exe
-echo Done: Meridian-Setup-2.9.7.exe
+echo LD Meridian-Setup-2.9.8.exe
+g++ -static -mwindows -O2 -o Meridian-Setup-2.9.8.exe %OBJS% %BUILD%\setup_rc.o -ld2d1 -ldwrite -lwindowscodecs -ldwmapi -lole32 -loleaut32 -luuid -lshell32 -lgdi32 -luser32 -ladvapi32 -lwinmm || exit /b 1
+strip --strip-all Meridian-Setup-2.9.8.exe
+echo Done: Meridian-Setup-2.9.8.exe

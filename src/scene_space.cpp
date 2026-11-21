@@ -114,8 +114,8 @@ bool shipOn(const App& a, double t, float& u, long long& k, uint64_t& flightId) 
     return true;
 }
 
-// how much the weather hides the sky: cloud, fog, rain, snow and storms put the stars out
-float skyCover(const App& a) { return clamp01(std::max(std::max(0.9f * a.qfx[0], a.qfx[5]), std::max(std::max(0.8f * a.qfx[2], 0.72f * a.qfx[6]), a.qfx[4]))); }
+// how much the weather hides the sky: cloud, fog, rain, snow, blizzard and storms put the stars out
+float skyCover(const App& a) { return clamp01(std::max(std::max(0.9f * a.qfx[0], a.qfx[5]), std::max(std::max(0.8f * a.qfx[2], std::max(0.72f * a.qfx[6], 0.95f * a.qfx[7])), a.qfx[4]))); }
 
 // ---------------------------------------------------------------- Midnight: the still sky
 Bitmap buildSky(Ctx& c) {

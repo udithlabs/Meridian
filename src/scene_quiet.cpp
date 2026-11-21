@@ -29,10 +29,10 @@ bool snowCode(int c) { return (c >= 71 && c <= 77) || c == 85 || c == 86; }
 bool rainCode(int c) { return (c >= 51 && c <= 67) || (c >= 80 && c <= 82); }        // thunder codes are not rain on their own: a thunderstorm can be dry
 bool stormCode(int c) { return c == 95 || c == 96 || c == 99; }
 
-// what the weather asks for: strengths 0..1 of clouds, wind, rain, tornado, thunder (lightning), fog and snow.
+// what the weather asks for: strengths 0..1 of clouds, wind, rain, tornado, thunder (lightning), fog, snow and blizzard.
 // This is the weather itself, so the light can follow it on every face; whether it is drawn behind the clock is decided later.
-void targets(const App& a, float t[7]) {
-    for (int i = 0; i < 7; ++i) t[i] = 0.f;
+void targets(const App& a, float t[8]) {
+    for (int i = 0; i < 8; ++i) t[i] = 0.f;
     switch (a.st.quietPreview) {
         case 1: t[0] = 0.9f; return;
         case 2: t[1] = 0.85f; return;
@@ -44,35 +44,49 @@ void targets(const App& a, float t[7]) {
         case 8: t[5] = 1.f; t[0] = 0.35f; return;                                             // fog
         case 9: return;                                                                        // the sun flare alone: no weather
         case 10: t[0] = 0.65f; t[6] = 0.88f; return;                                          // calm, soothing snowfall
+        case 11: t[0] = 0.96f; t[1] = 0.92f; t[5] = 0.30f; t[6] = 0.90f; t[7] = 1.f; return;  // harsh snowstorm (blizzard)
         default: break;
     }
     if (!a.wx.valid) return;
     const weather::Current& c = a.wx.cur;
     const bool thunder = stormCode(c.code);
-    const bool snow = snowCode(c.code);
+    const bool thunderSnow = thunder && c.temp <= 1.0 && (snowCode(c.code) || c.precip >= 0.2);
+    const bool snow = snowCode(c.code) || thunderSnow;
     if (c.cloud >= 30.0) t[0] = 0.3f + 0.7f * clamp01((float)(c.cloud - 30.0) / 55.f);
     const double w = std::max(c.wind, 0.6 * c.gust);
     if (w >= 12.0) t[1] = 0.28f + 0.72f * clamp01((float)(w - 12.0) / 30.f);
     if (snow) {
-        const float baseSnow = (c.code == 75 || c.code == 86) ? 0.92f : (c.code == 71 || c.code == 77) ? 0.52f : 0.74f;
+        const bool heavySnow = (c.code == 75 || c.code == 86 || c.precip >= 2.8);
+        const float baseSnow = heavySnow ? 0.92f : (c.code == 71 || c.code == 77) ? 0.52f : 0.74f;
         t[6] = std::max(baseSnow, 0.45f + 0.55f * clamp01((float)(c.precip / 2.2)));
         t[0] = std::max(t[0], 0.45f + 0.25f * t[6]);
+        // Blizzard / harsh snowstorm: snow whipped by strong winds/gusts, heavy snow with brisk winds, or freezing thundersnow
+        const bool blizzWind = w >= 28.0 || c.gust >= 42.0 || (heavySnow && (w >= 18.0 || c.gust >= 30.0)) || thunderSnow;
+        if (blizzWind) {
+            const float windAmt = clamp01((float)(std::max(w - 18.0, (c.gust - 30.0) * 0.75) / 28.0));
+            const float heavyBoost = heavySnow ? 0.22f : 0.f;
+            t[7] = clamp01(0.38f + 0.62f * windAmt + heavyBoost);
+            if (thunderSnow) t[7] = std::max(t[7], 0.85f);
+            t[0] = std::max(t[0], 0.80f + 0.16f * t[7]);
+            t[1] = std::max(t[1], 0.65f + 0.30f * t[7]);
+            t[5] = std::max(t[5], 0.24f * t[7]);
+        }
     }
     const bool rain = !snow && (rainCode(c.code) || c.precip >= 0.1);
     if (rain) { t[2] = 0.45f + 0.55f * clamp01((float)(c.precip / 3.0)); t[0] = std::max(t[0], 0.50f + 0.25f * t[2]); }     // rain falls out of cloud: always a few of them, whatever the cover reported
     if (thunder) { t[4] = 1.f; t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.3f); }   // dark cloud and lightning, with rain only if rain is reported
-    if (c.gust >= 70.0 || (thunder && c.gust >= 55.0)) {                                      // a severe storm: the tornado
+    if (!snow && (c.gust >= 70.0 || (thunder && c.gust >= 55.0))) {                           // a severe warm-sector storm: the tornado (never during freezing snow)
         t[3] = 1.f; t[4] = std::max(t[4], 0.7f); t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.7f);
     }
     // fog: reported as fog, or the air is saturated and still. Damp mountain mornings read as a soft mist.
     if (c.code == 45 || c.code == 48) t[5] = 0.95f;
     else if (!rain && !snow && !thunder && c.humidity >= 96.0 && w < 10.0) t[5] = 0.25f + 0.45f * clamp01((float)(c.humidity - 96.0) / 4.f);
-    if (t[5] > 0.01f) t[1] *= 1.f - 0.6f * t[5];                                               // wind does not show through thick fog
+    if (t[5] > 0.01f && t[7] < 0.05f) t[1] *= 1.f - 0.6f * t[5];                              // wind does not show through thick calm fog (a blizzard keeps its wind)
 }
 
 // the way the wind blows across the screen: +1 to the right, -1 to the left
-// how dark and heavy the cloud is: storms most, rain a little (rain clouds are a touch darker than fair-weather ones)
-float heavyOf(const App& a) { return std::max(std::max(a.qfx[3], 0.85f * a.qfx[4]), 0.30f * a.qfx[2]); }
+// how dark and heavy the cloud is: storms and blizzards most, rain a little
+float heavyOf(const App& a) { return std::max(std::max(std::max(a.qfx[3], 0.85f * a.qfx[4]), 0.78f * a.qfx[7]), 0.30f * a.qfx[2]); }
 
 float windSide(const App& a) {
     if (a.st.quietPreview != 0 || !a.wx.valid) return 1.f;
@@ -83,6 +97,7 @@ float windSide(const App& a) {
 float windKmh(const App& a) {
     if (a.st.quietPreview == 2 || a.st.quietPreview == 3) return 32.f;
     if (a.st.quietPreview == 5) return 48.f;
+    if (a.st.quietPreview == 11) return 58.f;
     return a.wx.valid ? (float)std::max(a.wx.cur.wind, 0.6 * a.wx.cur.gust) : 0.f;
 }
 
@@ -129,8 +144,8 @@ void cloudShape(Gfx& g, float x, float y, float cw, float ht, int seed, const To
 constexpr float SPR = 0.5f;           // images are kept at half size: the shapes are soft, and it quarters the memory
 
 struct Slot { Bitmap bmp; uint64_t key = 0, failed = 0; float nominal = 0; };       // nominal: the size (px) the image was drawn for, so a stale one can be scaled
-Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gSnowFlake;
-float gCeilH = 0, gMistH = 0, gFrontCw = 0, gFogH = 0, gSnowCell = 0;
+Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gSnowFlake, gBlizzStreak, gBlizzDrift;
+float gCeilH = 0, gMistH = 0, gFrontCw = 0, gFogH = 0, gSnowCell = 0, gBlizzS = 0, gBlizzSlant = 0, gBlizzDriftH = 0;
 bool gResizing = false;      // the window size changed a moment ago: keep drawing the images we have, rebuild once it settles
 int gBudget = 0; double gBudgetAt = -1e18;
 } // namespace
@@ -496,8 +511,9 @@ void drawWind(Ctx& c, const Frame& F, float k, float q) {
         }
     }
 
-    // leaves: a few tumbling across, fluttering (they turn edge-on and back) and looping on small eddies
-    const int nl = std::max(0, (int)std::lround(5.f * k * q));             // look: how many leaves (1 in a light breeze, 4-5 in a gale)
+    // leaves: a few tumbling across, fluttering (they turn edge-on and back) and looping on small eddies (suppressed during snowfall & blizzards)
+    const float leafMask = 1.f - clamp01(std::max(a.qfx[6], a.qfx[7]) * 2.f);
+    const int nl = std::max(0, (int)std::lround(5.f * k * q * leafMask));    // look: how many leaves (1 in a light breeze, 4-5 in a gale, 0 in snow/blizzard)
     static std::vector<Pt> leaf(8);
     for (int i = 0; i < nl; ++i) {
         const double per = 8.5 + 5.0 * hashf(i, 231);                       // look: wind-clock seconds to cross the screen
@@ -875,6 +891,313 @@ void drawFrontSnow(Ctx& c, const Frame& F, float k, float side, float q) {
     }
 }
 
+// ---------------------------------------------------------------- blizzard / harsh snowstorm
+// Intense, driving yet unmistakably artistic winter storm:
+//  - Three parallax depths x 4 organic snow variants (feathered snow smear, tumbling twin snow cluster,
+//    driving squall streak, and wind-stretched glowing snow puff) pre-baked into a tiny atlas, advected
+//    with toroidal 2D motion along the gale + turbulent crosswind eddies so density stays uniform at any aspect.
+//  - Cached half-res billowing whiteout drift sprite (gBlizzDrift) for fast sweeping squall curtains and
+//    racing ground snowbank plumes at a tiny fraction of per-frame radial-gradient cost.
+//  - Curling frosted spindrift wind ribbons tying the blizzard cleanly into Meridian's painterly wind style.
+const float kBDepth[3] = {0.58f, 0.88f, 1.24f};
+const float kBWidth[3] = {1.85f, 3.00f, 4.45f};
+const float kBDrop[4]  = {6.f, 9.f, 13.f, 4.5f};
+
+struct BlizzGeo { float wd, dy[4], padX, padY, cw, ch, rowY; };
+void blizzGeo(float s, float slant, BlizzGeo out[3], float& atlasW, float& atlasH) {
+    float y = 0.f; atlasW = 0.f;
+    for (int L = 0; L < 3; ++L) {
+        BlizzGeo& G = out[L]; const float d = kBDepth[L];
+        G.wd = std::max(1.3f, kBWidth[L] * s);
+        for (int v = 0; v < 4; ++v) G.dy[v] = std::max(3.f, std::floor(kBDrop[v] * s * d));
+        G.padX = std::ceil(G.wd * 2.6f) + 5.f;
+        G.padY = std::ceil(G.wd * 2.6f) + 5.f;
+        G.cw = std::ceil(2.f * G.padX + std::fabs(slant) * G.dy[2]);
+        G.ch = std::ceil(G.dy[2] + 2.f * G.padY);
+        G.rowY = y; y += G.ch;
+        atlasW = std::max(atlasW, G.cw * 4.f);
+    }
+    atlasH = y;
+}
+
+Bitmap buildBlizzStreaks(Gfx& g, const Frame& F, float s, float slant, bool dark) {
+    BlizzGeo BG[3]; float aw = 0.f, ah = 0.f;
+    blizzGeo(s, slant, BG, aw, ah);
+    if (aw < 4 || ah < 4 || aw > 4096 || ah > 4096 || !g.beginSprite((int)aw, (int)ah)) return Bitmap{};
+    const Color C = F.snow, Rim = F.snowRim;
+    for (int L = 0; L < 3; ++L) {
+        const BlizzGeo& G = BG[L];
+        for (int v = 0; v < 4; ++v) {
+            g.setOffset(v * G.cw, G.rowY);
+            const float dy = G.dy[v], dx = slant * dy;
+            const float len = std::hypot(dx, dy);
+            const float nx = -dy / std::max(1.f, len), ny = dx / std::max(1.f, len);
+            const float midX = G.cw * 0.5f, midY = G.ch * 0.5f;
+            const float tx = midX - dx * 0.5f, ty = midY - dy * 0.5f;
+            auto smear = [&](float t0, float t1, float w0, float w1, const Color& col, float a0, float a1) {
+                const float ax = tx + dx * t0, ay = ty + dy * t0;
+                const float bx = tx + dx * t1, by = ty + dy * t1;
+                g.fillPolyVGradient(
+                    {{ax - nx * w0, ay - ny * w0}, {ax + nx * w0, ay + ny * w0},
+                     {bx + nx * w1, by + ny * w1}, {bx - nx * w1, by - ny * w1}},
+                    ay, by, withA(col, a0), withA(col, a1));
+            };
+            if (v == 3) {
+                // Variant 3: wind-stretched luminous snowflake puff (reads instantaneously as blowing snow)
+                const int steps = 4;
+                for (int k = 0; k < steps; ++k) {
+                    const float f = (k + 0.5f) / steps;
+                    const float px = tx + dx * f, py = ty + dy * f;
+                    const float env = std::sin(f * PI_F);
+                    if (!dark) g.glow(px, py, G.wd * (1.1f + 0.55f * env), Rim, 0.24f * env);
+                    g.glow(px, py, G.wd * (0.95f + 0.60f * env), C, (dark ? 0.50f : 0.58f) * env);
+                }
+                g.glow(midX + dx * 0.14f, midY + dy * 0.14f, G.wd * 1.45f, C, 0.62f);
+                g.fillCircle(midX + dx * 0.14f, midY + dy * 0.14f, G.wd * 0.52f, withA(C, 0.90f));
+            } else if (v == 1) {
+                // Variant 1: tumbling twin snow cluster caught in an eddy
+                if (!dark) smear(0.0f, 1.0f, G.wd * 0.35f, G.wd * 0.85f, Rim, 0.0f, 0.22f);
+                smear(0.0f, 0.82f, G.wd * 0.28f, G.wd * 0.78f, C, 0.0f, dark ? 0.36f : 0.44f);
+                const float p1x = tx + dx * 0.78f + nx * G.wd * 0.22f, p1y = ty + dy * 0.78f + ny * G.wd * 0.22f;
+                const float p2x = tx + dx * 0.42f - nx * G.wd * 0.38f, p2y = ty + dy * 0.42f - ny * G.wd * 0.38f;
+                if (!dark) { g.glow(p1x, p1y, G.wd * 1.6f, Rim, 0.26f); g.glow(p2x, p2y, G.wd * 1.3f, Rim, 0.20f); }
+                g.glow(p1x, p1y, G.wd * 1.45f, C, 0.56f);
+                g.fillCircle(p1x, p1y, G.wd * 0.54f, withA(C, 0.92f));
+                g.glow(p2x, p2y, G.wd * 1.15f, C, 0.46f);
+                g.fillCircle(p2x, p2y, G.wd * 0.40f, withA(C, 0.78f));
+            } else {
+                // Variants 0 & 2: soft powdery wind-driven snow smears (feathered tail + fluffy snow core, no harsh needle dot)
+                if (!dark) {
+                    smear(0.0f, 0.85f, G.wd * 0.38f, G.wd * 1.00f, Rim, 0.0f, 0.26f);
+                    smear(0.85f, 1.0f, G.wd * 1.00f, G.wd * 0.45f, Rim, 0.26f, 0.0f);
+                }
+                smear(0.0f, 0.82f, G.wd * 0.25f, G.wd * 0.86f, C, 0.0f, dark ? 0.48f : 0.56f);
+                smear(0.82f, 1.0f, G.wd * 0.86f, G.wd * 0.32f, C, dark ? 0.48f : 0.56f, 0.0f);
+                smear(0.28f, 0.86f, G.wd * 0.16f, G.wd * 0.48f, C, 0.0f, dark ? 0.68f : 0.76f);
+                const float cx = tx + dx * 0.80f, cy = ty + dy * 0.80f;
+                g.glow(cx, cy, G.wd * 1.55f, C, dark ? 0.50f : 0.58f);
+                g.fillCircle(cx, cy, G.wd * 0.46f, withA(C, 0.88f));
+                if (v == 2 && L >= 1) {
+                    const float qx = tx + dx * 0.50f - nx * G.wd * 0.26f, qy = ty + dy * 0.50f - ny * G.wd * 0.26f;
+                    g.fillCircle(qx, qy, G.wd * 0.30f, withA(C, 0.50f));
+                }
+            }
+        }
+    }
+    g.setOffset(0, 0);
+    return g.endSprite();
+}
+
+// Cached half-resolution billowing whiteout snow-squall sprite (replaces expensive per-frame radial gradients)
+bool blizzDriftReady(Ctx& c, const Frame& F, float side) {
+    const float W = c.W, H = c.H;
+    const bool dark = c.P.dark;
+    const uint64_t key = mixKey(mixKey(q3(F.snow), mixKey(q3(F.snowRim), dark ? 1u : 0u)),
+                                mixKey(mixKey(qsz(W), qsz(H)), side > 0.f ? 8501u : 8502u));
+    gBlizzDriftH = 0.24f * H;
+    return ensure(c.g, gBlizzDrift, key, 0.f, [&] {
+        const int sw = std::max(32, (int)(W * 0.72f * SPR)), sh = std::max(24, (int)(gBlizzDriftH * SPR));
+        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
+        const int puffs = 11;
+        for (int m = 0; m < puffs; ++m) {
+            const float u = (m + 0.5f) / puffs;
+            const float env = std::sin(u * PI_F);
+            const float rx = sw * (0.11f + 0.08f * env * (0.8f + 0.4f * hashf(m, 861)));
+            const float ry = sh * (0.20f + 0.16f * env * (0.8f + 0.4f * hashf(m, 862)));
+            const float cx = rx * 0.95f + (sw - 2.f * rx * 0.95f) * u;
+            // Subtle wind-sheared diagonal tilt inside the plume
+            const float slope = (u - 0.5f) * side * sh * 0.16f;
+            const float cy = std::max(ry * 0.95f, std::min(sh - ry * 0.95f, sh * 0.5f + slope + (hashf(m, 863) - 0.5f) * sh * 0.18f));
+            if (!dark) c.g.glowEllipse(cx, cy + ry * 0.15f, rx * 1.15f, ry * 1.05f, F.snowRim, 0.22f * env);
+            c.g.glowEllipse(cx, cy, rx * 1.25f, ry * 1.10f, F.snow, 0.30f * env);
+            c.g.glowEllipse(cx, cy, rx * 0.65f, ry * 0.62f, F.snow, 0.22f * env);
+        }
+        return c.g.endSprite();
+    });
+}
+
+void drawBlizzard(Ctx& c, const Frame& F, float k, float side, float q, bool skyBg = false) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double t = a.now, T = std::max(0.0, a.fxBlizzT);
+    const bool dark = c.P.dark;
+    const float gust = 0.5f + 0.5f * std::sin(ph(t, 0.55) + 0.85f * std::sin(ph(t, 0.21)));
+    const float surge = 0.74f + 0.52f * gust * gust;                             // howling squall surge
+    const float gs = std::min(gFx, 1.6f);
+    const bool driftOk = !skyBg && blizzDriftReady(c, F, side);
+
+    // A. Sweeping diagonal whiteout squall curtains & wintry depth haze (cached sprite -> ultra fast!)
+    if (!skyBg) {
+        const float topA = al((dark ? 0.08f : 0.10f) * k * (0.85f + 0.22f * gust));
+        g.vGradientRect(0.f, 0.f, W, H * 0.36f, withA(F.snowRim, topA), withA(F.snowRim, 0.f));
+        const float botH = H * 0.28f;
+        const float botA = al((dark ? 0.24f : 0.27f) * k * (0.84f + 0.26f * gust));
+        g.vGradientRect(0.f, H - botH, W, botH, withA(F.snow, 0.f), withA(F.snow, botA));
+
+        if (driftOk) {
+            const Bitmap& bm = gBlizzDrift.bmp;
+            const int nv = std::max(3, (int)std::lround(4.f * q));
+            for (int i = 0; i < nv; ++i) {
+                const float h1 = hashf(i, 811), h2 = hashf(i, 812), h3 = hashf(i, 813);
+                const float scX = 0.95f + 0.50f * h1, scY = 0.85f + 0.55f * h2;
+                const float bw = (bm.w / SPR) * scX, bh = (bm.h / SPR) * scY;
+                const float spanX = W + bw;
+                const float spX = (220.f + 170.f * h3) * s;
+                const float px = loopPos(T, side * spX, h2 * spanX, spanX) - bw;
+                const float py = H * (0.12f + 0.68f * h1) + std::sin(ph(T, 0.38 + 0.22 * h2, h3 * 6.28)) * 0.05f * H;
+                const float pulse = 0.68f + 0.32f * std::sin(ph(t, 0.45 + 0.30 * h1, h2 * 6.28));
+                const float op = clamp01((dark ? 0.24f : 0.28f) * k * pulse * (0.76f + 0.36f * gust) * gs);
+                g.drawBitmapRect(bm, px, py - bh * 0.5f, bw, bh, op);
+            }
+        }
+    }
+
+    // B. Three parallax depths of dense driving snow streaks & tumbling clusters (toroidal 2D advection)
+    const float slant = std::round(side * 1.85f * 10.f) / 10.f;
+    const int sq = (int)std::lround(std::log2(std::max(0.05f, s)) * 5.f);
+    const uint64_t key = mixKey(mixKey(q3(F.snow), mixKey(q3(F.snowRim), (uint64_t)(sq + 96) * 2 + (dark ? 1u : 0u))),
+                                mixKey(8410, (uint64_t)(std::lround(slant * 10.f) + 64)));
+    const bool strOk = ensure(g, gBlizzStreak, key, s, [&] {
+        Bitmap b = buildBlizzStreaks(g, F, s, slant, dark);
+        if (b.bmp) { gBlizzS = s; gBlizzSlant = slant; }
+        return b;
+    });
+    if (strOk && gBlizzS > 0.f) {
+        BlizzGeo BG[3]; float aw = 0.f, ah = 0.f;
+        blizzGeo(gBlizzS, gBlizzSlant, BG, aw, ah);
+        const float bs = gBlizzSlant;
+        const float density = (skyBg ? 0.58f : 1.0f) * q;
+        const float invS = 1.f / std::max(0.1f, s);
+        struct BLayer { int baseN, extraN, salt; float vyMin, vyMax, eddyAmp, alpha; };
+        static const BLayer layers[3] = {
+            {115, 135, 830, 145.f, 225.f, 12.f, 0.50f},   // far dense blowing winter powder
+            { 82, 118, 860, 235.f, 360.f, 19.f, 0.78f},   // mid fierce wind-whipped snow streaks & clusters
+            { 28,  42, 890, 360.f, 515.f, 26.f, 0.64f},   // near dramatic soft-blurred blowing snow
+        };
+        for (int L = 0; L < 3; ++L) {
+            const BLayer& ly = layers[L];
+            const BlizzGeo& G = BG[L];
+            const int n = std::max(8, (int)std::lround((ly.baseN + ly.extraN * k) * density));
+            const float padX = G.cw + 16.f * s, padY = G.ch + 24.f * s;
+            const float wrapW = W + 2.f * padX, wrapH = H + 2.f * padY;
+            for (int i = 0; i < n; ++i) {
+                const float h1 = hashf(i, ly.salt + 1), h2 = hashf(i, ly.salt + 2), h3 = hashf(i, ly.salt + 3), h4 = hashf(i, ly.salt + 4);
+                const float vy = (ly.vyMin + (ly.vyMax - ly.vyMin) * h1) * s;
+                const float vx = bs * vy;
+                const float px = loopPos(T, vx, h2 * wrapW, wrapW) - padX;
+                const float rawY = loopPos(T, vy, h3 * wrapH, wrapH) - padY;
+                const float eddy = std::sin(ph(T, 1.7 + 1.3 * h4, h3 * 6.2831) + (px * invS) * 0.0024f) * ly.eddyAmp * s;
+                const float py = rawY + eddy;
+                if (px < -G.cw || px > W + G.cw || py < -G.ch || py > H + G.ch) continue;
+                const float edgeY = smoothstep(-G.ch * 0.6f, H * 0.04f, py) * (1.f - smoothstep(H * 0.94f, H + G.ch * 0.6f, py));
+                const float shimmer = 0.74f + 0.26f * std::sin(ph(t, 2.2 + 1.8 * h4, h2 * 6.2831));
+                const float op = clamp01(al(ly.alpha * k * edgeY * shimmer * (0.68f + 0.32f * h4) * (0.86f + 0.20f * surge)));
+                if (op < 0.01f) continue;
+                const int v = std::min(3, (int)(h4 * 4.f));
+                g.drawBitmapSub(gBlizzStreak.bmp, std::round(px - G.cw * 0.5f), std::round(py - G.ch * 0.5f),
+                                v * G.cw, G.rowY, G.cw, G.ch, op);
+            }
+        }
+    }
+
+    // C. Howling artistic spindrift wind ribbons (merges harsh snowstorm with Meridian's painterly wind language)
+    if (!skyBg) {
+        const bool left = side < 0.f;
+        auto mx = [&](float x) { return left ? W - x : x; };
+        Pt pts[WPTS + 2]; float vv[WPTS + 2];
+        WindPath P;
+        static std::vector<Pt> bPoly;
+        if (bPoly.capacity() < (size_t)(WPTS * 2)) bPoly.reserve((size_t)(WPTS * 2));
+        const int nr = std::max(2, (int)std::lround((3.f + 4.f * k) * q));
+        for (int i = 0; i < nr; ++i) {
+            const int L = i % 3;
+            const double per = 1.65 + 1.05 * hashf(i, 921);
+            const double tt = T / per + hashf(i, 922);
+            const double cyc = std::floor(tt);
+            const float u = (float)(tt - cyc);
+            const int sd = i * 9733 + (int)std::fmod(cyc, 65521.0);
+            const float len = W * (0.22f + 0.18f * hashf(sd, 924)) * (0.85f + 0.22f * k);
+            const float x0 = W * (-0.10f + 0.86f * hashf(sd, 925)) - 0.35f * len + u * 0.16f * W;
+            const float y0 = H * (0.10f + 0.80f * hashf(sd, 926));
+            const float amp = (8.f + 15.f * hashf(sd, 927)) * s;
+            const float wl = (380.f + 340.f * hashf(sd, 928)) * s;
+            const float phase = hashf(sd, 929) * 6.2832f - 2.6f * u;
+            const float bow = (0.09f + 0.08f * hashf(sd, 930)) * H;              // sweeps decisively downward along the blizzard gale
+            const bool curl = hashf(sd, 931) < 0.48f;
+            const float curlR = curl ? (13.f + 14.f * hashf(sd, 932)) * s : 0.f;
+            const float turns = 0.72f + 0.26f * hashf(sd, 933);
+            const float curlDir = hashf(sd, 934) < 0.70f ? -1.f : 1.f;
+            windPath(P, x0, y0, len, amp, wl, phase, bow, curlR, turns, curlDir);
+            const float head = easeOut3(u / 0.56f), tail = easeInOut((u - 0.26f) / 0.74f);
+            const int m = windSlice(P, tail, head, pts, vv);
+            if (m < 2) continue;
+            for (int j = 0; j < m; ++j) pts[j].x = mx(pts[j].x);
+            const float life = smoothstep(0.f, 0.10f, u) * (1.f - smoothstep(0.84f, 1.f, u));
+            const float ra = (0.28f + 0.14f * L) * k * life * (0.76f + 0.34f * gust);
+            if (ra < 0.008f) continue;
+            const float w = std::max(1.5f, (2.4f + 1.1f * L) * s);
+            if (!dark) windRibbon(g, pts, vv, m, w * 2.5f, withA(F.snowRim, al(0.24f * ra)), bPoly);
+            windRibbon(g, pts, vv, m, w * 2.9f, withA(F.snow, al(0.24f * ra)), bPoly);
+            windRibbon(g, pts, vv, m, w * 0.90f, withA(F.snow, al(0.58f * ra)), bPoly);
+        }
+
+        // D. Fast-racing ground spindrift snowbank plumes skimming the bottom 18% of the screen (cached sprite!)
+        if (driftOk) {
+            const Bitmap& bm = gBlizzDrift.bmp;
+            const int ng = std::max(3, (int)std::lround(5.f * q));
+            for (int i = 0; i < ng; ++i) {
+                const float h1 = hashf(i, 951), h2 = hashf(i, 952), h3 = hashf(i, 953);
+                const float bw = (bm.w / SPR) * (0.52f + 0.34f * h1);
+                const float bh = (bm.h / SPR) * (0.36f + 0.22f * h2);
+                const float spanX = W + bw;
+                const float spX = (310.f + 240.f * h3) * s;
+                const float px = loopPos(T, side * spX, h1 * spanX, spanX) - bw;
+                const float py = H * (0.87f + 0.12f * h2) - std::sin(ph(T, 1.1 + 0.7 * h3, h1 * 6.28)) * 10.f * s;
+                const float op = clamp01((dark ? 0.36f : 0.40f) * k * (0.70f + 0.36f * gust) * (0.70f + 0.30f * h3) * gs);
+                g.drawBitmapRect(bm, px, py - bh * 0.5f, bw, bh, op);
+            }
+        }
+    }
+}
+
+void drawFrontBlizzard(Ctx& c, const Frame& F, float k, float side, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (!gBlizzStreak.bmp.bmp || gBlizzS <= 0.f) return;
+    BlizzGeo BG[3]; float aw = 0.f, ah = 0.f;
+    blizzGeo(gBlizzS, gBlizzSlant, BG, aw, ah);
+    const BlizzGeo& G = BG[2];
+    const float bs = gBlizzSlant;
+    const double T = std::max(0.0, a.fxBlizzT);
+    const float padX = G.cw + 20.f * s, padY = G.ch + 20.f * s;
+    const float wrapW = W + 2.f * padX, wrapH = H + 2.f * padY;
+    // Fast foreground wind-streaked blizzard flakes whipping across the Quiet digits (sparse so digits stay crisp)
+    const int n = std::max(6, (int)std::lround((10 + 10 * k) * q));
+    for (int i = 0; i < n; ++i) {
+        const float h1 = hashf(i, 971), h2 = hashf(i, 972), h3 = hashf(i, 973), h4 = hashf(i, 974);
+        const float vy = (430.f + 190.f * h1) * s;
+        const float px = loopPos(T, bs * vy, h2 * wrapW, wrapW) - padX;
+        const float py = loopPos(T, vy, h3 * wrapH, wrapH) - padY + std::sin(ph(T, 2.2 + h4, h2 * 6.28)) * 16.f * s;
+        const float fade = smoothstep(-G.ch * 0.4f, H * 0.07f, py) * (1.f - smoothstep(H * 0.90f, H + G.ch * 0.4f, py));
+        const float op = clamp01(al(0.38f * k * fade * (0.65f + 0.35f * h4)));
+        if (op < 0.01f) continue;
+        const int v = std::min(3, (int)(h4 * 4.f));
+        g.drawBitmapSub(gBlizzStreak.bmp, std::round(px - G.cw * 0.5f), std::round(py - G.ch * 0.5f),
+                        v * G.cw, G.rowY, G.cw, G.ch, op);
+    }
+    // A few swift out-of-focus foreground snow puffs whipping past the glass
+    const int nb = std::max(2, (int)std::lround((3 + 3 * k) * q));
+    for (int i = 0; i < nb; ++i) {
+        const float h1 = hashf(i, 981), h2 = hashf(i, 982), h3 = hashf(i, 983);
+        const float vy = (360.f + 140.f * h1) * s;
+        const float px = loopPos(T, side * 1.85f * vy, h2 * wrapW, wrapW) - padX;
+        const float py = loopPos(T, vy, h3 * wrapH, wrapH) - padY;
+        const float op = clamp01(al(0.20f * k * (0.7f + 0.3f * h1)));
+        if (op < 0.01f) continue;
+        const float r = (9.f + 5.f * h2) * s;
+        g.glowEllipse(px, py, r * 2.0f, r * 0.78f, F.snow, op);
+    }
+}
+
 // ---------------------------------------------------------------- lightning
 // A forked bolt every few seconds and a soft flash inside the cloud in between. Gentle: no full-screen flash.
 // The bolts leave from the clouds: a cloud flashes from inside (sheet lightning), now and then a forked bolt comes down out of one, and the clouds
@@ -1021,10 +1344,14 @@ void drawQuietFront(Ctx& c, float midY, float clockH) {
     if (!a.st.quietFx) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
-    if (a.qfx[2] > 0.02f) drawFrontDrops(c, a.qfx[2], windSide(a), std::max(0.3f, std::min(1.f, a.fxQuality)));     // a few drops in front of the time
-    if (a.qfx[6] > 0.02f) {
+    const float q = std::max(0.3f, std::min(1.f, a.fxQuality));
+    const float side = windSide(a);
+    if (a.qfx[2] > 0.02f) drawFrontDrops(c, a.qfx[2], side, q);     // a few drops in front of the time
+    const float calmFrontSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
+    if (calmFrontSnow > 0.02f || a.qfx[7] > 0.02f) {
         const Frame F = makeFrame(c, heavyOf(a));
-        drawFrontSnow(c, F, a.qfx[6], windSide(a), std::max(0.3f, std::min(1.f, a.fxQuality)));
+        if (calmFrontSnow > 0.02f) drawFrontSnow(c, F, calmFrontSnow, side, q);
+        if (a.qfx[7] > 0.02f) drawFrontBlizzard(c, F, a.qfx[7], side, q);
     }
     if (k < 0.02f) return;
     const float heavy = heavyOf(a);
@@ -1042,14 +1369,14 @@ void drawQuietFront(Ctx& c, float midY, float clockH) {
 
 // ---------------------------------------------------------------- state
 void quietFxStep(App& a) {
-    float t[7]; targets(a, t);
-    for (int i = 0; i < 7; ++i) a.qfxT[i] = t[i];
+    float t[8]; targets(a, t);
+    for (int i = 0; i < 8; ++i) a.qfxT[i] = t[i];
     const float kk = 1.f - std::exp(-(float)std::min(a.dt, 1.0) * 1.4f);
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 8; ++i) {
         a.qfx[i] += (t[i] - a.qfx[i]) * kk;
         if (std::fabs(a.qfx[i] - t[i]) < 0.004f) a.qfx[i] = t[i];
     }
-    // the clocks the clouds, fog, wind and snow move by (see app.h): they only ever add up, so nothing jumps when the forecast or the window changes
+    // the clocks the clouds, fog, wind, snow and blizzard move by (see app.h): they only ever add up, so nothing jumps when the forecast or the window changes
     {
         const double dtc = std::min(std::max(a.dt, 0.0), 0.25);
         const float side = windSide(a);
@@ -1067,14 +1394,17 @@ void quietFxStep(App& a) {
         const float gust = 0.5f + 0.5f * std::sin(ph(gustT, 0.42) + 0.8f * std::sin(ph(gustT, 0.17)));
         const float galeBoost = 0.40f * clamp01((a.fxWk - 42.f) / 40.f);
         a.fxWindT += dtc * (0.55 + 1.45 * a.qfx[1] + galeBoost) * (0.85f + 0.30f * gust);
+        const float bGust = 0.5f + 0.5f * std::sin(ph(gustT, 0.55) + 0.85f * std::sin(ph(gustT, 0.21)));
+        const float bBoost = 0.45f * clamp01((a.fxWk - 32.f) / 36.f);
+        a.fxBlizzT += dtc * (0.95 + 0.65 * bGust * bGust + bBoost);
     }
-    // the light: heavy cloud and storms darken and cool it, fog flattens and mutes it, snow brings a gentle cool wintry overcast.
+    // the light: heavy cloud and storms darken and cool it, fog flattens and mutes it, snow brings a gentle cool wintry overcast, blizzard brings deep stormy chill + blowing haze.
     {
         const float cl = clamp01((a.qfx[0] - 0.3f) / 0.7f);                // 0 at a third of the sky, 1 under a solid lid
         float gl = 0.90f * std::pow(cl, 1.4f) + 0.15f * a.qfx[2] + 0.12f * a.qfx[6];
-        gl = std::max(gl, std::max(0.97f * a.qfx[4], a.qfx[3]));
-        const float hz = std::max(a.qfx[5], 0.16f * a.qfx[6]);
-        gl *= 1.f - 0.55f * a.qfx[5];                                      // fog is milky, not dark
+        gl = std::max(gl, std::max(std::max(0.97f * a.qfx[4], a.qfx[3]), 0.82f * a.qfx[7]));
+        const float hz = std::max(std::max(a.qfx[5], 0.16f * a.qfx[6]), 0.34f * a.qfx[7]);
+        gl *= 1.f - 0.55f * a.qfx[5] * (1.f - 0.65f * a.qfx[7]);          // calm fog is milky; a blizzard stays dramatic and stormy
         const float m = a.st.weatherMood && !a.packHoldsColours() ? a.st.moodStrength : 0.f;     // a theme pack (GTA VI, Halloween ...) always keeps its own colours
         a.gloom = clamp01(gl * m); a.haze = clamp01(hz * m);
     }
@@ -1087,19 +1417,20 @@ void quietFxStep(App& a) {
     }
 }
 
-void quietFxRelease(gfx::Gfx& g) { freeSlot(g, gRainStreak); for (auto& s : gRainSplash) freeSlot(g, s); for (auto& s : gCloud) freeSlot(g, s); for (auto& s : gFog) freeSlot(g, s); freeSlot(g, gCeiling); freeSlot(g, gMist); freeSlot(g, gFront); freeSlot(g, gSnowFlake); }
+void quietFxRelease(gfx::Gfx& g) { freeSlot(g, gRainStreak); for (auto& s : gRainSplash) freeSlot(g, s); for (auto& s : gCloud) freeSlot(g, s); for (auto& s : gFog) freeSlot(g, s); freeSlot(g, gCeiling); freeSlot(g, gMist); freeSlot(g, gFront); freeSlot(g, gSnowFlake); freeSlot(g, gBlizzStreak); freeSlot(g, gBlizzDrift); }
 
 std::string quietFxDescribe(const App& a) {
     if (!a.st.quietFx) return "Switched off. No weather is drawn behind the clock.";
-    float t[7]; targets(a, t);
+    float t[8]; targets(a, t);
     if (a.st.quietPreview != 0) {
-        static const char* n[11] = {"", "clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "fog", "the sun flare", "snowfall"};
-        return std::string("Previewing ") + n[std::max(1, std::min(10, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
+        static const char* n[12] = {"", "clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "fog", "the sun flare", "snowfall", "a harsh snowstorm (blizzard)"};
+        return std::string("Previewing ") + n[std::max(1, std::min(11, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
     }
     if (!a.wx.valid) return "No weather yet, so nothing is drawn.";
     std::string parts; int cnt = 0;
     auto add = [&](const char* p) { parts += std::string(cnt++ ? ", " : "") + p; };
     if (t[3] > 0) return "A severe storm: a tornado twists up behind the clock, with lightning.";
+    if (t[7] > 0.20f) return t[4] > 0 ? "A thundersnow blizzard: driving snow, howling wind and lightning." : "A harsh snowstorm: wind-driven snow and swirling spindrift across the clock.";
     if (t[4] > 0) return t[2] > 0 ? "A thunderstorm: heavy cloud, lightning and rain." : "Thunder with cloud and no rain: heavy cloud and lightning.";
     if (t[5] > 0.6f) return "Fog: soft banks drift low behind the clock.";
     if (t[5] > 0) add("mist");
@@ -1135,7 +1466,7 @@ void drawSunFlare(Ctx& c) {
     if (sunlit) k = smoothstep(-3.5f, 0.5f, alt) * (0.58f + 0.42f * (1.f - smoothstep(6.f, 30.f, alt)));
     if (preview) k = std::max(k, 0.9f);
     if (k < 0.01f) return;
-    const float covered = std::max(std::max(a.qfx[0], a.qfx[5]), std::max(std::max(a.qfx[2], a.qfx[6]), a.qfx[4]));      // clouds, fog, rain, snow, thunder (eased)
+    const float covered = std::max(std::max(a.qfx[0], a.qfx[5]), std::max(std::max(a.qfx[2], std::max(a.qfx[6], a.qfx[7])), a.qfx[4]));      // clouds, fog, rain, snow, blizzard, thunder (eased)
     k *= 1.f - 0.92f * clamp01(covered);
     k *= P.dark ? 1.f : (sunlit ? 0.95f : 0.6f);                                       // on a bright page a warm glow needs less, a sunny one a little less than none
     k *= 0.7f + 0.3f * std::max(0.4f, std::min(2.f, a.st.quietStrength));
@@ -1174,39 +1505,45 @@ void drawSunFlare(Ctx& c) {
     }
 }
 
-// Rain & snow on the Sky face: drawn behind the sky dome and labels so every label stays legible.
+// Rain, snow & blizzard on the Sky face: drawn behind the sky dome and labels so every label stays legible.
 void drawSkyRain(Ctx& c) {
     App& a = c.a;
     if (!a.st.quietFx || !a.st.skyRain) return;
-    if (a.qfx[2] < 0.01f && a.qfx[6] < 0.01f) return;
+    if (a.qfx[2] < 0.01f && a.qfx[6] < 0.01f && a.qfx[7] < 0.01f) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float side = windSide(a), q = std::max(0.3f, std::min(1.f, a.fxQuality));
     const Frame F = makeFrame(c, heavyOf(a));
+    const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
     if (a.qfx[2] > 0.01f) drawRain(c, F, a.qfx[2] * 0.7f, side, q * 0.7f, true);
-    if (a.qfx[6] > 0.01f) drawSnow(c, F, a.qfx[6] * 0.85f, side, q * 0.75f, true);
+    if (calmSnow > 0.01f) drawSnow(c, F, calmSnow * 0.85f, side, q * 0.75f, true);
+    if (a.qfx[7] > 0.01f) drawBlizzard(c, F, a.qfx[7] * 0.78f, side, q * 0.72f, true);
 }
 
 void drawQuietFx(Ctx& c) {
     App& a = c.a;
     drawScenery(c);                                                           // behind the weather: a cloud drifts over it
     if (!a.st.quietFx) return;
-    if (a.qfx[0] + a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[5] + a.qfx[6] < 0.01f) return;
+    if (a.qfx[0] + a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[5] + a.qfx[6] + a.qfx[7] < 0.01f) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float side = windSide(a), q = std::max(0.3f, std::min(1.f, a.fxQuality));
     const float heavy = heavyOf(a);
     const Frame F = makeFrame(c, heavy);
+    const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
+    const float windVis = a.qfx[1] * (1.f - 0.78f * a.qfx[7]);
+    const float fogVis = a.qfx[5] * (1.f - 0.85f * a.qfx[7]);      // blizzard renders its own billowing whiteout drift curtains
     if (a.qfx[0] > 0.01f) drawClouds(c, F, a.qfx[0], heavy);
-    if (a.qfx[5] > 0.01f) drawFog(c, F, a.qfx[5]);
+    if (fogVis > 0.01f) drawFog(c, F, fogVis);
     if (a.qfx[4] > 0.01f) drawLightning(c, a.qfx[4], a.qfx[3] > 0.01f, a.qfx[0], heavy);
     if (a.qfx[3] > 0.01f) drawTornado(c, a.qfx[3], side, q);
     if (a.qfx[2] > 0.01f) drawRain(c, F, a.qfx[2], side, q);
-    if (a.qfx[6] > 0.01f) drawSnow(c, F, a.qfx[6], side, q);
-    if (a.qfx[1] > 0.01f) drawWind(c, F, a.qfx[1], q);
+    if (calmSnow > 0.01f) drawSnow(c, F, calmSnow, side, q);
+    if (a.qfx[7] > 0.01f) drawBlizzard(c, F, a.qfx[7], side, q);
+    if (windVis > 0.01f) drawWind(c, F, windVis, q);
 }
 
-// Focus tab ambient backdrop: lets users pair their focus session with soothing rain, snow, clouds, fog, storm, stars or live weather.
+// Focus tab ambient backdrop: lets users pair their focus session with soothing rain, snow, blizzard, clouds, fog, storm, stars or live weather.
 void drawFocusBackdrop(Ctx& c) {
     App& a = c.a;
     const int mode = a.st.focusFx;
@@ -1222,7 +1559,7 @@ void drawFocusBackdrop(Ctx& c) {
         drawSpaceBackdropOnly(c);
         return;
     }
-    const float heavy = (mode == 6) ? 0.85f : (mode == 2 ? 0.30f : 0.15f);
+    const float heavy = (mode == 6) ? 0.85f : (mode == 8 ? 0.80f : (mode == 2 ? 0.30f : 0.15f));
     const Frame F = makeFrame(c, heavy);
     switch (mode) {
         case 2:                                               // RAIN: cozy lo-fi rain window
@@ -1244,6 +1581,10 @@ void drawFocusBackdrop(Ctx& c) {
             drawClouds(c, F, 0.92f, 0.85f);
             drawLightning(c, 0.78f, false, 0.92f, 0.85f);
             drawRain(c, F, 0.82f, 1.f, q * 0.92f);
+            break;
+        case 8:                                               // BLIZZARD: fierce driving snowstorm
+            drawClouds(c, F, 0.94f, 0.80f);
+            drawBlizzard(c, F, 1.0f, 1.f, q);
             break;
         default: break;
     }

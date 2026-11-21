@@ -437,7 +437,14 @@ bool Gfx::init() {
 }
 
 void Gfx::clearGlowCache() { for (auto& kv : glowCache_) if (kv.second) kv.second->Release(); glowCache_.clear(); }
-void Gfx::invalidateDeviceResources() { clearGlowCache(); rel(ringLayer_); rel(ringGeom_); rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f; rel(rrLayer_); rel(rrGeom_); rrW_ = -1.f; rrPushed_ = false; rel(spriteRt_); savedRt_ = nullptr; rel(brush_); rel(roundStroke_); }
+void Gfx::invalidateDeviceResources() {
+    clearGlowCache();
+    rel(ringLayer_); rel(ringGeom_);
+    rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f;
+    for (int i = 0; i < 4; ++i) { rel(rrPool_[i].layer); rel(rrPool_[i].geom); rrPool_[i].w = -1.f; rrPushed_[i] = false; }
+    rrDepth_ = 0;
+    rel(spriteRt_); savedRt_ = nullptr; rel(brush_); rel(roundStroke_);
+}
 
 static bool makeDeviceResources(ID2D1Factory* f, ID2D1RenderTarget* rt, ID2D1SolidColorBrush** brush, ID2D1StrokeStyle** ss) {
     if (FAILED(rt->CreateSolidColorBrush(ColorF(1, 1, 1, 1), brush))) return false;
@@ -707,26 +714,31 @@ void Gfx::pushClip(float x, float y, float w, float h) { rt_->PushAxisAlignedCli
 void Gfx::popClip() { rt_->PopAxisAlignedClip(); }
 
 void Gfx::pushRoundRectClip(float x, float y, float w, float h, float r) {
-    rrPushed_ = false;
+    if (rrDepth_ >= 4) { ++rrDepth_; return; }
+    const int idx = rrDepth_++;
+    rrPushed_[idx] = false;
     if (!rt_ || !d2d_ || w <= 0.f || h <= 0.f) return;
+    RRSlot& sl = rrPool_[idx];
     const float rr = std::max(0.f, std::min(r, std::min(w, h) * 0.5f));
-    if (!rrGeom_ || std::fabs(x - rrX_) > 0.01f || std::fabs(y - rrY_) > 0.01f ||
-        std::fabs(w - rrW_) > 0.01f || std::fabs(h - rrH_) > 0.01f || std::fabs(rr - rrR_) > 0.01f) {
-        rel(rrGeom_);
-        if (FAILED(d2d_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(RectF(x, y, x + w, y + h), rr, rr), &rrGeom_))) {
-            rrGeom_ = nullptr;
+    if (!sl.geom || std::fabs(x - sl.x) > 0.01f || std::fabs(y - sl.y) > 0.01f ||
+        std::fabs(w - sl.w) > 0.01f || std::fabs(h - sl.h) > 0.01f || std::fabs(rr - sl.r) > 0.01f) {
+        rel(sl.geom);
+        if (FAILED(d2d_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(RectF(x, y, x + w, y + h), rr, rr), &sl.geom))) {
+            sl.geom = nullptr;
             return;
         }
-        rrX_ = x; rrY_ = y; rrW_ = w; rrH_ = h; rrR_ = rr;
+        sl.x = x; sl.y = y; sl.w = w; sl.h = h; sl.r = rr;
     }
-    if (!rrLayer_ && FAILED(rt_->CreateLayer(nullptr, &rrLayer_))) { rrLayer_ = nullptr; return; }
-    if (!rrLayer_ || !rrGeom_) return;
-    rt_->PushLayer(D2D1::LayerParameters(RectF(x - 1.f, y - 1.f, x + w + 1.f, y + h + 1.f), rrGeom_), rrLayer_);
-    rrPushed_ = true;
+    if (!sl.layer && FAILED(rt_->CreateLayer(nullptr, &sl.layer))) { sl.layer = nullptr; return; }
+    if (!sl.layer || !sl.geom) return;
+    rt_->PushLayer(D2D1::LayerParameters(RectF(x - 1.f, y - 1.f, x + w + 1.f, y + h + 1.f), sl.geom), sl.layer);
+    rrPushed_[idx] = true;
 }
 void Gfx::popRoundRectClip() {
-    if (rrPushed_ && rt_) rt_->PopLayer();
-    rrPushed_ = false;
+    if (rrDepth_ <= 0) return;
+    const int idx = --rrDepth_;
+    if (idx < 4 && rrPushed_[idx] && rt_) rt_->PopLayer();
+    if (idx < 4) rrPushed_[idx] = false;
 }
 
 void Gfx::pushCircleClip(float cx, float cy, float r) {

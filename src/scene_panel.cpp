@@ -355,26 +355,30 @@ void rotorDots(Ctx& c, Rotor& r, const std::vector<int>& list, int secs, float x
         const float padR = dir > 0 ? 6.f * s : 4.f * s;
         const float hx = bx - padL, hy = cy - 18.f * s, hw = d + padL + padR, hh = 36.f * s;
         const bool hover = allowHover && mx >= hx && mx <= hx + hw && my >= hy && my <= hy + hh;
+        const uint64_t gkey = a.nextActionGlassKey();
+        const glassfx::Pose gp = a.glass.pose(gkey, bx, by, d, d, br, s, hover, false);
 
         Color bg = P.panel;
         bg.a = std::max(bg.a, P.dark ? 0.075f : 0.065f) * c.alpha;
-        g.fillRoundRect(bx, by, d, d, br, bg);
+        g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, bg);
 
         const Color ac = tint(P, P.accent);
-        if (hover) g.fillRoundRect(bx, by, d, d, br, withA(ac, (P.dark ? 0.22f : 0.16f) * c.alpha));
+        if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(ac, (P.dark ? 0.22f : 0.16f) * gp.hoverT * c.alpha));
 
-        Color brd = hover ? withA(ac, (P.dark ? 0.78f : 0.72f) * c.alpha)
-                          : withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.45f : 1.35f)) * c.alpha);
-        g.strokeRoundRect(bx + 0.5f, by + 0.5f, d - 1.f, d - 1.f, br, brd, std::max(1.f, s));
+        Color brd = lerp(withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.45f : 1.35f)) * c.alpha),
+                         withA(ac, (P.dark ? 0.78f : 0.72f) * c.alpha), gp.hoverT);
+        g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), brd, std::max(1.f, s));
+        drawGlassEffects(c, gkey, gp, false, false);
 
         // Symmetric geometric chevron, optically centered inside the true 1:1 circle
-        const float ch = d * 0.195f, cw = d * 0.135f;
-        const float ccx = bx + br + (float)dir * (cw * 0.18f);
+        const float ch = gp.h * 0.195f, cw = gp.w * 0.135f;
+        const float gcy = gp.y + gp.h * 0.5f;
+        const float ccx = gp.x + gp.w * 0.5f + (float)dir * (cw * 0.18f);
         const std::vector<Pt> chev = dir < 0
-            ? std::vector<Pt>{{ccx + cw, cy - ch}, {ccx - cw, cy}, {ccx + cw, cy + ch}}
-            : std::vector<Pt>{{ccx - cw, cy - ch}, {ccx + cw, cy}, {ccx - cw, cy + ch}};
-        const Color col = hover ? mulA(P.ink, c.alpha) : mulA(P.ink2, (P.dark ? 0.92f : 0.96f) * c.alpha);
-        g.polyline(chev, false, col, hover ? std::max(1.6f, 1.90f * s) : std::max(1.35f, 1.60f * s), true);
+            ? std::vector<Pt>{{ccx + cw, gcy - ch}, {ccx - cw, gcy}, {ccx + cw, gcy + ch}}
+            : std::vector<Pt>{{ccx - cw, gcy - ch}, {ccx + cw, gcy}, {ccx - cw, gcy + ch}};
+        const Color col = lerp(mulA(P.ink2, (P.dark ? 0.92f : 0.96f) * c.alpha), mulA(P.ink, c.alpha), gp.hoverT);
+        g.polyline(chev, false, col, std::max(1.35f, (1.60f + 0.30f * gp.hoverT) * s), true);
 
         a.addAction(hx + a.shiftX, hy + a.shiftY, hw, hh, [rp, dir]() { rp->pending = dir; });
     };

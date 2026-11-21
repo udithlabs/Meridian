@@ -28,8 +28,8 @@
 using gfx::Color; using gfx::rgb; using gfx::Align;
 using gfx::F_DISPLAY; using gfx::F_LIGHT; using gfx::F_MEDIUM; using gfx::F_SERIF; using gfx::F_SERIF_I; using gfx::F_MONO; using gfx::F_MONO_M;
 
-static const wchar_t* VERSION_W  = L"2.9.7";
-static const wchar_t* CODENAME_W = L"Snowfall";
+static const wchar_t* VERSION_W  = L"2.9.8";
+static const wchar_t* CODENAME_W = L"Glass";
 
 // ------------------------------------------------------------------ look
 static const int   W = 860, H = 540;                  // the window, in 96-dpi units (it is scaled for the screen)
@@ -316,7 +316,7 @@ struct App {
 
         g.line(32, 452, LPW - 32, 452, {0.7f, 0.76f, 1.f, 0.14f}, 1.f, false);
         T(F_SERIF, 38.f, 30, 488, L"Sonnet", INK);
-        T(F_MONO_M, 10.f, 32, 510, std::wstring(L"EDITION  ·  ") + VERSION_W + L"  ·  SNOWFALL", GOLD, Align::Left, 0.14f);
+        T(F_MONO_M, 10.f, 32, 510, std::wstring(L"EDITION  ·  ") + VERSION_W + L"  ·  GLASS", GOLD, Align::Left, 0.14f);
     }
 
     // ---------------------------------------------------------------- the song's hidden corner

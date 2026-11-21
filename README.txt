@@ -1,15 +1,15 @@
-MERIDIAN 2.9.7 "Snowfall"  -  Sonnet Edition  -  an always-on clock for Windows
+MERIDIAN 2.9.8 "Glass"  -  Sonnet Edition  -  an always-on clock for Windows
 =============================================================================
 
 Source code. Build with build.bat (Windows, MinGW-w64) or build.sh (Linux cross-compile). The result is one
 Meridian.exe; put the "themes" folder next to it to use theme packs.
-The setup wizard (Meridian-Setup-2.9.7.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
+The setup wizard (Meridian-Setup-2.9.8.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
 
 Faces (Left/Right arrows, or 1-6; theme packs add more after Focus)
   Sky      big clock, a rotating left panel (what is special today, sky events, holidays,
            world clocks), a live sky map with the Sun, Moon, planets and constellations in their real
            positions, day/night band, hourly weather and air quality badge
-  Quiet    just the time and date, with the weather drifting behind them (clouds, wind, rain, snow, fog, a tornado)
+  Quiet    just the time and date, with the weather drifting behind them (clouds, wind, rain, snow, blizzard, fog, a tornado)
   Timer    countdown, stopwatch with laps, alarm
   Almanac  Moon close-up and phase dates, full sun table with Golden & Blue Hour, planets, 7-day forecast, what is special today
   Widgets  pages of tiles that take turns, like the rotating panel on the Sky face (see below)
@@ -302,8 +302,8 @@ Away: Meridian on, then sleep (new in 2.8.0)
   Not tried on a real PC by the author: the sleep itself (Windows' SetSuspendState) was only checked with a test hook, so tell me if a PC does
   not go to sleep.
 
-Setup file (Meridian-Setup-2.9.7.exe, a separate download next to this zip)
-  If you would rather have a real installer than a folder, run Meridian-Setup-2.9.7.exe. It is a 64-bit graphical wizard drawn by Meridian's own
+Setup file (Meridian-Setup-2.9.8.exe, a separate download next to this zip)
+  If you would rather have a real installer than a folder, run Meridian-Setup-2.9.8.exe. It is a 64-bit graphical wizard drawn by Meridian's own
   code (same fonts, same Moon), one file with nothing unpacked beside it, and it needs NO administrator rights: it installs for you alone into
   %LOCALAPPDATA%\Programs\Meridian (or a folder you pick). The pages:
     Welcome        greets you by name, with tonight's real Moon (phase and all) drawn from the same astronomy code as the app
@@ -325,13 +325,27 @@ Setup file (Meridian-Setup-2.9.7.exe, a separate download next to this zip)
   Not code-signed: Windows may say "Windows protected your PC": click "More info", then "Run anyway". Windows 11's Smart App Control, if it is
   on, can refuse any unsigned program with no "Run anyway" button; then use the plain Meridian.exe from the zip, turn Smart App Control off
   (Windows Security > App & browser control), or sign the setup with a code-signing certificate (see setup\BUILD.txt).
-  For scripts: Meridian-Setup-2.9.7.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
+  For scripts: Meridian-Setup-2.9.8.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
   4 = it is already running);  /D=C:\Tools\Meridian picks the folder;  /ScreenSaver=5 also sets the screen saver
   (5 minutes, 1-60);  /SleepAfter=60 also puts the PC to sleep after Meridian has been on 60 more minutes (20-120; it turns the screen saver on
   too, 10 minutes unless /ScreenSaver says otherwise);  /NoSleep takes the sleep step away;  /StartWithWindows opens it at sign-in;
   /NoDesktop  /NoStartMenu  /NoGTA  /NoHalloween leave those out.
   Uninstall from a script: "<folder>\uninstall.exe" /uninstall /S  (add /DeleteSettings to remove settings too).
   Building the setup yourself: see setup\BUILD.txt in the source.
+
+New in 2.9.8 "Glass"  (22 November 2026)
+  Tactile Liquid Glass physics across every button, sliding segmented pills, and touch-reactive Focus Studio cards:
+  - Liquid Glass buttons everywhere: every button across Timer (Timer/Stopwatch/Alarm, 1m-1h presets, Start/Reset/Lap),
+    Focus Studio (5m-1h presets, Start/Reset, Ambience & Theme orb), the bottom navigation dock, rotating panel arrows,
+    and all Settings controls now responds with spring-eased hover bloom, cursor-tracking specular glass sheen,
+    tactile press compression, elastic liquid-jelly rebound, and an expanding caustic ripple from the exact click point.
+  - Gliding segmented pills: active selection capsules on Timer, Focus Studio, and the bottom navigation dock glide and
+    morph smoothly from button to button at display refresh rate instead of snapping.
+  - Touch-reactive Focus Studio cards: the top-left live Clock & Date card and top-right live Weather & AQI card on
+    Focus Studio respond to touch with volume-preserving liquid-glass jelly motion and a shimmering dual-ring caustic
+    ripple — purely tactile motion with zero unintended side effects.
+  - Zero idle cost: all springs, ripples, and sliding pills settle completely back to 1 FPS idle within half a second,
+    using nested Direct2D rounded-capsule clipping and clean press-hold recovery on mouse leave or Alt+Tab.
 
 New in 2.9.7 "Snowfall"  (21 November 2026)
   Snowfall, Focus Studio, Daylight Saving awareness, shooting-star physics, Air Quality badge, Golden & Blue Hour, and QOL polish:

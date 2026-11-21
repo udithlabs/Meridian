@@ -1,4 +1,4 @@
-# Meridian — 2.9.7 "Snowfall" (Sonnet Edition)
+# Meridian — 2.9.8 "Glass" (Sonnet Edition)
 
 **A quiet, always-on clock, live sky map, weather studio, and focus sanctuary for Windows.**
 
@@ -8,15 +8,21 @@ Meridian is a native, single-file Windows desktop clock and screen saver written
 
 ---
 
-## Highlights in 2.9.7 "Snowfall"
+## Highlights in 2.9.8 "Glass"
+
+- **Liquid Glass Tactile UI Everywhere & Artistic Blizzard Snowstorm**
+  - Every button across **Timer** (`TIMER · STOPWATCH · ALARM`, `1m–1h` presets, `START · RESET`), **Focus Studio** (`5m–1h` presets, `START · RESET`, Ambience & Theme orb), the **bottom navigation dock**, rotating panel arrows, and **Settings** features spring-eased hover bloom, cursor-tracking specular glass sheen, tactile press-and-hold squish, elastic liquid-jelly rebound, and expanding caustic click ripples — plus **gliding active pills** across segmented rows.
+  - **Touch-reactive Focus Studio cards** — the top-left live Clock & Date card and top-right live Weather & AQI card gently ripple and flex with volume-preserving liquid-glass jelly physics when touched.
+  - **Artistic Blizzard / Harsh Snowstorm** — alongside the calm three-depth snowfall, Meridian renders a fierce yet deeply artistic driving snowstorm (three parallax depths of feathered snow streaks & tumbling snow clusters, billowing whiteout squall curtains, curling frosted spindrift wind ribbons, racing ground snowdrifts, and fast foreground wisps) that triggers automatically during real winter snowstorms/thundersnow, previews via a `BLIZZARD` chip in **Settings → Quiet**, falls behind the Sky map, and joins the **Focus Studio** Ambience Orb.
+  - Runs at full display refresh rate during interaction and settles completely back to **1 FPS idle** with zero background CPU/GPU cost.
 
 - **Six Distinct Faces (`1`–`6`)**
   - **Sky (`1`)** — Big display clock, live astronomical sky dome (Sun, Moon, planets, stars, constellations, Milky Way, eclipses, and shooting stars), rotating Today / Events / Holidays / World Clocks panel, and live weather with a custom Air Quality badge.
-  - **Quiet (`2`)** — Minimalist full-screen typography with live weather drawn calmly behind the clock (clouds, wind, rain, layered snowfall, fog, thunder, and named tropical storm watch).
+  - **Quiet (`2`)** — Minimalist full-screen typography with live weather drawn calmly behind the clock (clouds, wind, rain, layered snowfall, harsh blizzard snowstorms, fog, thunder, and named tropical storm watch).
   - **Timer (`3`)** — Clean countdown timer, stopwatch with laps, and desk alarm.
   - **Almanac (`4`)** — Detailed Sun & Moon telemetry, exact morning & evening **Golden Hour** and **Blue Hour** spans, planetary visibility, and 7-day forecast.
   - **Widgets (`5`)** — Modular pages for World Clocks (31 cities with per-year Windows Dynamic DST), Month Calendar, Moon Phases, Hourly Forecast, Daylight, Sky, Air Quality, System stats, Countdown, and Notes.
-  - **Focus Studio (`6`)** — Dedicated lo-fi focus sanctuary with its own independent Pomodoro timer (`25m` default), smaller live clock & weather corner cards, frosted focus medallion with breathing halo, and a **collapsible floating Ambience & Theme orb** (`Off · Live · Rain · Snow · Clouds · Fog · Storm · Stars`) that expands smoothly on hover (paired with a matching **fluid liquid-glass pill-to-dock morph** on the bottom navigation bar across every face).
+  - **Focus Studio (`6`)** — Dedicated lo-fi focus sanctuary with its own independent Pomodoro timer (`25m` default), smaller live clock & weather corner cards, frosted focus medallion with breathing halo, and a **collapsible floating Ambience & Theme orb** (`Off · Live · Rain · Storm · Snow · Blizzard · Clouds · Fog · Stars`) that expands smoothly on hover (paired with a matching **fluid liquid-glass pill-to-dock morph** on the bottom navigation bar across every face).
 
 ![Meridian Focus Studio](docs/screenshots/focus.png)
 ![Meridian Focus Studio Orb Expanded](docs/screenshots/focus-menu.png)
@@ -34,7 +40,7 @@ Meridian is a native, single-file Windows desktop clock and screen saver written
 - **Ten Built-In Themes + Custom Theme Packs**
   - `Auto`, `Day`, `Sunlit`, `Sunlit II`, `Dawn`, `Sunset`, `Dusk`, `Night`, `Midnight`, and `Ember` (plus optional red-night bedtime mode and drop-in JSON/art Theme Packs in `themes/`).
 - **Screen Saver Mode & Privacy-First Defaults**
-  - Includes `Install-ScreenSaver.bat` / `Remove-ScreenSaver.bat` and a full standalone Windows installer (`Meridian-Setup-2.9.7.exe`).
+  - Includes `Install-ScreenSaver.bat` / `Remove-ScreenSaver.bat` and a full standalone Windows installer (`Meridian-Setup-2.9.8.exe`).
   - Defaults cleanly to the Prime Meridian (Greenwich) with Celsius & km/h units. Optional API keys and settings stay strictly local in `settings.ini`.
 
 ---
@@ -45,8 +51,8 @@ Grab the latest binaries from the [**Releases**](../../releases) page:
 
 | File | Description |
 | :--- | :--- |
-| **`Meridian-Setup-2.9.7.exe`** | Recommended Windows installer with Start Menu shortcut, optional startup & screen saver setup, and transactional rollback-safe upgrades. |
-| **`Meridian-2.9.7.zip`** | Portable ZIP — unzip anywhere and run `Meridian.exe`. |
+| **`Meridian-Setup-2.9.8.exe`** | Recommended Windows installer with Start Menu shortcut, optional startup & screen saver setup, and transactional rollback-safe upgrades. |
+| **`Meridian-2.9.8.zip`** | Portable ZIP — unzip anywhere and run `Meridian.exe`. |
 | **`Meridian.exe`** | Standalone single-file executable (Windows 10 / 11, 64-bit). |
 
 ---
@@ -76,7 +82,7 @@ Meridian compiles to a static, dependency-free 64-bit Windows executable with **
 set MERIDIAN_WERROR=1
 build.bat
 
-:: Build Meridian-Setup-2.9.7.exe (installer)
+:: Build Meridian-Setup-2.9.8.exe (installer)
 cd setup
 build-setup.bat
 ```
@@ -112,4 +118,4 @@ Pushing this repository to GitHub automatically runs [`.github/workflows/build.y
 ## Licenses & Credits
 
 - Bundled open-source fonts (`Sora`, `Instrument Serif`, `DM Mono`, `Anton`) are licensed under the SIL Open Font License 1.1 — see [`licenses/`](licenses/).
-- Full documentation and complete version history from 1.x through 2.9.7 are in [`README.txt`](README.txt).
+- Full documentation and complete version history from 1.x through 2.9.8 are in [`README.txt`](README.txt).

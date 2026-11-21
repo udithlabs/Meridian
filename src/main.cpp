@@ -365,10 +365,10 @@ void loadSettings() {
         FocusState& fc = G.app.focus;
         fc.durationSec = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, ini.getNum("focus", "duration", fc.durationSec)));
         fc.pausedRemaining = fc.durationSec;
-        static const char* const kFx[8] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars"};
+        static const char* const kFx[9] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard"};
         const std::string bk = lowerTrim(ini.get("focus", "backdrop", "live"));
         st.focusFx = 1;
-        for (int i = 0; i < 8; ++i) if (bk == kFx[i]) { st.focusFx = i; break; }
+        for (int i = 0; i < 9; ++i) if (bk == kFx[i]) { st.focusFx = i; break; }
     }
 }
 
@@ -444,8 +444,8 @@ bool saveSettings() {                                      // false only when th
     }
     o += fmt("[window]\nx=%d\ny=%d\nw=%d\nh=%d\n\n", st.winX, st.winY, st.winW, st.winH);
     o += fmt("[timer]\nduration=%.0f\nalarm_minutes=%d\nalarm_on=%d\n\n", tm.durationSec, tm.alarmMinutes, tm.alarmOn ? 1 : 0);
-    static const char* const kFxNames[8] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars"};
-    const int fxIdx = std::max(0, std::min(7, st.focusFx));
+    static const char* const kFxNames[9] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard"};
+    const int fxIdx = std::max(0, std::min(8, st.focusFx));
     o += fmt("[focus]\nduration=%.0f\nbackdrop=%s\n", G.app.focus.durationSec, kFxNames[fxIdx]);
     return writeFile(G.settingsPath, o);
 }
@@ -738,7 +738,7 @@ void setFace(int f) {
     App& a = G.app;
     f = (f % FACE_COUNT + FACE_COUNT) % FACE_COUNT;
     if (f == a.st.face) return;
-    a.st.face = f; a.faceChangedAt = unixNow(); markDirty();
+    a.st.face = f; a.faceChangedAt = unixNow(); a.glass.resetFaceSlides(); markDirty();
     if (f == FACE_WIDGETS) { a.wgtRot.cur = a.wgtRot.prev = -1; }          // start again from the first page
 }
 
@@ -747,7 +747,7 @@ void setPackFace(const std::string& key) {
     App& a = G.app; themes::Pack* p = nullptr; themes::Face* f = nullptr;
     if (!themes::findFace(key, p, f) || !p->live(a.now, a.tzOff)) return;
     if (a.st.face == FACE_PACK && a.st.facePack == key) return;
-    a.st.face = FACE_PACK; a.st.facePack = key; a.faceChangedAt = unixNow(); markDirty();
+    a.st.face = FACE_PACK; a.st.facePack = key; a.faceChangedAt = unixNow(); a.glass.resetFaceSlides(); markDirty();
 }
 
 // every face you can switch to, in dock order: the five built-in ones, then the tabs of the theme packs
@@ -1059,9 +1059,9 @@ void perform(int id) {
     else if (id == HIT_THEME) cycleTheme(1);
     else if (id == HIT_THEME_PREV) cycleTheme(-1);
     else if (id == HIT_FULLSCREEN) setFullscreen(!a.st.fullscreen);
-    else if (id == HIT_HELP) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; }
-    else if (id == HIT_SETTINGS) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; }
-    else if (id == HIT_DOCK_BG) { /* passive: absorbs gap/pill clicks without toggling fullscreen */ }
+    else if (id == HIT_HELP) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; a.glass.cancelHold(); }
+    else if (id == HIT_SETTINGS) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; a.glass.cancelHold(); }
+    else if (id == HIT_DOCK_BG || id == HIT_FCARD_CLOCK || id == HIT_FCARD_WEATHER) { /* passive: absorbs clicks / tactile Liquid Glass touch cards */ }
     else if (id == HIT_PIN) { a.st.topmost = !a.st.topmost; applyTopmost(); toast(a.st.topmost ? L"Kept on top" : L"Normal window"); markDirty(); }
     else if (id >= HIT_TAB0 && id < HIT_TAB0 + 3) { t.mode = id - HIT_TAB0; t.entry.clear(); }
     else if (id >= HIT_PRESET0 && id < HIT_PRESET0 + 7) { a.timerSetDuration(TIMER_PRESETS[id - HIT_PRESET0]); t.entry.clear(); markDirty(); }
@@ -1071,8 +1071,8 @@ void perform(int id) {
     else if (id >= HIT_FPRESET0 && id < HIT_FPRESET0 + 7) { a.focusSetDuration(FOCUS_PRESETS[id - HIT_FPRESET0]); markDirty(); }
     else if (id == HIT_FSTART) { a.focusStartPause(); markDirty(); }
     else if (id == HIT_FRESET) a.focusReset();
-    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 8) {
-        static const wchar_t* const kFxToast[8] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars"};
+    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 9) {
+        static const wchar_t* const kFxToast[9] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars", L"Blizzard"};
         const int m = id - HIT_FOCUSFX0;
         a.st.focusFx = m;
         markDirty();
@@ -1456,7 +1456,7 @@ void renderFrame() {
     saveIfDue(now);
 
     // schedule the next frame
-    bool fast = (now - a.faceChangedAt < 0.7) || (now - a.lastMouseMove < 0.8) || (now < a.toastUntil) || !paletteSettled() || a.dockBusy() || a.dockPillFading() || a.focusOrbBusy() || a.eventsBusy() || a.holBusy() || a.panelBusy() || a.animatingOther() || a.packBusy() ||
+    bool fast = (now - a.faceChangedAt < 0.7) || (now - a.lastMouseMove < 0.8) || (now < a.toastUntil) || !paletteSettled() || a.dockBusy() || a.dockPillFading() || a.focusOrbBusy() || a.glassBusy() || a.eventsBusy() || a.holBusy() || a.panelBusy() || a.animatingOther() || a.packBusy() ||
                 (a.st.face == FACE_TIMER && (a.timer.swRunning || a.timer.finished || a.timer.ringing || a.timer.entry.size() > 0)) ||
                 (a.st.face == FACE_FOCUS && (a.focus.running || a.focus.finished || a.focus.entry.size() > 0));
     // Rain, snow and wind are drawn on the screen's own beat: one frame per refresh (two when the screen runs faster than 90 Hz). Drawing waits for the
@@ -1464,9 +1464,9 @@ void renderFrame() {
     // gives frames that arrive evenly, which is what looks smooth. A timer that rounds to 15 ms, or 24 frames on a 60 Hz screen, does not.
     const bool spaceNow = spaceBusyNow(a, now);                  // Midnight: a meteor, the comet or the saucer is on screen
     const bool focusSmooth = a.focusFxBusy() && a.st.quietSmooth &&
-        (a.st.focusFx == 2 || a.st.focusFx == 3 || a.st.focusFx == 6 || a.st.focusFx == 7 ||
-         (a.st.focusFx == 1 && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] > 0.05f)));
-    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] > 0.05f)) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy();     // fluid UI morphs (dock + focus orb) & saver reveal run on screen refresh too
+        (a.st.focusFx == 2 || a.st.focusFx == 3 || a.st.focusFx == 6 || a.st.focusFx == 7 || a.st.focusFx == 8 ||
+         (a.st.focusFx == 1 && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] + a.qfx[7] > 0.05f)));
+    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] + a.qfx[7] > 0.05f)) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy() || a.glassBusy();     // fluid Liquid Glass UI morphs (dock, focus orb, buttons/cards) & saver reveal run on screen refresh too
     G.smooth = smooth;
     double next;
     a.frameTarget = 0;
@@ -1509,10 +1509,15 @@ void renderFrame() {
 }
 
 // runs the control under the pointer; returns false when nothing was hit
-bool handleClick(float x, float y) {
+bool handleClick(float x, float y, bool holding = true) {
     App& a = G.app;
     for (auto it = a.hits.rbegin(); it != a.hits.rend(); ++it) {
         if (!(x >= it->x && x <= it->x + it->w && y >= it->y && y <= it->y + it->h)) continue;
+        const uint64_t gkey = a.glassKeyForHit(it->id);
+        if (gkey != 0) {
+            const bool isCard = (it->id == HIT_FCARD_CLOCK || it->id == HIT_FCARD_WEATHER);
+            a.glass.onPress(gkey, x, y, it->x, it->y, it->w, it->h, isCard ? 1.40f : 1.0f, holding);
+        }
         if (it->id >= HIT_ACTION0) {
             size_t k = (size_t)(it->id - HIT_ACTION0);
             if (k < a.actions.size()) { std::function<void()> f = a.actions[k]; if (f) f(); }
@@ -1587,7 +1592,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             TRACKMOUSEEVENT tme{sizeof tme, TME_LEAVE, hwnd, 0}; TrackMouseEvent(&tme);
             invalidateSoon(); return 0;
         }
-        case WM_MOUSELEAVE: a.mouseX = a.mouseY = -1; invalidate(); return 0;
+        case WM_MOUSELEAVE: a.mouseX = a.mouseY = -1; a.glass.cancelHold(); invalidate(); return 0;
+        case WM_CAPTURECHANGED: a.glass.cancelHold(); invalidate(); return 0;
+        case WM_LBUTTONUP: a.glass.onRelease(); invalidate(); return 0;
         case WM_CHAR: {
             static wchar_t hi = 0;
             wchar_t ch = (wchar_t)wp;
@@ -1638,7 +1645,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case WM_ACTIVATE:
             if (LOWORD(wp) != WA_INACTIVE) { syncMouseFromCursor(hwnd); a.lastMouseMove = unixNow(); invalidate(); }
-            else { syncMouseFromCursor(hwnd, true); invalidate(); }
+            else { syncMouseFromCursor(hwnd, true); a.glass.cancelHold(); invalidate(); }
             return 0;
         case WM_DISPLAYCHANGE: case WM_DPICHANGED:
             if (msg == WM_DPICHANGED) { RECT* r = (RECT*)lp; SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE); }
@@ -1776,7 +1783,7 @@ int runShot(const ShotArgs& sa) {
     if (sa.heading >= 0) { a.st.skyHeading = sa.heading; a.spinBase = sa.heading; a.spinT0 = now; }
     if (sa.spin > 0) { a.st.skySpin = true; a.st.skySpinSecs = sa.spin; a.spinT0 = now - sa.spinAt; }
     if (sa.quiet >= 0) a.st.quietPreview = sa.quiet;
-    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(7, sa.focusfx));
+    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(8, sa.focusfx));
     if (sa.alien) { a.st.aliensEnabled = true; a.alienSeq = 1; a.alienAt = now - 4.2; }
     if (sa.dayStars) a.st.dayStars = true;
     if (sa.meteor > 0.f) a.meteorDemoU = sa.meteor;
@@ -1823,9 +1830,14 @@ int runShot(const ShotArgs& sa) {
     int lastBuilds = -1;
     a.render(G.gfx, sa.w, sa.h);
     for (int i = 0; i < 30 && gSpriteBuilds != lastBuilds; ++i) { lastBuilds = gSpriteBuilds; a.render(G.gfx, sa.w, sa.h); }       // cached drawings are made a few per frame: draw until they are all there
-    for (auto& ck : sa.clicks) { a.mouseX = ck.first; a.mouseY = ck.second; a.textClicked = false; handleClick(ck.first, ck.second); if (!a.textClicked) textBlur(); a.update(G.gfx); a.render(G.gfx, sa.w, sa.h); }
+    if (!sa.clicks.empty()) a.dt = 0.016;
+    for (auto& ck : sa.clicks) { a.mouseX = ck.first; a.mouseY = ck.second; a.textClicked = false; handleClick(ck.first, ck.second, false); if (!a.textClicked) textBlur(); a.update(G.gfx); a.render(G.gfx, sa.w, sa.h); }
     if (!sa.typeText.empty()) textType(sa.typeText);
-    if (sa.advance > 0) { a.setNow(a.now + sa.advance, a.tzOff, 0.033); a.update(G.gfx); for (int i = 0; i < 6; ++i) a.render(G.gfx, sa.w, sa.h); }
+    if (sa.advance > 0) {
+        const int steps = std::max(1, std::min(12, (int)std::lround(sa.advance / 0.016)));
+        const double stepDt = sa.advance / (double)steps;
+        for (int i = 0; i < steps; ++i) { a.setNow(a.now + stepDt, a.tzOff, stepDt); a.update(G.gfx); a.render(G.gfx, sa.w, sa.h); }
+    }
     if (sa.mx >= 0 || !sa.clicks.empty() || !sa.typeText.empty()) { a.render(G.gfx, sa.w, sa.h); }      // second pass: hover targets exist after the first frame
     return G.gfx.savePng(sa.out.c_str()) ? 0 : 4;
 }

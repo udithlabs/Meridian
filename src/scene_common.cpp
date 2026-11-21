@@ -59,19 +59,162 @@ SkyCol skyColors(double alt, float cloud) {
 
 void addHit(App& a, float x, float y, float w, float h, int id) { a.hits.push_back({x + a.shiftX, y + a.shiftY, w, h, id}); }
 
-void drawButton(Ctx& c, float x, float y, float w, float h, const std::wstring& label, bool active, int hitId, FontId font, float size) {
-    Gfx& g = c.g; const Palette& P = c.P; float s = c.s;
-    const float mx = c.a.mouseX - c.a.shiftX, my = c.a.mouseY - c.a.shiftY;
-    bool hover = mx >= x && mx <= x + w && my >= y && my <= y + h;
-    if (active) g.fillRoundRect(x, y, w, h, h * 0.5f, mulA(P.ink, 0.92f));
-    else {
-        g.fillRoundRect(x, y, w, h, h * 0.5f, hover ? mulA(P.ink, 0.10f) : P.panel);
-        g.strokeRoundRect(x + 0.5f, y + 0.5f, w - 1.f, h - 1.f, h * 0.5f, P.line, std::max(1.f, s));
+void drawGlassEffects(Ctx& c, uint64_t key, const glassfx::Pose& gp, bool active, bool cardStyle) {
+    Gfx& g = c.g; const Palette& P = c.P; const float s = c.s;
+    const float baseA = clamp01(P.ink.a);
+    if (baseA <= 0.02f || gp.w <= 2.f || gp.h <= 2.f) return;
+
+    const bool needClip = gp.sheenA > 0.02f || gp.hasRipple;
+    if (needClip) {
+        g.pushRoundRectClip(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f));
+        if (gp.sheenA > 0.02f) {
+            const float mx = c.a.mouseX - c.a.shiftX, my = c.a.mouseY - c.a.shiftY;
+            const bool hasPtr = c.a.mouseX >= 0.f;
+            const float sx = hasPtr ? std::max(gp.x, std::min(gp.x + gp.w, mx)) : (gp.x + gp.w * 0.5f);
+            const float sy = hasPtr ? std::max(gp.y, std::min(gp.y + gp.h, my)) : (gp.y + gp.h * 0.35f);
+            const Color sheenCol = active ? tint(P, lerp(P.plate, P.accent, 0.32f)) : tint(P, lerp(P.ink, P.accent, 0.24f));
+            const float rx = std::max(gp.w * (cardStyle ? 0.42f : 0.56f), 42.f * s);
+            const float ry = std::max(gp.h * (cardStyle ? 0.65f : 0.90f), 26.f * s);
+            const float inten = (cardStyle ? (P.dark ? 0.16f : 0.20f) : (active ? 0.16f : (P.dark ? 0.16f : 0.15f))) * gp.sheenA * baseA;
+            g.glowEllipse(sx, sy, rx, ry, sheenCol, inten);
+            // Subtle curved-glass top-edge Fresnel catch
+            const float topI = (cardStyle ? 0.14f : 0.10f) * clamp01(gp.sheenA * 0.62f + gp.bounceEnergy * 0.55f) * baseA;
+            if (topI > 0.006f) {
+                g.glowEllipse(gp.x + gp.w * 0.5f, gp.y + 1.f * s, gp.w * 0.46f, std::max(7.f * s, gp.h * 0.38f), sheenCol, topI);
+            }
+        }
+        if (gp.hasRipple) {
+            static thread_local std::vector<glassfx::RippleDraw> rips;
+            c.a.glass.collectRipples(key, gp.x, gp.y, gp.w, gp.h, s, rips);
+            const Color waveCol = active ? tint(P, lerp(P.plate, P.accent, 0.52f)) : tint(P, lerp(P.ink, P.accent, 0.38f));
+            for (const auto& rd : rips) {
+                const float ra = rd.alpha * baseA;
+                g.glow(rd.cx, rd.cy, rd.radius * 1.18f, waveCol, (cardStyle ? 0.28f : (active ? 0.30f : 0.25f)) * ra);
+                g.strokeCircle(rd.cx, rd.cy, rd.radius, withA(waveCol, (cardStyle ? 0.62f : (active ? 0.56f : 0.52f)) * ra), rd.ringWidth);
+                if (rd.secondaryAlpha > 0.01f) {
+                    g.strokeCircle(rd.cx, rd.cy, rd.secondaryRadius, withA(tint(P, P.accent), 0.42f * rd.secondaryAlpha * baseA), std::max(1.1f, rd.ringWidth * 0.78f));
+                }
+            }
+        }
+        g.popRoundRectClip();
     }
-    Color tc = active ? P.plate : (hover ? P.ink : P.ink2);
-    float fs = size * s;
-    g.text(font, fs, x + w * 0.5f, y + h * 0.5f + g.capHeight(font, fs) * 0.5f, label, tc, Align::Center, 0.08f);
+    if (gp.rimBoost > 0.02f) {
+        const Color rimCol = active
+            ? withA(tint(P, lerp(P.ink, P.accent, 0.45f)), 0.46f * gp.rimBoost * baseA)
+            : withA(tint(P, lerp(P.ink, P.accent, 0.35f)), (P.dark ? 0.46f : 0.34f) * gp.rimBoost * baseA);
+        g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), rimCol, std::max(1.f, (1.f + 0.30f * gp.rimBoost) * s));
+    }
+}
+
+void drawButton(Ctx& c, float x, float y, float w, float h, const std::wstring& label, bool active, int hitId, FontId font, float size, uint64_t glassKey, bool allowHover) {
+    Gfx& g = c.g; const Palette& P = c.P; const float s = c.s;
+    const float mx = c.a.mouseX - c.a.shiftX, my = c.a.mouseY - c.a.shiftY;
+    const bool hover = allowHover && c.a.mouseX >= 0.f && mx >= x && mx <= x + w && my >= y && my <= y + h;
+    const uint64_t key = glassKey ? glassKey : (hitId ? c.a.glassKeyForHit(hitId) : 0);
+    const glassfx::Pose gp = c.a.glass.pose(key, x, y, w, h, h * 0.5f, s, hover, false);
+    if (active) {
+        g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.92f));
+    } else {
+        const Color bg = lerp(P.panel, mulA(P.ink, 0.11f), gp.hoverT);
+        g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, bg);
+        g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), P.line, std::max(1.f, s));
+    }
+    drawGlassEffects(c, key, gp, active, false);
+    const Color tc = active ? P.plate : lerp(P.ink2, P.ink, gp.hoverT);
+    const float fs = size * s;
+    g.text(font, fs, gp.x + gp.w * 0.5f, gp.y + gp.h * 0.5f + g.capHeight(font, fs) * 0.5f, label, tc, Align::Center, 0.08f);
     if (hitId) addHit(c.a, x, y, w, h, hitId);
+}
+
+void drawSlidingButtons(Ctx& c, int slideSlot, float y, float h, const std::vector<SegItem>& items, FontId font, float size, bool allowHover) {
+    if (items.empty()) return;
+    Gfx& g = c.g; const Palette& P = c.P; const float s = c.s;
+    const float mx = c.a.mouseX - c.a.shiftX, my = c.a.mouseY - c.a.shiftY;
+
+    bool hasActive = false;
+    int actIdx = -1;
+    float actX = 0.f, actW = 0.f;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (items[i].active) { hasActive = true; actIdx = (int)i; actX = items[i].x; actW = items[i].w; break; }
+    }
+    const glassfx::SlidePose sp = c.a.glass.stepSlide(slideSlot, hasActive, actX, actW, c.W, c.H);
+
+    std::vector<glassfx::Pose> poses(items.size());
+    std::vector<uint64_t> keys(items.size(), 0);
+    for (size_t i = 0; i < items.size(); ++i) {
+        const SegItem& it = items[i];
+        const bool hover = allowHover && c.a.mouseX >= 0.f && mx >= it.x && mx <= it.x + it.w && my >= y && my <= y + h;
+        keys[i] = it.glassKey ? it.glassKey : (it.hitId ? c.a.glassKeyForHit(it.hitId) : 0);
+        poses[i] = c.a.glass.pose(keys[i], it.x, y, it.w, h, h * 0.5f, s, hover, false);
+    }
+
+    // Pass 1: individual button glass frames, hover sheens & ripples (avoiding double-draw once active pill arrives)
+    const bool slideArrived = actIdx >= 0 && sp.visible && sp.alpha > 0.85f && std::fabs(sp.x - items[(size_t)actIdx].x) < 4.f * s;
+    for (size_t i = 0; i < items.size(); ++i) {
+        const glassfx::Pose& gp = poses[i];
+        const bool isAct = (int)i == actIdx && slideArrived;
+        if (!isAct) {
+            const Color bg = lerp(P.panel, mulA(P.ink, 0.11f), gp.hoverT);
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, bg);
+            g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), P.line, std::max(1.f, s));
+            drawGlassEffects(c, keys[i], gp, false, false);
+        }
+    }
+
+    // Pass 2: crisp base labels (always high contrast outside the sliding pill)
+    const float fs = size * s;
+    const float capH = g.capHeight(font, fs);
+    for (size_t i = 0; i < items.size(); ++i) {
+        const SegItem& it = items[i];
+        const glassfx::Pose& gp = poses[i];
+        if ((int)i == actIdx && slideArrived) continue;
+        const Color baseCol = lerp(P.ink2, P.ink, gp.hoverT);
+        g.text(font, fs, gp.x + gp.w * 0.5f, gp.y + gp.h * 0.5f + capH * 0.5f, it.label, baseCol, Align::Center, 0.08f);
+    }
+
+    // Pass 3: smoothly gliding luminous liquid-glass active pill + pixel-exact clipped inverted labels inside it!
+    if (sp.visible) {
+        glassfx::Pose ap{};
+        ap.x = sp.x; ap.y = y; ap.w = sp.w; ap.h = h; ap.r = h * 0.5f;
+        uint64_t aKey = 0;
+        if (actIdx >= 0) {
+            const SegItem& ai = items[(size_t)actIdx];
+            const glassfx::Pose& agp = poses[(size_t)actIdx];
+            const float dx = agp.x - ai.x, dw = agp.w - ai.w;
+            ap.x += dx; ap.y = agp.y; ap.w = std::max(8.f, ap.w + dw); ap.h = agp.h; ap.r = ap.h * 0.5f;
+            if (slideArrived) {
+                ap.hoverT = agp.hoverT; ap.holdT = agp.holdT;
+                ap.sheenA = agp.sheenA; ap.rimBoost = agp.rimBoost;
+                ap.bounceEnergy = agp.bounceEnergy; ap.hasRipple = agp.hasRipple;
+                aKey = keys[(size_t)actIdx];
+            } else {
+                ap.sheenA = 0.55f * sp.alpha;
+                ap.rimBoost = 0.55f * sp.alpha;
+            }
+        }
+        g.fillRoundRect(ap.x, ap.y, ap.w, ap.h, ap.r, mulA(P.ink, 0.92f * sp.alpha));
+        if (aKey) drawGlassEffects(c, aKey, ap, true, false);
+        else if (ap.rimBoost > 0.02f) {
+            g.strokeRoundRect(ap.x + 0.5f, ap.y + 0.5f, std::max(1.f, ap.w - 1.f), std::max(1.f, ap.h - 1.f), std::max(0.5f, ap.r - 0.5f),
+                              withA(tint(P, lerp(P.ink, P.accent, 0.45f)), 0.42f * ap.rimBoost * clamp01(P.ink.a)), std::max(1.f, s));
+        }
+
+        // Clip inverted dark-on-light (or light-on-dark) labels strictly inside the gliding capsule boundary
+        const bool needTextClip = !slideArrived;
+        if (needTextClip) g.pushRoundRectClip(ap.x, ap.y, ap.w, ap.h, ap.r);
+        for (size_t i = 0; i < items.size(); ++i) {
+            const SegItem& it = items[i];
+            const glassfx::Pose& gp = poses[i];
+            if (gp.x + gp.w < ap.x || gp.x > ap.x + ap.w) continue;
+            g.text(font, fs, gp.x + gp.w * 0.5f, gp.y + gp.h * 0.5f + capH * 0.5f, it.label, mulA(P.plate, sp.alpha), Align::Center, 0.08f);
+        }
+        if (needTextClip) g.popRoundRectClip();
+    }
+
+    // Pass 4: register stable hitboxes
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (items[i].hitId) addHit(c.a, items[i].x, y, items[i].w, h, items[i].hitId);
+    }
 }
 
 static float hashf(int i, int salt) {

@@ -45,26 +45,30 @@ void App::renderTimer(Gfx& g, int w, int h) {
     const TimerState& T = timer;
     const float m = 64 * s;
 
-    // tabs
+    // tabs (Liquid Glass sliding active pill + hover sheen + click ripple)
     {
         const wchar_t* names[3] = {L"TIMER", L"STOPWATCH", L"ALARM"};
         float bw[3], total = 0, gap = 10 * s, bh = 40 * s;
         for (int i = 0; i < 3; ++i) { bw[i] = g.textWidth(F_MONO_M, 15 * s, names[i], 0.08f) + 44 * s; total += bw[i]; }
         total += gap * 2;
         float x = (W - total) * 0.5f, y = 52 * s;
-        for (int i = 0; i < 3; ++i) { drawButton(c, x, y, bw[i], bh, names[i], T.mode == i, HIT_TAB0 + i, F_MONO_M, 15.f); x += bw[i] + gap; }
+        std::vector<SegItem> segs;
+        for (int i = 0; i < 3; ++i) { segs.push_back({names[i], x, bw[i], T.mode == i, HIT_TAB0 + i, (uint64_t)(HIT_TAB0 + i)}); x += bw[i] + gap; }
+        drawSlidingButtons(c, glassfx::SLIDE_TIMER_MODE, y, bh, segs, F_MONO_M, 15.f);
     }
-    // presets (timer only)
+    // presets (timer only — Liquid Glass sliding active pill + hover sheen + click ripple)
     if (T.mode == 0) {
         static const wchar_t* pl[7] = {L"1m", L"3m", L"5m", L"10m", L"15m", L"30m", L"1h"};
         float bh = 34 * s, gap = 8 * s, total = 0, bw[7];
         for (int i = 0; i < 7; ++i) { bw[i] = g.textWidth(F_MONO_M, 14 * s, pl[i], 0.06f) + 30 * s; total += bw[i]; }
         total += gap * 6;
         float x = (W - total) * 0.5f, y = 112 * s;
+        std::vector<SegItem> segs;
         for (int i = 0; i < 7; ++i) {
             bool act = std::fabs(T.durationSec - TIMER_PRESETS[i]) < 0.5 && T.entry.empty();
-            drawButton(c, x, y, bw[i], bh, pl[i], act, HIT_PRESET0 + i, F_MONO_M, 14.f); x += bw[i] + gap;
+            segs.push_back({pl[i], x, bw[i], act, HIT_PRESET0 + i, (uint64_t)(HIT_PRESET0 + i)}); x += bw[i] + gap;
         }
+        drawSlidingButtons(c, glassfx::SLIDE_TIMER_PRESET, y, bh, segs, F_MONO_M, 14.f);
     }
 
     float cx = W * 0.5f, cy = H * 0.505f;
@@ -203,30 +207,41 @@ void App::renderFocus(Gfx& g, int w, int h) {
     // 1. Ambient weather / starry sky backdrop chosen by the user
     if (st.focusFx > 0) drawFocusBackdrop(c);
 
-    // 2. Top studio corner cards: smaller live current clock + date (top-left) and live weather + icon + AQI (top-right)
+    // 2. Top studio corner cards: tactile Liquid Glass clock + date (top-left) and live weather + AQI (top-right).
+    // Touching either card moves & ripples like liquid glass with zero side effects (pure tactile response).
     {
         const util::LocalTime L = util::toLocal(now, tzOff);
         const ClockParts cp = clockParts(*this);
+        const float mxC = mouseX - shiftX, myC = mouseY - shiftY;
+        const bool allowCardHover = !showSettings && !showHelp && !isSaver && mouseX >= 0.f && mouseX <= W && mouseY >= 0.f && mouseY <= H;
         if (!portrait && W >= 960.f * s) {
             const float cardY = 38.f * s, cardH = 82.f * s, cardR = 20.f * s;
             const Color cardBg = withA(P.plate, P.dark ? (st.focusFx > 0 ? 0.56f : 0.36f) : (st.focusFx > 0 ? 0.62f : 0.42f));
 
-            // Top-left card: smaller live clock & date
+            // Top-left card: smaller live clock & date (tactile Liquid Glass touch card)
             const float cEm = 40.f * s, cCap = g.capHeight(F_DISPLAY, cEm);
             const float twC = g.timeWidth(F_DISPLAY, cEm, cp.hm);
             const float amW = cp.ampm.empty() ? 0.f : (g.textWidth(F_MONO_M, 11.5f * s, cp.ampm, 0.12f) + 8.f * s);
             const std::wstring dLine = Ws(fmt("%s, %d %s", util::WEEKDAYS3[L.wday], L.d, util::MONTHS[L.m - 1]));
             const float dwC = g.textWidth(F_SERIF_I, 18.f * s, dLine);
             const float leftW = std::min(W * 0.27f, std::max(twC + amW, dwC) + 40.f * s);
-            g.fillRoundRect(m, cardY, leftW, cardH, cardR, cardBg);
-            g.strokeRoundRect(m + 0.5f, cardY + 0.5f, leftW - 1.f, cardH - 1.f, cardR, mulA(P.line, 0.85f), std::max(1.f, s));
-            const float cBase = cardY + 18.f * s + cCap;
-            g.timeText(F_DISPLAY, cEm, m + 20.f * s, cBase, cp.hm, P.ink, lerp(P.ink, P.ink2, 0.42f), Align::Left);
+            const bool hovL = allowCardHover && mxC >= m && mxC <= m + leftW && myC >= cardY && myC <= cardY + cardH;
+            const glassfx::Pose gpL = glass.pose(HIT_FCARD_CLOCK, m, cardY, leftW, cardH, cardR, s, hovL, true);
+            if (gpL.sheenA > 0.02f || gpL.bounceEnergy > 0.02f) {
+                g.fillRoundRect(gpL.x, gpL.y + 3.f * s, gpL.w, gpL.h, gpL.r, Color{0, 0, 0, (P.dark ? 0.22f : 0.09f) * clamp01(gpL.sheenA + gpL.bounceEnergy)});
+            }
+            g.fillRoundRect(gpL.x, gpL.y, gpL.w, gpL.h, gpL.r, cardBg);
+            g.strokeRoundRect(gpL.x + 0.5f, gpL.y + 0.5f, std::max(1.f, gpL.w - 1.f), std::max(1.f, gpL.h - 1.f), std::max(0.5f, gpL.r - 0.5f), mulA(P.line, 0.85f), std::max(1.f, s));
+            drawGlassEffects(c, HIT_FCARD_CLOCK, gpL, false, true);
+            const float lOffX = (gpL.x - m) * 0.30f, lOffY = (gpL.y - cardY) * 0.30f;
+            const float cBase = cardY + lOffY + 18.f * s + cCap;
+            g.timeText(F_DISPLAY, cEm, m + lOffX + 20.f * s, cBase, cp.hm, P.ink, lerp(P.ink, P.ink2, 0.42f), Align::Left);
             if (!cp.ampm.empty()) {
                 const float afs = 11.5f * s;
-                g.text(F_MONO_M, afs, m + 20.f * s + twC + 7.f * s, cBase - cCap + g.capHeight(F_MONO_M, afs) + 1.f * s, cp.ampm, P.ink2, Align::Left, 0.12f);
+                g.text(F_MONO_M, afs, m + lOffX + 20.f * s + twC + 7.f * s, cBase - cCap + g.capHeight(F_MONO_M, afs) + 1.f * s, cp.ampm, P.ink2, Align::Left, 0.12f);
             }
-            g.text(F_SERIF_I, 18.f * s, m + 20.f * s, cBase + 22.f * s, g.ellipsize(F_SERIF_I, 18.f * s, dLine, leftW - 36.f * s), P.ink2, Align::Left);
+            g.text(F_SERIF_I, 18.f * s, m + lOffX + 20.f * s, cBase + 22.f * s, g.ellipsize(F_SERIF_I, 18.f * s, dLine, leftW - 36.f * s), P.ink2, Align::Left);
+            addHit(*this, m, cardY, leftW, cardH, HIT_FCARD_CLOCK);
 
             // Top-right card: live weather icon + temp + condition + place (+ compact AQI if available)
             if (wx.valid) {
@@ -242,22 +257,34 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 const float icoS = 40.f * s;
                 const float rightW = std::min(W * 0.30f, 18.f * s + icoS + 12.f * s + tWpx + 14.f * s + txtColW + 18.f * s);
                 const float rx = W - m - rightW;
-                g.fillRoundRect(rx, cardY, rightW, cardH, cardR, cardBg);
-                g.strokeRoundRect(rx + 0.5f, cardY + 0.5f, rightW - 1.f, cardH - 1.f, cardR, mulA(P.line, 0.85f), std::max(1.f, s));
-                g.weatherIcon(kd.icon, rx + 18.f * s + icoS * 0.5f, cardY + cardH * 0.5f, icoS, P.ink, P.accent, P.plate);
-                const float tx0 = rx + 18.f * s + icoS + 12.f * s;
-                g.text(F_LIGHT, tFs, tx0, cardY + cardH * 0.5f + g.capHeight(F_LIGHT, tFs) * 0.5f, tW, P.ink);
+                const bool hovR = allowCardHover && mxC >= rx && mxC <= rx + rightW && myC >= cardY && myC <= cardY + cardH;
+                const glassfx::Pose gpR = glass.pose(HIT_FCARD_WEATHER, rx, cardY, rightW, cardH, cardR, s, hovR, true);
+                if (gpR.sheenA > 0.02f || gpR.bounceEnergy > 0.02f) {
+                    g.fillRoundRect(gpR.x, gpR.y + 3.f * s, gpR.w, gpR.h, gpR.r, Color{0, 0, 0, (P.dark ? 0.22f : 0.09f) * clamp01(gpR.sheenA + gpR.bounceEnergy)});
+                }
+                g.fillRoundRect(gpR.x, gpR.y, gpR.w, gpR.h, gpR.r, cardBg);
+                g.strokeRoundRect(gpR.x + 0.5f, gpR.y + 0.5f, std::max(1.f, gpR.w - 1.f), std::max(1.f, gpR.h - 1.f), std::max(0.5f, gpR.r - 0.5f), mulA(P.line, 0.85f), std::max(1.f, s));
+                drawGlassEffects(c, HIT_FCARD_WEATHER, gpR, false, true);
+                const float rOffX = (gpR.x - rx) * 0.30f, rOffY = (gpR.y - cardY) * 0.30f;
+                g.weatherIcon(kd.icon, rx + rOffX + 18.f * s + icoS * 0.5f, cardY + rOffY + cardH * 0.5f, icoS, P.ink, P.accent, P.plate);
+                const float tx0 = rx + rOffX + 18.f * s + icoS + 12.f * s;
+                g.text(F_LIGHT, tFs, tx0, cardY + rOffY + cardH * 0.5f + g.capHeight(F_LIGHT, tFs) * 0.5f, tW, P.ink);
                 const float cx0 = tx0 + tWpx + 14.f * s;
-                const float availTxt = std::max(60.f * s, rx + rightW - 18.f * s - cx0);
-                g.text(F_LIGHT, 16.5f * s, cx0, cardY + 34.f * s, g.ellipsize(F_LIGHT, 16.5f * s, cW, availTxt), P.ink);
-                g.text(F_MONO, 10.5f * s, cx0, cardY + 56.f * s, g.ellipsize(F_MONO, 10.5f * s, mW, availTxt, 0.12f), P.ink3, Align::Left, 0.12f);
+                const float availTxt = std::max(60.f * s, rx + rightW - 18.f * s - (tx0 - rOffX + tWpx + 14.f * s));
+                g.text(F_LIGHT, 16.5f * s, cx0, cardY + rOffY + 34.f * s, g.ellipsize(F_LIGHT, 16.5f * s, cW, availTxt), P.ink);
+                g.text(F_MONO, 10.5f * s, cx0, cardY + rOffY + 56.f * s, g.ellipsize(F_MONO, 10.5f * s, mW, availTxt, 0.12f), P.ink3, Align::Left, 0.12f);
+                addHit(*this, rx, cardY, rightW, cardH, HIT_FCARD_WEATHER);
             } else {
                 const std::wstring pW = Ws(util::upper(st.geo.name));
                 const float rightW = std::min(W * 0.25f, g.textWidth(F_MONO, 12.f * s, pW, 0.14f) + 40.f * s);
-                const float rx = W - m - rightW;
-                g.fillRoundRect(rx, cardY + 18.f * s, rightW, 44.f * s, 22.f * s, cardBg);
-                g.strokeRoundRect(rx + 0.5f, cardY + 18.5f * s, rightW - 1.f, 43.f * s, 22.f * s, mulA(P.line, 0.85f), std::max(1.f, s));
-                g.text(F_MONO, 12.f * s, rx + rightW * 0.5f, cardY + 40.f * s + g.capHeight(F_MONO, 12.f * s) * 0.5f, pW, P.ink2, Align::Center, 0.14f);
+                const float rx = W - m - rightW, ry = cardY + 18.f * s, rh = 44.f * s;
+                const bool hovR = allowCardHover && mxC >= rx && mxC <= rx + rightW && myC >= ry && myC <= ry + rh;
+                const glassfx::Pose gpR = glass.pose(HIT_FCARD_WEATHER, rx, ry, rightW, rh, 22.f * s, s, hovR, true);
+                g.fillRoundRect(gpR.x, gpR.y, gpR.w, gpR.h, gpR.r, cardBg);
+                g.strokeRoundRect(gpR.x + 0.5f, gpR.y + 0.5f, std::max(1.f, gpR.w - 1.f), std::max(1.f, gpR.h - 1.f), std::max(0.5f, gpR.r - 0.5f), mulA(P.line, 0.85f), std::max(1.f, s));
+                drawGlassEffects(c, HIT_FCARD_WEATHER, gpR, false, true);
+                g.text(F_MONO, 12.f * s, gpR.x + gpR.w * 0.5f, gpR.y + gpR.h * 0.5f + g.capHeight(F_MONO, 12.f * s) * 0.5f, pW, P.ink2, Align::Center, 0.14f);
+                addHit(*this, rx, ry, rightW, rh, HIT_FCARD_WEATHER);
             }
         } else {
             // Compact / portrait top strip: smaller live clock, date, and weather icon + temp
@@ -290,10 +317,12 @@ void App::renderFocus(Gfx& g, int w, int h) {
             measureP();
         }
         float x = (W - total) * 0.5f, y = (portrait ? 94.f : 84.f) * s;
+        std::vector<SegItem> segs;
         for (int i = 0; i < 7; ++i) {
             bool act = std::fabs(F.durationSec - FOCUS_PRESETS[i]) < 0.5 && F.entry.empty();
-            drawButton(c, x, y, bw[i], bh, pl[i], act, HIT_FPRESET0 + i, F_MONO_M, pfs); x += bw[i] + gap;
+            segs.push_back({pl[i], x, bw[i], act, HIT_FPRESET0 + i, (uint64_t)(HIT_FPRESET0 + i)}); x += bw[i] + gap;
         }
+        drawSlidingButtons(c, glassfx::SLIDE_FOCUS_PRESET, y, bh, segs, F_MONO_M, pfs);
     }
 
     // 4. Center: Frosted glass focus medallion + calm breathing halo + focus countdown ring
@@ -383,7 +412,9 @@ void App::renderFocus(Gfx& g, int w, int h) {
 
     // 5. Collapsible Lo-Fi Ambience & Theme Studio Orb -> Expanded Card on Hover (zero clutter at rest, clear of bottom dock)
     {
-        static const wchar_t* fxLabels[8] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS"};
+        static const wchar_t* fxLabels[9] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS", L"BLIZZARD"};
+        static const int fxSideOrder[9] = {0, 1, 2, 6, 3, 8, 4, 5, 7};
+        static const int fxCompactOrder[9] = {0, 1, 7, 2, 6, 4, 3, 8, 5};
         const float mx = mouseX - shiftX, my = mouseY - shiftY;
         const float idleS = (float)(now - lastMouseMove);
         const std::wstring thName = Ws(util::upper(themeName()));
@@ -396,7 +427,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
         const float colGap = (useSidePanel ? 7.f : 6.f) * s, rowGap = (useSidePanel ? 7.f : 6.f) * s;
         const float ch = (useSidePanel ? 30.f : 28.f) * s, navD = (useSidePanel ? 28.f : 26.f) * s;
         if (useSidePanel) {
-            const float gridH = 4.f * ch + 3.f * rowGap;
+            const float gridH = 5.f * ch + 4.f * rowGap;
             expW = sidePanelW;
             expH = pad + 22.f * s + gridH + 14.f * s + 1.f + 14.f * s + 20.f * s + navD + pad;
             expX = W - m - expW;
@@ -408,7 +439,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
             cardR = 20.f * s;
         } else {
             expW = std::min(W - 2.f * m, 440.f * s);
-            expH = pad + 2.f * ch + rowGap + 10.f * s + 1.f + 10.f * s + navD + pad;
+            expH = pad + 3.f * ch + 2.f * rowGap + 10.f * s + 1.f + 10.f * s + navD + pad;
             expX = (W - expW) * 0.5f;
             expY = std::min(btnY + btnH + 22.f * s, H - 118.f * s - expH);
             orbX = cx - orbD * 0.5f;
@@ -479,23 +510,25 @@ void App::renderFocus(Gfx& g, int w, int h) {
             Ctx cb{g, *this, Pb, W, H, s};
 
             auto drawThemeNav = [&](float bx, float by, float d, int dir, int hitId) {
-                const float br = d * 0.5f, cyB = by + br;
                 const bool hov = canHit && mouseX >= 0 && mx >= bx - 3.f * s && mx <= bx + d + 3.f * s && my >= by - 3.f * s && my <= by + d + 3.f * s;
+                const glassfx::Pose gp = glass.pose((uint64_t)hitId, bx, by, d, d, d * 0.5f, s, hov, false);
+                const float br = gp.r, cyB = gp.y + gp.h * 0.5f;
                 Color bg = Pb.panel;
                 bg.a = std::max(bg.a, P.dark ? 0.085f : 0.075f) * contentA;
-                g.fillRoundRect(bx, by, d, d, br, bg);
+                g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, br, bg);
                 const Color ac = tint(P, P.accent);
-                if (hov) g.fillRoundRect(bx, by, d, d, br, withA(ac, (P.dark ? 0.22f : 0.16f) * contentA));
-                Color brd = hov ? withA(ac, (P.dark ? 0.78f : 0.72f) * contentA)
-                                : withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.45f : 1.35f)) * contentA);
-                g.strokeRoundRect(bx + 0.5f, by + 0.5f, d - 1.f, d - 1.f, br, brd, std::max(1.f, s));
-                const float chv = d * 0.195f, cwv = d * 0.135f;
-                const float ccx = bx + br + (float)dir * (cwv * 0.18f);
+                if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, br, withA(ac, (P.dark ? 0.22f : 0.16f) * gp.hoverT * contentA));
+                Color brd = lerp(withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.45f : 1.35f)) * contentA),
+                                 withA(ac, (P.dark ? 0.78f : 0.72f) * contentA), gp.hoverT);
+                g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, br - 0.5f), brd, std::max(1.f, s));
+                drawGlassEffects(cb, (uint64_t)hitId, gp, false, false);
+                const float chv = gp.h * 0.195f, cwv = gp.w * 0.135f;
+                const float ccx = gp.x + gp.w * 0.5f + (float)dir * (cwv * 0.18f);
                 const std::vector<Pt> chev = dir < 0
                     ? std::vector<Pt>{{ccx + cwv, cyB - chv}, {ccx - cwv, cyB}, {ccx + cwv, cyB + chv}}
                     : std::vector<Pt>{{ccx - cwv, cyB - chv}, {ccx + cwv, cyB}, {ccx - cwv, cyB + chv}};
-                const Color col = hov ? mulA(P.ink, contentA) : mulA(P.ink2, (P.dark ? 0.92f : 0.96f) * contentA);
-                g.polyline(chev, false, col, hov ? std::max(1.6f, 1.85f * s) : std::max(1.35f, 1.55f * s), true);
+                const Color col = lerp(mulA(P.ink2, (P.dark ? 0.92f : 0.96f) * contentA), mulA(P.ink, contentA), gp.hoverT);
+                g.polyline(chev, false, col, std::max(1.35f, (1.55f + 0.30f * gp.hoverT) * s), true);
                 if (canHit) addHit(*this, bx - 3.f * s, by - 3.f * s, d + 6.f * s, d + 6.f * s, hitId);
             };
 
@@ -510,14 +543,19 @@ void App::renderFocus(Gfx& g, int w, int h) {
                     g.fillCircle(dotX, dotY, 3.0f * s, Pb.accent);
                 }
                 const float gridY = expY + pad + 22.f * s;
-                const float cw = (expW - 2.f * pad - colGap) * 0.5f;
-                for (int i = 0; i < 8; ++i) {
-                    const int colI = i % 2, rowI = i / 2;
+                const float fullW = expW - 2.f * pad;
+                const float cw = (fullW - colGap) * 0.5f;
+                for (int slot = 0; slot < 9; ++slot) {
+                    const int modeId = fxSideOrder[slot];
+                    const bool fullRow = (slot == 8);
+                    const int colI = fullRow ? 0 : (slot % 2), rowI = fullRow ? 4 : (slot / 2);
                     const float bx = expX + pad + colI * (cw + colGap);
                     const float by = gridY + rowI * (ch + rowGap);
-                    drawButton(cb, bx, by, cw, ch, fxLabels[i], st.focusFx == i, canHit ? (HIT_FOCUSFX0 + i) : 0, F_MONO_M, 11.2f);
+                    const float bw = fullRow ? fullW : cw;
+                    const float bfs = (modeId == 8 && bw < 100.f * s) ? 10.4f : 11.0f;
+                    drawButton(cb, bx, by, bw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, bfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
-                const float divY = gridY + (4.f * ch + 3.f * rowGap) + 14.f * s;
+                const float divY = gridY + (5.f * ch + 4.f * rowGap) + 14.f * s;
                 g.line(expX + pad, divY, expX + expW - pad, divY, Pb.line, std::max(1.f, s), false);
                 const float thEyY = divY + 14.f * s + g.capHeight(F_MONO, 10.5f * s);
                 g.text(F_MONO, 10.5f * s, expX + pad, thEyY, L"THEME", Pb.ink3, Align::Left, 0.20f);
@@ -530,15 +568,16 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 if (canHit) addHit(*this, midX, navY, midW, navD, HIT_THEME);
                 drawThemeNav(rx, navY, navD, +1, HIT_THEME);
             } else {
-                const float cw = (expW - 2.f * pad - 3.f * colGap) * 0.25f;
-                const float pfs = cw < 72.f * s ? 10.0f : 11.0f;
-                for (int i = 0; i < 8; ++i) {
-                    const int colI = i % 4, rowI = i / 4;
+                const float cw = (expW - 2.f * pad - 2.f * colGap) / 3.f;
+                const float pfs = cw < 86.f * s ? 10.0f : 11.0f;
+                for (int slot = 0; slot < 9; ++slot) {
+                    const int modeId = fxCompactOrder[slot];
+                    const int colI = slot % 3, rowI = slot / 3;
                     const float bx = expX + pad + colI * (cw + colGap);
                     const float by = expY + pad + rowI * (ch + rowGap);
-                    drawButton(cb, bx, by, cw, ch, fxLabels[i], st.focusFx == i, canHit ? (HIT_FOCUSFX0 + i) : 0, F_MONO_M, pfs);
+                    drawButton(cb, bx, by, cw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, pfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
-                const float divY = expY + pad + 2.f * ch + rowGap + 10.f * s;
+                const float divY = expY + pad + 3.f * ch + 2.f * rowGap + 10.f * s;
                 g.line(expX + pad, divY, expX + expW - pad, divY, Pb.line, std::max(1.f, s), false);
                 const float navY = divY + 10.f * s;
                 g.text(F_MONO, 10.5f * s, expX + pad, navY + navD * 0.5f + g.capHeight(F_MONO, 10.5f * s) * 0.5f, L"THEME", Pb.ink3, Align::Left, 0.20f);

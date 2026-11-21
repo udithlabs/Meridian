@@ -185,9 +185,14 @@ private:
     ID2D1Layer* ringLayer_ = nullptr; ID2D1PathGeometry* ringGeom_ = nullptr;
     ID2D1Layer* circleLayer_ = nullptr; ID2D1EllipseGeometry* circleGeom_ = nullptr;
     float circleCx_ = -1e9f, circleCy_ = -1e9f, circleR_ = -1.f;
-    ID2D1Layer* rrLayer_ = nullptr; ID2D1RoundedRectangleGeometry* rrGeom_ = nullptr;
-    float rrX_ = -1e9f, rrY_ = -1e9f, rrW_ = -1.f, rrH_ = -1.f, rrR_ = -1.f;
-    bool rrPushed_ = false;
+    struct RRSlot {
+        ID2D1Layer* layer = nullptr;
+        ID2D1RoundedRectangleGeometry* geom = nullptr;
+        float x = -1e9f, y = -1e9f, w = -1.f, h = -1.f, r = -1.f;
+    };
+    RRSlot rrPool_[4];
+    bool rrPushed_[4] = {false, false, false, false};
+    int rrDepth_ = 0;
 
     ID2D1Factory* d2d_ = nullptr;
     IDWriteFactory* dw_ = nullptr;

@@ -24,6 +24,7 @@ void App::render(Gfx& g, int w, int h) {
     if (!inAboutTab()) secretBuf.clear();
     eventsBeginFrame(*this);
     holidaysBeginFrame(*this);
+    glass.beginFrame((float)dt, isSaver);
     if (!g.begin()) return;
     const float W = (float)w, H = (float)h, s = layoutScale(w, h);
     g.vGradientRect(0, 0, W, H, pal.bgTop, pal.bgBottom);
@@ -98,6 +99,7 @@ void App::render(Gfx& g, int w, int h) {
 
     renderDock(g, w, h);
     renderOverlays(g, w, h);
+    glass.endFrame();
     const float bright = effectiveBrightness();
     if (bright < 0.999f) g.fillRect(0, 0, W, H, Color{0, 0, 0, 1.f - std::max(0.08f, bright)});
     if (revealing) {                                                // last, over everything: the circle of light opening, and the whole picture coming up
@@ -387,12 +389,21 @@ void App::renderDock(Gfx& g, int w, int h) {
         const bool needClip = df.e < 0.995f || total > df.curW - 2.f * s;
         if (needClip) g.pushRoundRectClip(df.curX + 1.f, df.curY + 1.f, std::max(1.f, df.curW - 2.f), std::max(1.f, df.curH - 2.f), std::max(0.5f, df.curR - 1.f));
         float x = (W - total) * 0.5f;
+        std::vector<SegItem> faceSegs;
+        size_t sepIdx = bs.size();
         for (size_t i = 0; i < bs.size(); ++i) {
+            if (bs[i].label == L"|") { sepIdx = i; break; }
+            const int hitId = dockanim::buttonClickable(df, x, ws[i], s) ? bs[i].id : 0;
+            faceSegs.push_back({bs[i].label, x, ws[i], bs[i].active, hitId, (uint64_t)bs[i].id});
+            x += ws[i] + dockGap;
+        }
+        drawSlidingButtons(c, glassfx::SLIDE_DOCK_FACE, btnY, bh, faceSegs, F_MONO_M, dockFs, df.canHit);
+        for (size_t i = sepIdx; i < bs.size(); ++i) {
             if (bs[i].label == L"|") {
                 g.line(x + ws[i] * 0.5f, btnY + 8.f * s, x + ws[i] * 0.5f, btnY + bh - 8.f * s, Pd.line, std::max(1.f, s), false);
             } else {
                 const int hitId = dockanim::buttonClickable(df, x, ws[i], s) ? bs[i].id : 0;
-                drawButton(c, x, btnY, ws[i], bh, bs[i].label, bs[i].active, hitId, F_MONO_M, dockFs);
+                drawButton(c, x, btnY, ws[i], bh, bs[i].label, bs[i].active, hitId, F_MONO_M, dockFs, (uint64_t)bs[i].id, df.canHit);
             }
             x += ws[i] + dockGap;
         }

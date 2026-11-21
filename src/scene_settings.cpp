@@ -153,8 +153,13 @@ struct UI {
         float xx = x;
         for (size_t i = 0; i < o.size(); ++i) {
             const bool cur = (int)i == sel;
-            if (cur) g.fillRoundRect(xx + 3 * s, y + 3 * s, ws[i] - 6 * s, h - 6 * s, (h - 6 * s) * 0.5f, withA(acc(), 0.24f));
-            g.text(F_MONO_M, fs, xx + ws[i] * 0.5f, capMid(F_MONO_M, fs, y + h * 0.5f), o[i], cur ? P.ink : P.ink3, Align::Center, 0.1f);
+            const bool hv = over(xx, y, ws[i], h);
+            const uint64_t gkey = a.nextActionGlassKey();
+            const glassfx::Pose gp = a.glass.pose(gkey, xx + 3 * s, y + 3 * s, std::max(8.f, ws[i] - 6 * s), h - 6 * s, (h - 6 * s) * 0.5f, s, hv, false);
+            if (cur) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.24f));
+            else if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.07f * gp.hoverT));
+            drawGlassEffects(c, gkey, gp, false, false);
+            g.text(F_MONO_M, fs, gp.x + gp.w * 0.5f, capMid(F_MONO_M, fs, gp.y + gp.h * 0.5f), o[i], cur ? P.ink : lerp(P.ink3, P.ink, gp.hoverT), Align::Center, 0.1f);
             int idx = (int)i;
             act(xx, y, ws[i], h, [on, idx] { on(idx); });
             xx += ws[i];
@@ -171,9 +176,13 @@ struct UI {
         for (int k = 0; k < 2; ++k) {
             const float cx = k ? pcx : mcx;
             const bool hv = over(cx - r, mid - r, 2 * r, 2 * r);
-            g.fillCircle(cx, mid, r, mulA(P.ink, hv ? 0.14f : 0.07f));
-            g.line(cx - 6 * s, mid, cx + 6 * s, mid, P.ink, std::max(1.5f, 1.8f * s), true);
-            if (k) g.line(cx, mid - 6 * s, cx, mid + 6 * s, P.ink, std::max(1.5f, 1.8f * s), true);
+            const uint64_t gkey = a.nextActionGlassKey();
+            const glassfx::Pose gp = a.glass.pose(gkey, cx - r, mid - r, 2 * r, 2 * r, r, s, hv, false);
+            const float gcx = gp.x + gp.w * 0.5f, gcy = gp.y + gp.h * 0.5f;
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.07f + 0.08f * gp.hoverT));
+            drawGlassEffects(c, gkey, gp, false, false);
+            g.line(gcx - 6 * s, gcy, gcx + 6 * s, gcy, P.ink, std::max(1.5f, 1.8f * s), true);
+            if (k) g.line(gcx, gcy - 6 * s, gcx, gcy + 6 * s, P.ink, std::max(1.5f, 1.8f * s), true);
             act(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s, k ? plus : minus);
         }
         g.text(F_MEDIUM, 19.f * s, vcx, capMid(F_MEDIUM, 19.f * s, mid), Ws(val), P.ink, Align::Center);
@@ -182,12 +191,15 @@ struct UI {
 
     float button(float x, float y, float w, float h, const wchar_t* label, std::function<void()> fn, bool primary = false) {
         const bool hv = over(x, y, w, h);
-        if (primary) g.fillRoundRect(x, y, w, h, h * 0.5f, withA(acc(), hv ? 0.95f : 0.82f));
+        const uint64_t gkey = a.nextActionGlassKey();
+        const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
+        if (primary) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.82f + 0.14f * gp.hoverT));
         else {
-            g.fillRoundRect(x, y, w, h, h * 0.5f, mulA(P.ink, hv ? 0.12f : 0.06f));
-            g.strokeRoundRect(x + 0.5f, y + 0.5f, w - 1, h - 1, h * 0.5f, P.line, std::max(1.f, s));
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.06f + 0.07f * gp.hoverT));
+            g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1), std::max(1.f, gp.h - 1), std::max(0.5f, gp.r - 0.5f), P.line, std::max(1.f, s));
         }
-        g.text(F_MONO_M, 12.5f * s, x + w * 0.5f, capMid(F_MONO_M, 12.5f * s, y + h * 0.5f), label, primary ? P.plate : P.ink2, Align::Center, 0.12f);
+        drawGlassEffects(c, gkey, gp, primary, false);
+        g.text(F_MONO_M, 12.5f * s, gp.x + gp.w * 0.5f, capMid(F_MONO_M, 12.5f * s, gp.y + gp.h * 0.5f), label, primary ? P.plate : lerp(P.ink2, P.ink, gp.hoverT), Align::Center, 0.12f);
         act(x, y, w, h, std::move(fn));
         return h;
     }
@@ -204,16 +216,20 @@ struct UI {
         const float padL = 16 * s, arrowW = 18 * s, gap = 9 * s, padR = 18 * s;
         const float w = padL + arrowW + gap + tw + padR;
         const bool hv = over(x, y, w, h);
-        g.fillRoundRect(x, y, w, h, h * 0.5f, mulA(P.ink, hv ? 0.13f : 0.06f));
-        g.strokeRoundRect(x + 0.5f, y + 0.5f, w - 1, h - 1, h * 0.5f, hv ? withA(acc(), 0.55f) : P.line, std::max(1.f, s));
-        const float mid = y + h * 0.5f;
-        const float ax0 = x + padL + 1.5f * s, ax1 = x + padL + arrowW - 0.5f * s;
+        const uint64_t gkey = a.nextActionGlassKey();
+        const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
+        g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.06f + 0.08f * gp.hoverT));
+        g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1), std::max(1.f, gp.h - 1), std::max(0.5f, gp.r - 0.5f), lerp(P.line, withA(acc(), 0.55f), gp.hoverT), std::max(1.f, s));
+        drawGlassEffects(c, gkey, gp, false, false);
+        const float mid = gp.y + gp.h * 0.5f;
+        const float bx0 = gp.x + (gp.w - w) * 0.5f;
+        const float ax0 = bx0 + padL + 1.5f * s, ax1 = bx0 + padL + arrowW - 0.5f * s;
         const float barbX = ax0 + 5.2f * s, barbY = 4.6f * s;
-        const Color col = hv ? P.ink : P.ink2;
+        const Color col = lerp(P.ink2, P.ink, gp.hoverT);
         const float sw = std::max(1.4f, 1.75f * s);
         g.line(ax0 + 0.6f * s, mid, ax1, mid, col, sw, true);
         g.polyline({{barbX, mid - barbY}, {ax0, mid}, {barbX, mid + barbY}}, false, col, sw, true);
-        g.text(F_MONO_M, fs, x + padL + arrowW + gap, capMid(F_MONO_M, fs, mid), L"BACK", col, Align::Left, 0.12f);
+        g.text(F_MONO_M, fs, bx0 + padL + arrowW + gap, capMid(F_MONO_M, fs, mid), L"BACK", col, Align::Left, 0.12f);
         act(x, y, w, h, std::move(fn));
         return w;
     }
@@ -225,9 +241,12 @@ struct UI {
         const float w = g.textWidth(F_LIGHT, fs, t) + 28 * s;
         if (x + w > right && x > x0) { x = x0; y += h + gap; }
         const bool hv = over(x, y, w, h);
-        if (on) { g.fillRoundRect(x, y, w, h, h * 0.5f, withA(acc(), 0.20f)); g.strokeRoundRect(x + 0.5f, y + 0.5f, w - 1, h - 1, h * 0.5f, withA(acc(), 0.8f), std::max(1.f, s)); }
-        else { g.fillRoundRect(x, y, w, h, h * 0.5f, mulA(P.ink, hv ? 0.10f : 0.05f)); }
-        g.text(F_LIGHT, fs, x + w * 0.5f, capMid(F_LIGHT, fs, y + h * 0.5f), t, on ? P.ink : P.ink2, Align::Center);
+        const uint64_t gkey = a.nextActionGlassKey();
+        const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
+        if (on) { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.20f + 0.06f * gp.hoverT)); g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1), std::max(1.f, gp.h - 1), std::max(0.5f, gp.r - 0.5f), withA(acc(), 0.8f), std::max(1.f, s)); }
+        else { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.05f + 0.06f * gp.hoverT)); }
+        drawGlassEffects(c, gkey, gp, false, false);
+        g.text(F_LIGHT, fs, gp.x + gp.w * 0.5f, capMid(F_LIGHT, fs, gp.y + gp.h * 0.5f), t, on ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Center);
         act(x, y, w, h, std::move(fn));
         x += w + gap;
     }
@@ -1000,19 +1019,22 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
     yy += 8 * s;
     u.sectionLabel(x, yy, "Preview"); yy += 24 * s;
     {
-        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"WIND", L"BOTH", L"RAIN", L"SNOW", L"FOG", L"THUNDER", L"T-STORM", L"TORNADO", L"SUN FLARE"};
-        static const int previewIdx[11] = {0, 1, 2, 3, 4, 10, 8, 6, 7, 5, 9};      // SNOW = 10, FOG = 8, THUNDER = 6, T-STORM = 7, TORNADO = 5, SUN FLARE = 9
+        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"WIND", L"BOTH", L"RAIN", L"SNOW", L"BLIZZARD", L"FOG", L"THUNDER", L"T-STORM", L"TORNADO", L"SUN FLARE"};
+        static const int previewIdx[12] = {0, 1, 2, 3, 4, 10, 11, 8, 6, 7, 5, 9};      // SNOW = 10, BLIZZARD = 11, FOG = 8, THUNDER = 6, T-STORM = 7, TORNADO = 5, SUN FLARE = 9
         float cx = x, cy = yy;
-        const float cfs = 13.f * s, ch = 30 * s, cgap = 6 * s;
+        const float cfs = 12.2f * s, ch = 28 * s, cgap = 5 * s;
         for (size_t i = 0; i < names.size(); ++i) {
             int idx = previewIdx[i];
             const bool on = st.quietPreview == idx;
-            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 18 * s;
+            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 13 * s;
             if (cx + cw > x + lw && cx > x) { cx = x; cy += ch + cgap; }
             const bool hv = u.over(cx, cy, cw, ch);
-            if (on) { g.fillRoundRect(cx, cy, cw, ch, ch * 0.5f, withA(u.acc(), 0.20f)); g.strokeRoundRect(cx + 0.5f, cy + 0.5f, cw - 1, ch - 1, ch * 0.5f, withA(u.acc(), 0.8f), std::max(1.f, s)); }
-            else { g.fillRoundRect(cx, cy, cw, ch, ch * 0.5f, mulA(P.ink, hv ? 0.10f : 0.05f)); }
-            g.text(F_LIGHT, cfs, cx + cw * 0.5f, u.capMid(F_LIGHT, cfs, cy + ch * 0.5f), names[i], on ? P.ink : P.ink2, Align::Center);
+            const uint64_t gkey = a.nextActionGlassKey();
+            const glassfx::Pose gp = a.glass.pose(gkey, cx, cy, cw, ch, ch * 0.5f, s, hv, false);
+            if (on) { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(u.acc(), 0.20f + 0.06f * gp.hoverT)); g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), withA(u.acc(), 0.8f), std::max(1.f, s)); }
+            else { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.05f + 0.06f * gp.hoverT)); }
+            drawGlassEffects(u.c, gkey, gp, false, false);
+            g.text(F_LIGHT, cfs, gp.x + gp.w * 0.5f, u.capMid(F_LIGHT, cfs, gp.y + gp.h * 0.5f), names[i], on ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Center);
             u.act(cx, cy, cw, ch, [ap, idx] { ap->st.quietPreview = idx; ap->st.quietFx = true; if (idx == 9) ap->st.quietFlare = true; ap->cmd(CMD_SAVE); ap->setToast(idx == 0 ? L"Quiet face follows the live weather" : L"Previewing: open the Quiet face with 2"); });
             cx += cw + cgap;
         }
@@ -1069,7 +1091,7 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
     u.sectionLabel(rx, ry, "What shows up"); ry += 30 * s;
     struct Row { const wchar_t* k; const wchar_t* d; };
     static const Row rows[] = {{L"CLOUDS", L"drift by when more than about a third of the sky is covered, and one big cloud passes in front of the time"}, {L"WIND", L"small bright particles with trailing tails blow across from about 12 km/h, faster as it picks up"},
-                               {L"RAIN", L"streaks down in three depths with splashes where drops land, and falls behind the Sky face"}, {L"SNOW", L"calm, layered snowflakes drift softly in three depths over a faint frost glow on the Quiet and Sky faces"}, {L"FOG", L"a soft haze drifts in front of the sky when fog or mist is reported, and the light turns flat"}, {L"THUNDER", L"dark cloud and lightning whenever thunder is reported, with rain only if rain is"},
+                               {L"RAIN", L"streaks down in three depths with splashes where drops land, and falls behind the Sky face"}, {L"SNOW", L"calm layered snowflakes drift softly; strong winter winds whip them into a driving blizzard"}, {L"FOG", L"a soft haze drifts in front of the sky when fog or mist is reported, and the light turns flat"}, {L"THUNDER", L"dark cloud and lightning whenever thunder is reported, with rain only if rain is"},
                                {L"TORNADO", L"twists up for very strong gusts, about 70 km/h or more"}, {L"SUN FLARE", L"a soft golden flare from the Sun's side while it is low. Switch it off above"}, {L"SUNNY", L"and calm shows nothing at all"}};
     for (const Row& r : rows) {
         g.text(F_MONO_M, 12.f * s, rx, ry + 13 * s, r.k, u.acc(), Align::Left, 0.14f);
@@ -1349,6 +1371,14 @@ void tabPlace(UI& u, float x, float y, float w, float h) {
 struct Release { const char* version; const char* name; std::vector<const char*> notes; const char* date = ""; };
 const std::vector<Release>& releaseNotes() {
     static const std::vector<Release> r = {
+        {"2.9.8", "Glass", {
+            "Glass. Tactile Liquid Glass physics across every button, sliding segmented pills, touch-reactive Focus Studio cards, and a dramatic artistic Blizzard snowstorm mode.",
+            "Liquid Glass buttons everywhere: every button across Timer (mode tabs, duration presets, Start & Reset), Focus Studio (duration presets, Start & Reset, Ambience & Theme orb), the bottom navigation dock, rotating panel arrows, and all Settings controls now responds with smooth spring-eased hover bloom, cursor-tracking specular glass sheen, tactile press-and-hold compression, elastic liquid-jelly rebound on release, and an expanding refractive caustic ripple from the exact point you click.",
+            "Gliding segmented pills: active selection capsules on Timer (Timer / Stopwatch / Alarm and 1m–1h presets), Focus Studio (5m–1h presets), and the bottom navigation dock now glide and stretch fluidly from one button to the next instead of snapping.",
+            "Touch-reactive Focus Studio corner cards: the top-left live Clock & Date card and top-right live Weather & AQI card on Focus Studio now respond to hover and click with volume-preserving liquid-glass jelly wobble, cursor-tracking glass sheen, and a dual-ring shimmering caustic ripple — purely tactile motion when touched, with zero unintended side effects.",
+            "Artistic Blizzard / Harsh Snowstorm: alongside the existing calm snowfall, Meridian now renders a fierce yet deeply artistic driving snowstorm — three parallax depths of feathery wind-sheared snow streaks, sweeping whiteout squall curtains, curling frosted spindrift ribbons, racing ground snowdrifts, and fast foreground wisps that keep every digit crisp. Triggers automatically during real winter snowstorms and thundersnow, previews with a new BLIZZARD chip in Settings > Quiet, falls cleanly behind the Sky map, and joins the Focus Studio Ambience Orb.",
+            "Zero idle overhead: all Liquid Glass springs, ripples, and sliding pills run smoothly at display refresh rate while interacting and settle completely back to 1 FPS idle within half a second, with nested Direct2D rounded-capsule clipping and automatic hold recovery on Alt+Tab or mouse leave.",
+        }, "22 Nov 2026"},
         {"2.9.7", "Snowfall", {
             "Snowfall. Meditative layered snowfall, Focus Studio ambient backdrops, Daylight Saving awareness, shooting-star physics, Air Quality emblem, Golden and Blue Hour, and precision polish across every face.",
             "Calm snowfall: three soft depths of drifting snowflakes with gentle dual-sine sway, soft foreground bokeh and a subtle frosted ground glow now appear behind both the Quiet and Sky faces whenever snow is falling (plus a SNOW preview chip in Settings > Quiet).",
@@ -1523,7 +1553,7 @@ void tabAbout(UI& u, float x, float y, float w, float h) {
         struct F { const wchar_t* k; const wchar_t* d; };
         static const F fs[] = {
             {L"SKY", L"The live sky map with the Sun, Moon, planets, stars and eclipses, plus weather, air quality, sunrise, sunset and Today."},
-            {L"QUIET", L"The big clock with the weather drawn behind it: clouds, wind, rain, snow, thunder, fog."},
+            {L"QUIET", L"The big clock with the weather drawn behind it: clouds, wind, rain, snow, blizzard, thunder, fog."},
             {L"TIMER", L"Timer, stopwatch and alarm."},
             {L"ALMANAC", L"The Moon, Golden and Blue Hour, the day and the year, and what is special today."},
             {L"WIDGETS", L"World clocks, a month calendar, a countdown and a note."},
@@ -1795,12 +1825,19 @@ void App::renderSettings(Gfx& g, int w, int h) {
     for (int i = 0; i < NTABS; ++i) {
         const float th = 41 * s;
         const bool cur = i == settingsTab;
+        const float tx = cx + 22 * s, tw = sw - 44 * s;
+        const bool hv = u.over(tx, ty, tw, th);
+        const uint64_t gkey = nextActionGlassKey();
+        const glassfx::Pose gp = glass.pose(gkey, tx, ty, tw, th, th * 0.5f, s, hv, false);
         if (cur) {
-            g.fillRoundRect(cx + 22 * s, ty, sw - 44 * s, th, th * 0.5f, withA(u.acc(), 0.16f));
-            g.fillRoundRect(cx + 22 * s, ty + th * 0.5f - 9 * s, 3.5f * s, 18 * s, 2 * s, u.acc());
-        } else if (u.over(cx + 22 * s, ty, sw - 44 * s, th)) g.fillRoundRect(cx + 22 * s, ty, sw - 44 * s, th, th * 0.5f, mulA(P.ink, 0.05f));
-        g.text(F_MONO_M, sideFs, cx + std::max(18.f, 46.f * s), u.capMid(F_MONO_M, sideFs, ty + th * 0.5f), Ws(TAB_NAMES[i]), cur ? P.ink : P.ink2, Align::Left, 0.10f);
-        addAction(cx + 22 * s, ty, sw - 44 * s, th, [this, i] { settingsTab = i; textTarget = nullptr; edInit = false; aboutSub = 0; aboutScroll = 0; });
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(u.acc(), 0.16f + 0.05f * gp.hoverT));
+            g.fillRoundRect(gp.x, gp.y + gp.h * 0.5f - 9 * s, 3.5f * s, 18 * s, 2 * s, u.acc());
+        } else if (gp.hoverT > 0.01f) {
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.06f * gp.hoverT));
+        }
+        drawGlassEffects(c, gkey, gp, false, false);
+        g.text(F_MONO_M, sideFs, cx + std::max(18.f, 46.f * s) + (gp.x - tx) * 0.25f, u.capMid(F_MONO_M, sideFs, gp.y + gp.h * 0.5f), Ws(TAB_NAMES[i]), cur ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Left, 0.10f);
+        addAction(tx, ty, tw, th, [this, i] { settingsTab = i; textTarget = nullptr; edInit = false; aboutSub = 0; aboutScroll = 0; });
         ty += th + 2 * s;
     }
     const float footX = cx + std::max(14.f, 46.f * s);

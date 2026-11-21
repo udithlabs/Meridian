@@ -18,7 +18,10 @@ struct SkyCol { gfx::Color zen, hor; };
 SkyCol skyColors(double sunAlt, float cloud);
 
 void addHit(App& a, float x, float y, float w, float h, int id);
-void drawButton(Ctx& c, float x, float y, float w, float h, const std::wstring& label, bool active, int hitId, gfx::FontId font = gfx::F_MONO_M, float size = 15.f);
+void drawGlassEffects(Ctx& c, uint64_t key, const glassfx::Pose& gp, bool active, bool cardStyle = false);
+void drawButton(Ctx& c, float x, float y, float w, float h, const std::wstring& label, bool active, int hitId, gfx::FontId font = gfx::F_MONO_M, float size = 15.f, uint64_t glassKey = 0, bool allowHover = true);
+struct SegItem { std::wstring label; float x, w; bool active; int hitId; uint64_t glassKey; };
+void drawSlidingButtons(Ctx& c, int slideSlot, float y, float h, const std::vector<SegItem>& items, gfx::FontId font, float size, bool allowHover = true);
 
 // sky face parts
 void drawDome(Ctx& c, float cx, float cy, float R, bool labels);
