@@ -24,14 +24,14 @@ jobs:
       - name: Install the compiler
         run: sudo apt-get update && sudo apt-get install -y mingw-w64 python3
       - name: Meridian.exe (release)
-        run: MERIDIAN_WERROR=1 ./build.sh
+        run: MERIDIAN_WERROR=1 bash ./build.sh
       - name: The test build (build-dev/Meridian-dev.exe, never overwrites Meridian.exe)
-        run: MERIDIAN_WERROR=1 MERIDIAN_DEV=1 ./build.sh
+        run: MERIDIAN_WERROR=1 MERIDIAN_DEV=1 bash ./build.sh
       - name: Verify release Meridian.exe has no development switches
         run: |
           python3 -c "raw=open('Meridian.exe','rb').read(); assert b'--shot' not in raw and '--shot'.encode('utf-16le') not in raw and b'--bench' not in raw and '--bench'.encode('utf-16le') not in raw, 'Release Meridian.exe contains MERIDIAN_DEV switches!'; print('Release Meridian.exe verified clean')"
       - name: Setup wizard
-        run: MERIDIAN_WERROR=1 ./setup/build.sh
+        run: MERIDIAN_WERROR=1 bash ./setup/build.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Meridian-build
@@ -50,7 +50,7 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils mingw-w64-x86_64-python
       - name: build.bat
         run: MERIDIAN_WERROR=1 cmd.exe //c build.bat
       - name: build-setup.bat

@@ -16,7 +16,7 @@ export WINEDEBUG=-all WINEPREFIX=${WINEPREFIX:-$T/prefix}
 if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null; then exec xvfb-run -a bash "$0" "$@"; fi
 echo "== building the test build"
 cp -a "$SRC" "$T/m"; rm -rf "$T/m/build" "$T/m/build-dev" "$T/m/setup/build"
-( cd "$T/m" && MERIDIAN_DEV=1 ./build.sh >/dev/null )
+( cd "$T/m" && MERIDIAN_DEV=1 bash ./build.sh >/dev/null )
 EXE="$T/m/build-dev/Meridian-dev.exe"
 mkdir -p "$T/out"
 win() { "$WINE" winepath -w "$1" 2>/dev/null | tr -d '\r'; }
