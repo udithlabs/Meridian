@@ -173,24 +173,39 @@ void drawMonth(Ctx& c, float x, float y, float w, float h) {
     const float headH = 38.f * s;
     g.text(F_SERIF, std::min(30.f * s, headH * 0.85f), x, y + headH * 0.72f, Ws(std::string(util::MONTHS[M - 1]) + " " + fmt("%d", Y)), P.ink, Align::Left);
     const float mx = a.mouseX - a.shiftX, my = a.mouseY - a.shiftY;
-    // browse months: previous, next, and a way back
+    // browse months: circular Liquid Glass previous (<), next (>), and TODAY return pill
     {
-        const float bs = 30.f * s, by = y + headH * 0.5f - bs * 0.5f;
+        const float bs = std::max(26.f, 28.f * s), by = y + headH * 0.5f - bs * 0.5f, gapB = 6.f * s;
+        const bool allowCal = !a.showSettings && !a.showHelp && !a.isSaver && a.mouseX >= 0.f;
+        auto drawCalArrow = [&](float ax, int dir, int hitId) {
+            const bool hv = allowCal && mx >= ax - 3.f * s && mx <= ax + bs + 3.f * s && my >= by - 3.f * s && my <= by + bs + 3.f * s;
+            const glassfx::Pose gp = a.glass.pose((uint64_t)hitId, ax, by, bs, bs, bs * 0.5f, s, hv, false);
+            Color bg = P.panel; bg.a = std::max(bg.a, P.dark ? 0.09f : 0.075f) * c.alpha;
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, bg);
+            const Color ac = tint(P, P.accent);
+            if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(ac, (P.dark ? 0.25f : 0.18f) * gp.hoverT * c.alpha));
+            Color brd = lerp(withA(P.line, std::min(1.f, P.line.a * 1.45f) * c.alpha), withA(ac, 0.82f * c.alpha), gp.hoverT);
+            g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), brd, std::max(1.f, s));
+            drawGlassEffects(c, (uint64_t)hitId, gp, false, false);
+            const float gcx = gp.x + gp.w * 0.5f, gcy = gp.y + gp.h * 0.5f;
+            chevron(g, gcx + (float)dir * (gp.w * 0.03f), gcy, gp.h * 0.24f, -dir, lerp(P.ink2, P.ink, gp.hoverT), std::max(1.4f, (1.65f + 0.25f * gp.hoverT) * s));
+            addHit(a, ax - 3.f * s, by - 3.f * s, bs + 6.f * s, bs + 6.f * s, hitId);
+        };
         float bx = x + w - bs;
-        const bool h1 = a.mouseX >= 0 && mx >= bx && mx <= bx + bs && my >= by && my <= by + bs;
-        chevron(g, bx + bs * 0.5f, by + bs * 0.5f, bs * 0.34f, -1, h1 ? P.ink : P.ink2, std::max(1.5f, 1.8f * s));
-        a.addAction(bx + a.shiftX, by + a.shiftY, bs, bs, [&a]() { a.calOffset++; });
-        bx -= bs;
-        const bool h2 = a.mouseX >= 0 && mx >= bx && mx <= bx + bs && my >= by && my <= by + bs;
-        chevron(g, bx + bs * 0.5f, by + bs * 0.5f, bs * 0.34f, 1, h2 ? P.ink : P.ink2, std::max(1.5f, 1.8f * s));
-        a.addAction(bx + a.shiftX, by + a.shiftY, bs, bs, [&a]() { a.calOffset--; });
+        drawCalArrow(bx, +1, HIT_CAL_NEXT);
+        bx -= bs + gapB;
+        drawCalArrow(bx, -1, HIT_CAL_PREV);
         if (!thisMonth) {
             const std::wstring t = L"TODAY";
             const float tw = g.textWidth(F_MONO_M, 12.f * s, t, 0.14f) + 22 * s, tx = bx - 8 * s - tw;
-            const bool h3 = a.mouseX >= 0 && mx >= tx && mx <= tx + tw && my >= by && my <= by + bs;
-            g.fillRoundRect(tx, by + 2 * s, tw, bs - 4 * s, (bs - 4 * s) * 0.5f, h3 ? withA(P.accent, 0.95f) : mulA(P.ink, 0.12f));
-            g.text(F_MONO_M, 12.f * s, tx + tw * 0.5f, by + bs * 0.5f + g.capHeight(F_MONO_M, 12.f * s) * 0.5f, t, h3 ? P.plate : P.ink2, Align::Center, 0.14f);
-            a.addAction(tx + a.shiftX, by + a.shiftY, tw, bs, [&a]() { a.calOffset = 0; });
+            const float th = bs - 2 * s, ty2 = by + 1 * s;
+            const bool h3 = allowCal && mx >= tx && mx <= tx + tw && my >= ty2 && my <= ty2 + th;
+            const glassfx::Pose gp3 = a.glass.pose(HIT_CAL_TODAY, tx, ty2, tw, th, th * 0.5f, s, h3, false);
+            g.fillRoundRect(gp3.x, gp3.y, gp3.w, gp3.h, gp3.r, lerp(mulA(P.ink, 0.11f), withA(tint(P, P.accent), 0.90f), gp3.hoverT));
+            g.strokeRoundRect(gp3.x + 0.5f, gp3.y + 0.5f, std::max(1.f, gp3.w - 1.f), std::max(1.f, gp3.h - 1.f), std::max(0.5f, gp3.r - 0.5f), lerp(P.line, withA(tint(P, P.accent), 0.85f), gp3.hoverT), std::max(1.f, s));
+            drawGlassEffects(c, HIT_CAL_TODAY, gp3, gp3.hoverT > 0.5f, false);
+            g.text(F_MONO_M, 12.f * s, gp3.x + gp3.w * 0.5f, gp3.y + gp3.h * 0.5f + g.capHeight(F_MONO_M, 12.f * s) * 0.5f, t, lerp(P.ink2, P.plate, gp3.hoverT), Align::Center, 0.14f);
+            addHit(a, tx, ty2, tw, th, HIT_CAL_TODAY);
         }
     }
     const float gy = y + headH + 4 * s;

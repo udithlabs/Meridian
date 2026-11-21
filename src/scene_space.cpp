@@ -32,7 +32,7 @@ float smoother(float x) { x = clamp01(x); return x * x * x * (x * (x * 6.f - 15.
 
 // ---------------------------------------------------------------- cached images
 struct Slot { Bitmap bmp; uint64_t key = 0, failed = 0; };
-Slot gBg, gTail[4], gShip, gRays, gCirrus;               // tails: white, warm, green, ion (cyan)
+Slot gBg, gNebulaPulse, gTail[4], gShip, gRays, gCirrus;  // tails: white, warm, green, ion (cyan)
 int gBudget = 0; double gBudgetAt = -1e18;
 
 // (Re)draws an image when its key changed, a couple per frame at most. True when there is an image to use.
@@ -117,65 +117,411 @@ bool shipOn(const App& a, double t, float& u, long long& k, uint64_t& flightId) 
 // how much the weather hides the sky: cloud, fog, rain, snow, blizzard and storms put the stars out
 float skyCover(const App& a) { return clamp01(std::max(std::max(0.9f * a.qfx[0], a.qfx[5]), std::max(std::max(0.8f * a.qfx[2], std::max(0.72f * a.qfx[6], 0.95f * a.qfx[7])), a.qfx[4]))); }
 
-// ---------------------------------------------------------------- Midnight: the still sky
+// ---------------------------------------------------------------- Midnight & Stars: deep-space cosmos
+// Authentic O-B-A-F-G-K-M stellar spectral palette
+Color starSpectral(float tc) {
+    if (tc < 0.17f) return rgb(0x94BAFF);      // hot O/B sapphire
+    if (tc < 0.42f) return rgb(0xD2E4FF);      // A blue-white
+    if (tc < 0.68f) return rgb(0xF6F8FF);      // F diamond white
+    if (tc < 0.84f) return rgb(0xFFF0D0);      // G warm sunlight cream
+    if (tc < 0.94f) return rgb(0xFFCF8C);      // K golden amber
+    return rgb(0xFFA673);                      // M warm coral-orange giant
+}
+
+// Delicate 4-point optical diffraction starburst for bright jewel stars
+void drawStarGlint(Gfx& g, float x, float y, float len, float s, const Color& col, float alpha) {
+    if (alpha < 0.01f || len < 2.f) return;
+    const float wOuter = std::max(0.9f, 1.35f * s), wCore = std::max(0.6f, 0.72f * s);
+    const Color cWhite = lerp(col, rgb(0xFFFFFF), 0.55f);
+    // Horizontal & vertical main diffraction spikes
+    g.line(x - len, y, x + len, y, withA(col, alpha * 0.34f), wOuter, true);
+    g.line(x, y - len * 0.92f, x, y + len * 0.92f, withA(col, alpha * 0.34f), wOuter, true);
+    g.line(x - len * 0.68f, y, x + len * 0.68f, y, withA(cWhite, alpha * 0.82f), wCore, true);
+    g.line(x, y - len * 0.62f, x, y + len * 0.62f, withA(cWhite, alpha * 0.82f), wCore, true);
+    // Subtle short diagonal secondary glints
+    const float d = len * 0.34f;
+    g.line(x - d, y - d, x + d, y + d, withA(col, alpha * 0.24f), wCore, true);
+    g.line(x - d, y + d, x + d, y - d, withA(col, alpha * 0.24f), wCore, true);
+}
+
+// Rotated ellipse points helper (tiltRad > 0 rotates clockwise on screen)
+std::vector<Pt> rotEllipsePts(float cx, float cy, float rx, float ry, float tiltRad, float a0, float a1, int n) {
+    const float ct = std::cos(tiltRad), st = std::sin(tiltRad);
+    std::vector<Pt> p; p.reserve((size_t)n + 1);
+    for (int i = 0; i <= n; ++i) {
+        const float a = a0 + (a1 - a0) * i / n;
+        const float ex = rx * std::cos(a), ey = ry * std::sin(a);
+        p.push_back({cx + ex * ct - ey * st, cy + ex * st + ey * ct});
+    }
+    return p;
+}
+
+// Helper for Milky Way diagonal spine curve (u in 0..1 from lower-left to upper-right)
+void milkySpine(float u, float W, float H, float& sx, float& sy) {
+    sx = (-0.08f + 1.16f * u) * W;
+    sy = (0.91f - 0.80f * u) * H + std::sin(u * 4.8f - 0.6f) * 0.038f * H;
+}
+
 Bitmap buildSky(Ctx& c) {
     Gfx& g = c.g; const float W = c.W, H = c.H, s = c.s;
     const int sw = (int)W, sh = (int)H;
     if (sw < 64 || sh < 64 || (double)sw * sh > 1.6e7 || !g.beginSprite(sw, sh)) return Bitmap{};
     const float R = std::max(W, H);
-    // soft nebula: purple, teal and a trace of rose
-    g.glowEllipse(0.16f * W, 0.30f * H, 0.42f * R, 0.30f * R, rgb(0x5B3A9E), 0.13f);
-    g.glowEllipse(0.80f * W, 0.64f * H, 0.38f * R, 0.26f * R, rgb(0x1E6F8E), 0.10f);
-    g.glowEllipse(0.52f * W, 0.08f * H, 0.30f * R, 0.14f * R, rgb(0x8A3A86), 0.08f);
-    // a band of the Milky Way, from the lower left to the upper right
-    for (int i = 0; i < 18; ++i) {
-        const float u = (i + 0.5f) / 18.f, j = hashf(i, 21) - 0.5f;
-        g.glowEllipse((-0.08f + 1.16f * u) * W, (0.86f - 0.72f * u) * H + j * 0.04f * H, 0.16f * R, 0.06f * R, rgb(0x93A9FF), 0.045f);
-    }
-    // stars, many of them in the band
-    const int N = (int)std::max(140.f, std::min(560.f, W * H / 4600.f));
-    const float z1 = std::max(1.f, std::round(s));
-    for (int i = 0; i < N; ++i) {
-        float x, y;
-        if (hashf(i, 31) < 0.40f) { const float u = hashf(i, 32); x = (-0.08f + 1.16f * u) * W; y = (0.86f - 0.72f * u) * H + (hashf(i, 33) - 0.5f) * 0.24f * H; }
-        else { x = hashf(i, 34) * W; y = hashf(i, 35) * H; }
-        const float h = hashf(i, 36);
-        const float al = 0.13f + 0.40f * h * h * h;                                   // dim: most are barely there
-        const float tc = hashf(i, 37);
-        const Color col = tc < 0.30f ? rgb(0xBFD0FF) : (tc < 0.50f ? rgb(0xFFE4BF) : rgb(0xE9EEFF));
-        const float z = hashf(i, 38) > 0.94f ? z1 * 2.f : z1;
-        g.fillRect(std::round(x), std::round(y), z, z, withA(col, al));
-        if (h > 0.93f) g.glow(std::round(x) + z * 0.5f, std::round(y) + z * 0.5f, 4.f * s, col, 0.20f);
-    }
-    // a ringed planet low on the left, dim and far
-    {
-        const float pr = std::max(20.f * s, 0.040f * H), px = 0.075f * W, py = 0.895f * H, rx = pr * 2.1f, ry = pr * 0.50f, A = 0.72f;
-        const Color ring = rgb(0xD9BE92);
-        const auto back = ellipsePts(px, py, rx, ry, PI_F, 2.f * PI_F, 60), front = ellipsePts(px, py, rx, ry, 0.f, PI_F, 60);
-        for (int b = 0; b < 3; ++b) {
-            const float f = 1.f - 0.16f * b;
-            const auto bk = ellipsePts(px, py, rx * f, ry * f, PI_F, 2.f * PI_F, 60);
-            g.polyline(bk, false, withA(ring, A * (b == 1 ? 0.22f : 0.38f)), std::max(1.6f, 2.4f * s), false);
+    const float Rmin = std::min(W, H);
+
+    // 1. Sculpted organic deep-space emission & reflection nebulae (curved multi-puff cosmic clouds, never flat round spotlights)
+    auto nebulaRidge = [&](float x0, float y0, float x1, float y1, float bend, float scaleR, int puffs, int salt,
+                           const Color& cDeep, const Color& cMid, const Color& cCore, float strength) {
+        const float dx = x1 - x0, dy = y1 - y0;
+        const float len = std::max(1.f, std::hypot(dx, dy));
+        const float nx = -dy / len, ny = dx / len;
+        for (int i = 0; i < puffs; ++i) {
+            const float u = (i + 0.35f + 0.30f * hashf(i, salt + 1)) / (float)puffs;
+            const float env = std::sin(u * PI_F);
+            const float curve = std::sin(u * PI_F) * bend + (hashf(i, salt + 2) - 0.5f) * scaleR * 0.55f;
+            const float px = x0 + dx * u + nx * curve;
+            const float py = y0 + dy * u + ny * curve;
+            const float rBase = scaleR * (0.55f + 0.72f * env) * (0.78f + 0.44f * hashf(i, salt + 3));
+            const float op = strength * (0.45f + 0.55f * env);
+            g.glowEllipse(px, py, rBase * 1.38f, rBase * 0.88f, cDeep, op * 0.62f);
+            g.glowEllipse(px + nx * rBase * 0.16f, py + ny * rBase * 0.16f, rBase * 0.88f, rBase * 0.62f, cMid, op * 0.48f);
+            if (env > 0.45f && (i & 1) == 0)
+                g.glow(px - nx * rBase * 0.12f, py - ny * rBase * 0.12f, rBase * 0.48f, cCore, op * 0.34f);
         }
-        // the disc is opaque (dimmed by mixing with the night colour, not by alpha) so the far half of the rings stays hidden behind it
+    };
+    // Upper-left Orion / Trifid violet-magenta-cyan cosmic cloud ridge
+    nebulaRidge(0.02f * W, 0.44f * H, 0.34f * W, 0.12f * H, -0.05f * Rmin, 0.135f * R, 11, 110,
+                rgb(0x5232A8), rgb(0xA64492), rgb(0x5CE0F8), 0.16f);
+    // Lower-right Carina / Lagoon oceanic teal-sapphire-amber cosmic veil
+    nebulaRidge(0.64f * W, 0.94f * H, 0.99f * W, 0.52f * H, 0.06f * Rmin, 0.145f * R, 12, 130,
+                rgb(0x1D5EA6), rgb(0x289EC0), rgb(0xE8A864), 0.16f);
+    // Upper-mid subtle Rosette / Perseus lilac-blue cosmic whisper
+    nebulaRidge(0.42f * W, 0.05f * H, 0.74f * W, 0.20f * H, -0.03f * Rmin, 0.105f * R, 8, 150,
+                rgb(0x6C3A98), rgb(0x4672CC), rgb(0xB89EFF), 0.11f);
+
+    // 2. Sculpted Milky Way galactic band with two luminous arms separated by a meandering Great Dark Rift
+    for (int i = 0; i < 24; ++i) {
+        const float u = (i + 0.5f) / 24.f;
+        float sx, sy; milkySpine(u, W, H, sx, sy);
+        const float coreW = 0.65f + 0.55f * std::sin(u * PI_F);               // fullest in the galactic core arc
+        const Color outerCol = (i & 1) ? rgb(0x4C5CC4) : rgb(0x3A6AA8);
+        g.glowEllipse(sx, sy, 0.18f * R * coreW, 0.085f * R * coreW, outerCol, 0.095f * coreW);
+    }
+    // Luminous upper & lower galactic star-cloud arms flanking the dark interstellar dust lane
+    for (int i = 0; i < 46; ++i) {
+        const float u = (i + 0.3f + 0.4f * hashf(i, 21)) / 46.f;
+        float sx, sy; milkySpine(u, W, H, sx, sy);
+        const float armSign = (i & 1) ? 1.f : -1.f;
+        // Normal to Milky Way diagonal (~-35 deg) -> offset cleanly off the dark rift centerline
+        const float riftOff = armSign * (0.028f + 0.036f * hashf(i, 22)) * H;
+        const float cx = sx - riftOff * 0.52f;
+        const float cy = sy + riftOff * 0.85f;
+        const float coreWarm = std::exp(-std::pow((u - 0.34f) / 0.26f, 2.f)); // warm Sagittarius star clouds toward lower-left/mid
+        const Color cloudCol = lerp(
+            (hashf(i, 23) < 0.45f ? rgb(0x98B8FF) : rgb(0xCFC2FF)),
+            rgb(0xFFE0B0),
+            0.55f * coreWarm * hashf(i, 24));
+        const float rCloud = (0.045f + 0.055f * hashf(i, 25)) * Rmin;
+        const float op = (0.068f + 0.052f * hashf(i, 26)) * (0.65f + 0.50f * std::sin(u * PI_F));
+        g.glowEllipse(cx, cy, rCloud * 1.45f, rCloud * 0.78f, cloudCol, op);
+    }
+    // Delicate translucent H-II pink star-forming nebula knots embedded in the Milky Way
+    for (int i = 0; i < 6; ++i) {
+        const float u = 0.14f + 0.74f * hashf(i, 27);
+        float sx, sy; milkySpine(u, W, H, sx, sy);
+        const float off = (hashf(i, 28) - 0.5f) * 0.09f * H;
+        g.glow(sx - off * 0.5f, sy + off * 0.85f, (26.f + 22.f * hashf(i, 29)) * s, rgb(0xE068A2), 0.11f);
+    }
+
+    // 3. Multi-magnitude spectral starfield (~1,400 crisp circular stars: galactic powder + deep field + bright jewels)
+    const float areaScale = clamp01((W * H) / (1920.f * 1080.f));
+    // Tier 1: dense glittering Milky Way stardust powder (clumped along the two arms, thinning across the Dark Rift)
+    const int nPowder = (int)std::lround(480.f + 560.f * areaScale);
+    for (int i = 0; i < nPowder; ++i) {
+        const float u = hashf(i, 31);
+        float sx, sy; milkySpine(u, W, H, sx, sy);
+        // Gaussian-like spread across galactic width, nudged slightly outside the Dark Rift lane
+        const float gRnd = (hashf(i, 32) + hashf(i, 33) - 1.f);
+        const float armNudge = (gRnd >= 0.f ? 0.012f : -0.012f) * H;
+        const float perp = gRnd * 0.155f * H + armNudge;
+        const float x = sx - perp * 0.54f;
+        const float y = sy + perp * 0.84f;
+        if (x < 0.f || x > W || y < 0.f || y > H) continue;
+        // Dark Rift dust attenuation right near perp == 0
+        const float riftDip = smoothstep(0.005f * H, 0.032f * H, std::fabs(perp));
+        const float h = hashf(i, 34);
+        const float al = (0.18f + 0.52f * h * h) * (0.35f + 0.65f * riftDip);
+        const Color col = starSpectral(hashf(i, 35));
+        const float rad = std::max(0.55f, (0.58f + 0.62f * h * h) * s);
+        g.fillCircle(x, y, rad, withA(col, al));
+    }
+    // Tier 2: crisp deep-field stars across the entire cosmos
+    const int nField = (int)std::lround(260.f + 220.f * areaScale);
+    for (int i = 0; i < nField; ++i) {
+        const float x = hashf(i, 41) * W, y = hashf(i, 42) * H;
+        const float h = hashf(i, 43);
+        const float al = 0.24f + 0.66f * std::pow(h, 1.55f);
+        const Color col = starSpectral(hashf(i, 44));
+        const float rad = std::max(0.65f, (0.68f + 1.05f * h * h) * s);
+        if (h > 0.72f) g.glow(x, y, rad * 3.8f, col, 0.22f * al);
+        g.fillCircle(x, y, rad, withA(col, al));
+    }
+    // Tier 3: brilliant hero jewel stars with soft colored halos and 4-point optical diffraction glints
+    const int nHero = 42;
+    for (int i = 0; i < nHero; ++i) {
+        const float x = (0.03f + 0.94f * hashf(i, 45)) * W;
+        const float y = (0.04f + 0.92f * hashf(i, 46)) * H;
+        const float h = hashf(i, 47);
+        const Color col = starSpectral(hashf(i, 48));
+        const float rad = std::max(1.2f, (1.25f + 1.05f * h) * s);
+        g.glow(x, y, (6.5f + 8.5f * h) * s, col, 0.34f + 0.22f * h);
+        g.glow(x, y, (2.6f + 2.2f * h) * s, rgb(0xFFFFFF), 0.70f);
+        g.fillCircle(x, y, rad, withA(lerp(col, rgb(0xFFFFFF), 0.55f), 0.96f));
+        if (i < 18) drawStarGlint(g, x, y, (6.5f + 8.5f * h) * s, s, col, 0.55f + 0.35f * h);
+    }
+
+    // 4. Pleiades ("Seven Sisters") sapphire reflection nebula & open star cluster (upper-left open sky)
+    {
+        const float px0 = 0.215f * W, py0 = 0.230f * H, sc = std::max(0.55f, s);
+        g.glowEllipse(px0, py0, 62.f * sc, 42.f * sc, rgb(0x528EFF), 0.22f);
+        g.glowEllipse(px0 + 8.f * sc, py0 - 4.f * sc, 38.f * sc, 26.f * sc, rgb(0x98C6FF), 0.24f);
+        struct Sis { float dx, dy, r; bool glint; };
+        static const Sis sis[9] = {
+            {-22.f,  -4.f, 1.9f, true},  {-10.f,  -9.f, 2.2f, true},  {  2.f,  -2.f, 2.5f, true},
+            { 14.f,   5.f, 2.0f, true},  { 26.f,   2.f, 1.7f, false}, { 16.f, -13.f, 1.6f, false},
+            { -6.f,  10.f, 1.5f, false}, {-18.f,  12.f, 1.2f, false}, {  6.f,  15.f, 1.3f, false},
+        };
+        for (const Sis& m : sis) {
+            const float sx = px0 + m.dx * sc, sy = py0 + m.dy * sc;
+            g.glow(sx, sy, m.r * 5.2f * sc, rgb(0x88BAFF), 0.44f);
+            g.fillCircle(sx, sy, std::max(1.0f, m.r * sc), rgb(0xF0F7FF));
+            if (m.glint) drawStarGlint(g, sx, sy, m.r * 4.2f * sc, sc, rgb(0x98C4FF), 0.62f);
+        }
+    }
+
+    // 5. Masterpiece Sculpted Spiral Galaxy (Andromeda-style, upper-right open sky — clear of Focus Weather card & Orb)
+    {
+        const float gx = 0.805f * W, gy = 0.215f * H;
+        const float gr = std::max(40.f * s, 0.072f * Rmin);
+        const float tilt = 0.34f;                                             // +19.5 deg graceful slant
+        const float ct = std::cos(tilt), st = std::sin(tilt), squash = 0.36f;
+        auto galPt = [&](float lx, float ly, float& ox, float& oy) {
+            const float sy2 = ly * squash;
+            ox = gx + lx * ct - sy2 * st;
+            oy = gy + lx * st + sy2 * ct;
+        };
+        // Continuous luminous inner & outer galactic disc mist (prevents any hollow ring look)
+        for (int k = -6; k <= 6; ++k) {
+            const float u = k / 6.f;
+            float ox, oy; galPt(u * gr * 1.35f, 0.f, ox, oy);
+            const float env = std::exp(-u * u * 1.9f);
+            g.glow(ox, oy, gr * (0.42f + 0.32f * env), lerp(rgb(0x6A86D6), rgb(0xC6D2FF), env), 0.16f * env);
+        }
+        // Two feathered open-ended logarithmic spiral arms (smooth overlapping wisps, never closing into a hard ring)
+        for (int arm = 0; arm < 2; ++arm) {
+            const float aBase = arm * PI_F;
+            const int steps = 42;
+            for (int i = 0; i < steps; ++i) {
+                const float f = (float)i / (float)(steps - 1);
+                const float th = aBase + 0.25f + f * 3.85f;                   // ~220 deg graceful open spiral sweep
+                const float rad = gr * (0.10f + 1.48f * std::pow(f, 1.08f));
+                float ox, oy; galPt(rad * std::cos(th), rad * std::sin(th), ox, oy);
+                const float env = smoothstep(0.f, 0.10f, f) * std::pow(1.f - f, 0.85f);
+                const Color armCol = lerp(rgb(0xFFE5BF), rgb(0x88B4FF), clamp01(f * 1.35f));
+                g.glow(ox, oy, gr * (0.24f - 0.08f * f), armCol, 0.17f * env);
+                if (i % 8 == 3 && f > 0.18f && f < 0.78f)
+                    g.glow(ox, oy, gr * 0.10f, rgb(0xF084B8), 0.20f * env);   // H-II star-forming knot
+                // Scattered organic starlight dust along & around the arm
+                for (int d = 0; d < 2; ++d) {
+                    const int id = arm * 200 + i * 2 + d;
+                    const float jitR = (hashf(id, 53) - 0.5f) * gr * (0.22f + 0.16f * f);
+                    const float jitA = (hashf(id, 55) - 0.5f) * 0.28f;
+                    float sx, sy; galPt((rad + jitR) * std::cos(th + jitA), (rad + jitR) * std::sin(th + jitA), sx, sy);
+                    g.fillCircle(sx, sy, std::max(0.55f, (0.55f + 0.55f * hashf(id, 54)) * s),
+                                 withA(lerp(armCol, rgb(0xFFFFFF), 0.50f), 0.58f * env * (0.6f + 0.4f * hashf(id, 56))));
+                }
+            }
+        }
+        // Radiant warm golden galactic bulge & incandescent core
+        g.glow(gx, gy, gr * 0.78f, rgb(0xB8C8FF), 0.26f);
+        g.glow(gx, gy, gr * 0.46f, rgb(0xFFE6BE), 0.52f);
+        g.glow(gx, gy, gr * 0.18f, rgb(0xFFFDF8), 0.88f);
+        g.fillCircle(gx, gy, std::max(1.8f, gr * 0.050f), withA(rgb(0xFFFFFF), 0.96f));
+        // Companion dwarf elliptical galaxy (M32-style) hovering softly below-left
+        float mx, my; galPt(-gr * 0.68f, gr * 0.92f, mx, my);
+        g.glow(mx, my, gr * 0.26f, rgb(0xC8D4FF), 0.26f);
+        g.glow(mx, my, gr * 0.10f, rgb(0xFFF0D4), 0.55f);
+    }
+
+    // 6. Masterpiece Sculpted Tilted Saturn (bottom-left: axial tilt, cloud bands, Cassini Division gap, ring shadow, moons)
+    {
+        const float pr = std::max(22.f * s, 0.042f * H);
+        const float rx = pr * 2.22f, ry = pr * 0.52f, tilt = -0.27f;          // -15.5 deg graceful tilt
+        const float px = std::max(0.090f * W, rx * 1.16f + 12.f * s);         // keeps full ring & moons clear of left edge even in narrow portrait
+        const float py = std::min(0.868f * H, H - pr * 1.48f - 10.f * s);
+        const float ct = std::cos(tilt), st = std::sin(tilt);
+        const float A = 0.82f;
         const Color night = rgb(0x050A1E);
-        g.radialFillOffset(px, py, pr, -0.38f * pr, -0.34f * pr, {{0.f, lerp(night, rgb(0xF1D8AE), A)}, {0.55f, lerp(night, rgb(0xB28A5E), A)}, {1.f, lerp(night, rgb(0x1E1710), A)}});
-        for (int b = 0; b < 3; ++b) {
-            const float f = 1.f - 0.16f * b;
-            const auto fr = ellipsePts(px, py, rx * f, ry * f, 0.f, PI_F, 60);
-            g.polyline(fr, false, withA(ring, A * (b == 1 ? 0.30f : 0.55f)), std::max(1.6f, 2.4f * s), false);
+
+        // Soft ambient starlight halo around the planet
+        g.glow(px, py, pr * 1.65f, rgb(0x9CB2DF), 0.16f);
+
+        // Multi-band icy rings helper (C-ring inner smoky, B-ring bright dense, Cassini gap, A-ring crisp outer)
+        auto drawRings = [&](float a0, float a1, float frontBoost) {
+            struct RB { float f; Color col; float alpha, w; };
+            static const RB bands[6] = {
+                {1.00f, rgb(0xC9B490), 0.40f, 1.5f},   // outer A-ring edge
+                {0.93f, rgb(0xDEC9A4), 0.52f, 2.2f},   // A-ring body
+                // Cassini Division dark gap around f = 0.86!
+                {0.79f, rgb(0xF2DEC0), 0.70f, 2.7f},   // bright dense outer B-ring
+                {0.71f, rgb(0xDFC498), 0.62f, 2.5f},   // inner B-ring
+                {0.63f, rgb(0xA99374), 0.34f, 1.9f},   // inner smoky C-ring
+                {0.57f, rgb(0x88755C), 0.18f, 1.4f},   // innermost gossamer ring
+            };
+            for (const RB& b : bands) {
+                const auto pts = rotEllipsePts(px, py, rx * b.f, ry * b.f, tilt, a0, a1, 72);
+                g.polyline(pts, false, withA(b.col, clamp01(b.alpha * A * frontBoost)), std::max(1.2f, b.w * s), false);
+            }
+        };
+
+        // Far half of the tilted rings (behind sphere)
+        drawRings(PI_F, 2.f * PI_F, 0.78f);
+
+        // Opaque 3D lit sphere (sunlit warm golden upper-left -> ochre -> deep cosmic shadow lower-right)
+        g.radialFillOffset(px, py, pr, -0.38f * pr, -0.34f * pr, {
+            {0.00f, lerp(night, rgb(0xF8E3BD), A)},
+            {0.48f, lerp(night, rgb(0xC89D6C), A)},
+            {0.82f, lerp(night, rgb(0x5B412C), A)},
+            {1.00f, lerp(night, rgb(0x130E16), A)}
+        });
+
+        // Analytical curved equatorial cloud bands (strictly inside circle r = 0.985*pr, rotated by tilt — zero layer clip!)
+        struct Band { float y0, y1; Color col; float a; };
+        static const Band bnds[5] = {
+            {-0.68f, -0.44f, rgb(0xA67D52), 0.24f},
+            {-0.26f, -0.06f, rgb(0xFFF0D0), 0.26f},   // bright creamy equatorial zone
+            { 0.08f,  0.26f, rgb(0x8F643E), 0.28f},   // warm ochre tropical belt
+            { 0.34f,  0.50f, rgb(0xC49F72), 0.18f},
+            { 0.56f,  0.76f, rgb(0x523E30), 0.24f},   // muted polar hood
+        };
+        const float rBand = pr * 0.98f;
+        for (const Band& bd : bnds) {
+            std::vector<Pt> poly; poly.reserve(24);
+            const int seg = 10;
+            const float ya = bd.y0 * rBand, yb = bd.y1 * rBand;
+            const float xa = std::sqrt(std::max(0.f, rBand * rBand - ya * ya));
+            const float xb = std::sqrt(std::max(0.f, rBand * rBand - yb * yb));
+            for (int k = 0; k <= seg; ++k) {
+                const float f = -1.f + 2.f * k / seg;
+                const float lx = xa * f, ly = ya + 0.06f * pr * (1.f - f * f);
+                poly.push_back({px + lx * ct - ly * st, py + lx * st + ly * ct});
+            }
+            for (int k = seg; k >= 0; --k) {
+                const float f = -1.f + 2.f * k / seg;
+                const float lx = xb * f, ly = yb + 0.06f * pr * (1.f - f * f);
+                poly.push_back({px + lx * ct - ly * st, py + lx * st + ly * ct});
+            }
+            g.fillPolygon(poly, withA(bd.col, bd.a * A));
         }
-        (void)back; (void)front;
+
+        // Subtle curved ring shadow across the planet's lower hemisphere + crisp sunlit crescent limb
+        {
+            const auto shPts = rotEllipsePts(px, py + 0.16f * pr, pr * 0.92f, pr * 0.20f, tilt, 0.22f, PI_F - 0.22f, 28);
+            g.polyline(shPts, false, withA(rgb(0x050814), 0.42f), std::max(1.8f, 3.0f * s), true);
+            const auto rimPts = ellipsePts(px, py, pr * 0.96f, pr * 0.96f, PI_F * 0.96f, PI_F * 1.58f, 32);
+            g.polyline(rimPts, false, withA(rgb(0xFFF3DA), 0.34f * A), std::max(1.0f, 1.4f * s), true);
+        }
+
+        // Near half of the tilted rings (crisp in front of sphere)
+        drawRings(0.f, PI_F, 1.05f);
+
+        // Two tiny orbiting moons aligned with the tilted ring plane (golden Titan & icy Enceladus)
+        {
+            const float tx = px + (rx * 1.32f) * ct - (-ry * 0.35f) * st;
+            const float ty = py + (rx * 1.32f) * st + (-ry * 0.35f) * ct;
+            g.glow(tx, ty, 6.5f * s, rgb(0xFFD694), 0.48f);
+            g.fillCircle(tx, ty, std::max(1.4f, 1.85f * s), rgb(0xFFE7BA));
+            const float ex = px + (-rx * 1.16f) * ct - (ry * 0.25f) * st;
+            const float ey = py + (-rx * 1.16f) * st + (ry * 0.25f) * ct;
+            g.glow(ex, ey, 4.0f * s, rgb(0xC2E4FF), 0.40f);
+            g.fillCircle(ex, ey, std::max(1.0f, 1.2f * s), rgb(0xEDF7FF));
+        }
     }
-    // a faraway galaxy, tilted, at the upper right
+
+    // 7. Distant Rim-Lit Crescent Ice-Giant (far bottom-right, balancing Saturn with subtle Neptune cyan-sapphire glow)
     {
-        const float gx = 0.885f * W, gy = 0.105f * H, gr = std::max(26.f * s, 0.05f * H);
-        g.glowEllipse(gx, gy, gr * 1.9f, gr * 0.70f, rgb(0xA9B8FF), 0.20f);
-        g.glowEllipse(gx, gy, gr * 0.75f, gr * 0.32f, rgb(0xFFF0D8), 0.34f);
-        g.glow(gx, gy, gr * 0.20f, rgb(0xFFFFFF), 0.55f);
-        for (int i = 0; i < 14; ++i) { const float a = hashf(i, 51) * 6.283f, d = std::sqrt(hashf(i, 52)); g.fillRect(std::round(gx + std::cos(a) * d * gr * 1.7f), std::round(gy + std::sin(a) * d * gr * 0.6f), z1, z1, withA(rgb(0xDCE6FF), 0.35f)); }
+        const float r2 = std::max(12.f * s, 0.021f * H);
+        const float x2 = 0.908f * W, y2 = 0.878f * H;
+        const Color night = rgb(0x050A1E);
+        g.glow(x2 - r2 * 0.28f, y2 - r2 * 0.22f, r2 * 2.1f, rgb(0x46B8E8), 0.22f);
+        g.radialFillOffset(x2, y2, r2, -0.45f * r2, -0.42f * r2, {
+            {0.00f, lerp(night, rgb(0x88E2FF), 0.78f)},
+            {0.35f, lerp(night, rgb(0x2D76B8), 0.72f)},
+            {0.72f, lerp(night, rgb(0x102248), 0.78f)},
+            {1.00f, night}
+        });
+        const auto cres = ellipsePts(x2, y2, r2 * 0.95f, r2 * 0.95f, PI_F * 0.92f, PI_F * 1.62f, 28);
+        g.polyline(cres, false, withA(rgb(0xA6F2FF), 0.62f), std::max(1.1f, 1.5f * s), true);
+        // Tiny icy moon beside it
+        g.glow(x2 - r2 * 1.85f, y2 - r2 * 0.75f, 3.8f * s, rgb(0xBCE8FF), 0.36f);
+        g.fillCircle(x2 - r2 * 1.85f, y2 - r2 * 0.75f, std::max(0.9f, 1.05f * s), rgb(0xE8F6FF));
     }
+
     return g.endSprite();
+}
+
+// Half-res cached soft cosmic nebula shimmer veil (breathes gently in opacity with 1 cheap drawBitmapRect!)
+Bitmap buildNebulaPulse(Ctx& c) {
+    constexpr float SP = 0.35f;
+    const int sw = std::max(32, (int)(c.W * SP)), sh = std::max(32, (int)(c.H * SP));
+    if (!c.g.beginSprite(sw, sh)) return Bitmap{};
+    const float R = std::max((float)sw, (float)sh);
+    c.g.glowEllipse(0.17f * sw, 0.27f * sh, 0.32f * R, 0.22f * R, rgb(0x8A56E8), 0.42f);
+    c.g.glowEllipse(0.83f * sw, 0.74f * sh, 0.34f * R, 0.22f * R, rgb(0x36C2DC), 0.38f);
+    c.g.glowEllipse(0.42f * sw, 0.56f * sh, 0.28f * R, 0.14f * R, rgb(0xA8C0FF), 0.28f);
+    c.g.glowEllipse(0.66f * sw, 0.34f * sh, 0.26f * R, 0.13f * R, rgb(0xC29EFF), 0.26f);
+    return c.g.endSprite();
+}
+
+// Living scintillating jewel stars + whisper-slow drifting galactic stardust motes
+void drawLivingStars(Ctx& c, float vis, double t) {
+    Gfx& g = c.g; const float W = c.W, H = c.H, s = c.s;
+    if (vis <= 0.01f) return;
+
+    // 44 living twinkling stars (top 14 flash delicate breathing 4-point starlight diffraction glints)
+    for (int i = 0; i < 44; ++i) {
+        const float x = (0.02f + 0.96f * hashf(i, 71)) * W;
+        const float y = (0.03f + 0.94f * hashf(i, 72)) * H;
+        const float f1 = 0.45f + 1.15f * hashf(i, 73), f2 = 1.25f + 1.65f * hashf(i, 76);
+        const float p1 = hashf(i, 74) * 6.28318f, p2 = hashf(i, 77) * 6.28318f;
+        const float twRaw = 0.5f + 0.34f * std::sin(ph(t, f1, p1)) + 0.16f * std::sin(ph(t, f2, p2));
+        const float tw = std::pow(clamp01(twRaw), 1.35f);
+        const Color col = starSpectral(hashf(i, 75));
+        const float al = (0.28f + 0.70f * tw) * vis;
+        const bool hero = (i < 14);
+        const float rad = std::max(0.95f, (hero ? (1.35f + 0.65f * tw) : (0.90f + 0.45f * tw)) * s);
+        g.glow(x, y, (hero ? (6.5f + 6.5f * tw) : (4.0f + 3.0f * tw)) * s, col, (hero ? 0.42f : 0.28f) * al);
+        g.fillCircle(x, y, rad, withA(lerp(col, rgb(0xFFFFFF), 0.55f), clamp01(al + 0.14f)));
+        if (hero && tw > 0.30f) {
+            drawStarGlint(g, x, y, (5.5f + 9.0f * tw) * s, s, col, (tw - 0.22f) * 0.92f * vis);
+        }
+    }
+
+    // 26 delicate cosmic stardust motes drifting imperceptibly slowly along the Milky Way river
+    for (int i = 0; i < 26; ++i) {
+        const float sp = 0.0022f + 0.0026f * hashf(i, 81);                    // full crossing takes ~4-7 minutes: deeply hypnotic
+        const float u = loopPos(t, sp, hashf(i, 82), 1.0);
+        float sx, sy; milkySpine(u, W, H, sx, sy);
+        const float perp = (hashf(i, 83) - 0.5f) * 0.32f * H + std::sin(ph(t, 0.22 + 0.18 * hashf(i, 84), hashf(i, 85) * 6.28)) * 10.f * s;
+        const float px = sx - perp * 0.54f, py = sy + perp * 0.84f;
+        if (px < -10.f || px > W + 10.f || py < -10.f || py > H + 10.f) continue;
+        const float edge = smoothstep(0.f, 0.08f, u) * (1.f - smoothstep(0.92f, 1.f, u));
+        const float pulse = 0.55f + 0.45f * std::sin(ph(t, 0.85 + 0.9 * hashf(i, 86), hashf(i, 87) * 6.28));
+        const float ma = (0.28f + 0.36f * hashf(i, 88)) * edge * pulse * vis;
+        if (ma < 0.01f) continue;
+        const Color col = starSpectral(hashf(i, 89));
+        g.fillCircle(px, py, std::max(0.8f, (0.85f + 0.65f * hashf(i, 90)) * s), withA(col, clamp01(ma)));
+    }
 }
 
 // a streak with its head at the right end: thin and faint at the tail, brighter and thicker toward the head, with a crisp core line
@@ -213,10 +559,10 @@ void streak(Ctx& c, int tailNo, float hx, float hy, float side, float slope, flo
     c.g.drawBitmapRot(b, side > 0 ? hx - len : hx, hy - th * 0.5f, len, th, hx, hy, std::atan(slope) * 57.2958f, clamp01(op), side < 0);
 }
 
-void drawMeteor(Ctx& c, const Kind& K, long long k, float u) {
+void drawMeteor(Ctx& c, const Kind& K, long long k, float u, bool ignoreWeather = false) {
     Gfx& g = c.g; const float W = c.W, H = c.H, s = c.s;
     const int ki = (int)(k & 0x7FFFFFFF), sl = K.salt;
-    const float cover = 1.f - 0.9f * skyCover(c.a);
+    const float cover = ignoreWeather ? 1.f : (1.f - 0.9f * skyCover(c.a));
     if (cover <= 0.01f) return;
 
     // Weekly alternating stream: every meteor for a full week follows the week's angled direction,
@@ -318,7 +664,7 @@ void drawMeteor(Ctx& c, const Kind& K, long long k, float u) {
     }
 }
 
-void drawComet(Ctx& c, long long k, float u) {
+void drawComet(Ctx& c, long long k, float u, bool ignoreWeather = false) {
     Gfx& g = c.g; const float W = c.W, H = c.H, s = c.s;
     const int ki = (int)(k & 0x7FFFFFFF);
     const float side = hashf(ki, 303) < 0.5f ? 1.f : -1.f;
@@ -326,7 +672,7 @@ void drawComet(Ctx& c, long long k, float u) {
     const float x0 = side > 0 ? -0.10f * W : 1.10f * W, y0 = H * (0.08f + 0.40f * hashf(ki, 305));
     const float hx = x0 + side * std::cos(ang) * 1.30f * W * u, hy = y0 + std::sin(ang) * 1.30f * W * u;
     const float env = ease(u / 0.12f) * (1.f - ease((u - 0.88f) / 0.12f));
-    const float cover = 1.f - 0.9f * skyCover(c.a);
+    const float cover = ignoreWeather ? 1.f : (1.f - 0.9f * skyCover(c.a));
     const float len = 300.f * s;
     streak(c, 3, hx, hy, side, std::tan(ang) * side, len, 0.80f * env * cover);                      // the ion tail, straight away from the Sun
     if (gTail[1].bmp.bmp) {                                                                              // and a softer, warmer dust tail leaning a little
@@ -560,17 +906,16 @@ void drawSpace(Ctx& c) {
     App& a = c.a; Gfx& g = c.g;
     if (!spaceOn(a)) return;
     const float cover = 1.f - 0.88f * skyCover(a), em = c.P.ember > 0.001f ? 1.f - 0.65f * c.P.ember : 1.f;
+    const float vis = clamp01(cover * em);
     const double t = a.now;
-    if (ensure(c, gBg, mixKey(mixKey(3100, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64))), [&] { return buildSky(c); }))
-        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, (float)gBg.bmp.w, (float)gBg.bmp.h, clamp01(cover * em));
-    // a few brighter stars that breathe, very slowly
-    for (int i = 0; i < 9; ++i) {
-        const float x = std::round(hashf(i, 71) * c.W), y = std::round(hashf(i, 72) * c.H);
-        const float al = (0.34f + 0.20f * std::sin(ph(t, 0.25 + 0.5 * hashf(i, 73), hashf(i, 74) * 6.28))) * cover * em;
-        const Color col = hashf(i, 75) < 0.5f ? rgb(0xCFDCFF) : rgb(0xFFEBCF);
-        g.glow(x + 0.5f, y + 0.5f, 5.f * c.s, col, 0.30f * al);
-        g.fillRect(x, y, std::max(1.f, std::round(c.s * 1.2f)), std::max(1.f, std::round(c.s * 1.2f)), withA(col, clamp01(al + 0.15f)));
+    const uint64_t bgKey = mixKey(mixKey(3200, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
+    if (ensure(c, gBg, bgKey, [&] { return buildSky(c); }))
+        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, (float)gBg.bmp.w, (float)gBg.bmp.h, vis);
+    if (vis > 0.02f && ensure(c, gNebulaPulse, mixKey(3250, ((uint64_t)c.W << 20) ^ (uint64_t)c.H), [&] { return buildNebulaPulse(c); })) {
+        const float breath = 0.14f + 0.14f * (0.5f + 0.5f * std::sin(ph(t, 0.30)));
+        g.drawBitmapRect(gNebulaPulse.bmp, 0.f, 0.f, c.W, c.H, clamp01(breath * vis));
     }
+    drawLivingStars(c, vis, t);
     // meteors and the comet
     long long k; float u;
     if (a.meteorDemoU > 0.f) {
@@ -585,20 +930,25 @@ void drawSpace(Ctx& c) {
 void drawSpaceBackdropOnly(Ctx& c) {
     App& a = c.a; Gfx& g = c.g;
     const float em = c.P.ember > 0.001f ? 1.f - 0.65f * c.P.ember : 1.f;
-    const float vis = (c.P.dark ? 0.92f : 0.42f) * em;
+    const float vis = (c.P.dark ? 1.0f : 0.52f) * em;
     const double t = a.now;
-    if (ensure(c, gBg, mixKey(mixKey(3100, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64))), [&] { return buildSky(c); }))
+    const uint64_t bgKey = mixKey(mixKey(3200, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
+    if (ensure(c, gBg, bgKey, [&] { return buildSky(c); }))
         g.drawBitmapRect(gBg.bmp, 0.f, 0.f, (float)gBg.bmp.w, (float)gBg.bmp.h, clamp01(vis));
-    for (int i = 0; i < 9; ++i) {
-        const float x = std::round(hashf(i, 71) * c.W), y = std::round(hashf(i, 72) * c.H);
-        const float al = (0.34f + 0.20f * std::sin(ph(t, 0.25 + 0.5 * hashf(i, 73), hashf(i, 74) * 6.28))) * vis;
-        const Color col = hashf(i, 75) < 0.5f ? rgb(0xCFDCFF) : rgb(0xFFEBCF);
-        g.glow(x + 0.5f, y + 0.5f, 5.f * c.s, col, 0.30f * al);
-        g.fillRect(x, y, std::max(1.f, std::round(c.s * 1.2f)), std::max(1.f, std::round(c.s * 1.2f)), withA(col, clamp01(al + 0.15f)));
+    if (vis > 0.02f && ensure(c, gNebulaPulse, mixKey(3250, ((uint64_t)c.W << 20) ^ (uint64_t)c.H), [&] { return buildNebulaPulse(c); })) {
+        const float breath = 0.16f + 0.15f * (0.5f + 0.5f * std::sin(ph(t, 0.30)));
+        g.drawBitmapRect(gNebulaPulse.bmp, 0.f, 0.f, c.W, c.H, clamp01(breath * vis));
     }
+    drawLivingStars(c, vis, t);
+    // Focus Studio STARS is always crystal-clear deep space regardless of outdoor fog or storm
     long long k; float u;
-    if (a.meteorDemoU > 0.f) drawMeteor(c, kMeteorA, 42, a.meteorDemoU);
-    if (activeAt(kMeteorA, t, k, u)) drawMeteor(c, kMeteorA, k, u);
+    if (a.meteorDemoU > 0.f) {
+        drawMeteor(c, kMeteorA, 42, a.meteorDemoU, true);
+        drawMeteor(c, kMeteorB, 77, std::min(0.95f, a.meteorDemoU * 0.72f + 0.18f), true);
+    }
+    if (activeAt(kMeteorA, t, k, u)) drawMeteor(c, kMeteorA, k, u, true);
+    if (activeAt(kMeteorB, t, k, u)) drawMeteor(c, kMeteorB, k, u, true);
+    if (activeAt(kComet, t, k, u) && tailsReady(c)) drawComet(c, k, u, true);
 }
 
 // in front of everything, for a moment: the saucer
@@ -640,6 +990,7 @@ void drawScenery(Ctx& c) {
 
 void spaceRelease(Gfx& g) {
     g.freeBitmap(gBg.bmp); gBg.key = gBg.failed = 0;
+    g.freeBitmap(gNebulaPulse.bmp); gNebulaPulse.key = gNebulaPulse.failed = 0;
     for (auto& s : gTail) { g.freeBitmap(s.bmp); s.key = s.failed = 0; }
     g.freeBitmap(gShip.bmp); gShip.key = gShip.failed = 0;
     g.freeBitmap(gRays.bmp); gRays.key = gRays.failed = 0;

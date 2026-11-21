@@ -705,7 +705,14 @@ void updateCaption(bool force) {
     DwmSetWindowAttribute(G.hwnd, MY_DWMWA_TEXT_COLOR, &tx, sizeof tx);
 }
 
-void applyTopmost() { SetWindowPos(G.hwnd, G.app.st.topmost || G.app.st.fullscreen ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+void applyTopmost() {
+    const bool wantTop = G.saver || G.app.st.topmost;
+    SetWindowPos(G.hwnd, wantTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (!G.saver && G.hwnd) {
+        SetWindowTextW(G.hwnd, G.app.st.topmost ? L"Meridian \x2014 Always on top (press P to unpin)" : L"Meridian");
+    }
+}
 
 // Holding the screen awake all day suits a clock that is plugged in. On the battery it would only drain it, so it lets go there
 // (and takes hold again when the charger comes back: see PBT_APMPOWERSTATUSCHANGE in WndProc).
@@ -718,17 +725,18 @@ void setFullscreen(bool fs) {
     Settings& st = G.app.st;
     if (fs == st.fullscreen && ((GetWindowLongW(G.hwnd, GWL_STYLE) & WS_OVERLAPPEDWINDOW) == 0) == fs) return;
     st.fullscreen = fs;
+    const HWND zOrder = (G.saver || st.topmost) ? HWND_TOPMOST : HWND_NOTOPMOST;
     if (fs) {
         G.prevPl.length = sizeof G.prevPl; GetWindowPlacement(G.hwnd, &G.prevPl);
         LONG style = GetWindowLongW(G.hwnd, GWL_STYLE);
         SetWindowLongW(G.hwnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
         MONITORINFO mi{sizeof mi}; GetMonitorInfoW(MonitorFromWindow(G.hwnd, MONITOR_DEFAULTTONEAREST), &mi);
-        SetWindowPos(G.hwnd, HWND_TOPMOST, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+        SetWindowPos(G.hwnd, zOrder, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
     } else {
         LONG style = GetWindowLongW(G.hwnd, GWL_STYLE);
         SetWindowLongW(G.hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
         if (G.prevPl.length) SetWindowPlacement(G.hwnd, &G.prevPl);
-        SetWindowPos(G.hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+        SetWindowPos(G.hwnd, zOrder, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
         applyTopmost();
     }
     markDirty();
@@ -1061,7 +1069,14 @@ void perform(int id) {
     else if (id == HIT_FULLSCREEN) setFullscreen(!a.st.fullscreen);
     else if (id == HIT_HELP) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; a.glass.cancelHold(); }
     else if (id == HIT_SETTINGS) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; a.glass.cancelHold(); }
-    else if (id == HIT_DOCK_BG || id == HIT_FCARD_CLOCK || id == HIT_FCARD_WEATHER) { /* passive: absorbs clicks / tactile Liquid Glass touch cards */ }
+    else if (id == HIT_DOCK_BG || id == HIT_FCARD_CLOCK || id == HIT_FCARD_WEATHER || id == HIT_SKY_AQI) { /* passive: absorbs clicks / tactile Liquid Glass touch cards & AQI pill */ }
+    else if (id == HIT_PANEL_PREV) a.skyRot.pending = -1;
+    else if (id == HIT_PANEL_NEXT) a.skyRot.pending = 1;
+    else if (id == HIT_WGT_PREV) a.wgtRot.pending = -1;
+    else if (id == HIT_WGT_NEXT) a.wgtRot.pending = 1;
+    else if (id == HIT_CAL_PREV) a.calOffset--;
+    else if (id == HIT_CAL_NEXT) a.calOffset++;
+    else if (id == HIT_CAL_TODAY) a.calOffset = 0;
     else if (id == HIT_PIN) { a.st.topmost = !a.st.topmost; applyTopmost(); toast(a.st.topmost ? L"Kept on top" : L"Normal window"); markDirty(); }
     else if (id >= HIT_TAB0 && id < HIT_TAB0 + 3) { t.mode = id - HIT_TAB0; t.entry.clear(); }
     else if (id >= HIT_PRESET0 && id < HIT_PRESET0 + 7) { a.timerSetDuration(TIMER_PRESETS[id - HIT_PRESET0]); t.entry.clear(); markDirty(); }
@@ -1515,7 +1530,7 @@ bool handleClick(float x, float y, bool holding = true) {
         if (!(x >= it->x && x <= it->x + it->w && y >= it->y && y <= it->y + it->h)) continue;
         const uint64_t gkey = a.glassKeyForHit(it->id);
         if (gkey != 0) {
-            const bool isCard = (it->id == HIT_FCARD_CLOCK || it->id == HIT_FCARD_WEATHER);
+            const bool isCard = (it->id == HIT_FCARD_CLOCK || it->id == HIT_FCARD_WEATHER || it->id == HIT_SKY_AQI);
             a.glass.onPress(gkey, x, y, it->x, it->y, it->w, it->h, isCard ? 1.40f : 1.0f, holding);
         }
         if (it->id >= HIT_ACTION0) {
@@ -1645,7 +1660,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case WM_ACTIVATE:
             if (LOWORD(wp) != WA_INACTIVE) { syncMouseFromCursor(hwnd); a.lastMouseMove = unixNow(); invalidate(); }
-            else { syncMouseFromCursor(hwnd, true); a.glass.cancelHold(); invalidate(); }
+            else {
+                // Guarantee normal windows yield z-order cleanly to other apps when clicked away
+                if (!G.saver && !a.st.topmost && (GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) {
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                }
+                syncMouseFromCursor(hwnd, true); a.glass.cancelHold(); invalidate();
+            }
             return 0;
         case WM_DISPLAYCHANGE: case WM_DPICHANGED:
             if (msg == WM_DPICHANGED) { RECT* r = (RECT*)lp; SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE); }
@@ -2015,7 +2036,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     updateCaption(true);
     if (G.saver) G.app.revealArmed = true;                          // Windows started the screen saver: come up out of the dark instead of popping on (reveal.h)
     ShowWindow(G.hwnd, nShow);
-    if (st.topmost) applyTopmost();
+    applyTopmost();
     if (st.fullscreen) { st.fullscreen = false; setFullscreen(true); }
     UpdateWindow(G.hwnd);
     if (G.saver) { SetForegroundWindow(G.hwnd); saver::begin(hInst, G.hwnd); }

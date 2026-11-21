@@ -253,6 +253,34 @@ int main() {
         CHECK(!g.busy() && g.itemCount() == 0 && g.rippleCount() == 0);
     }
 
+    // 9. Settings toggle switches: snap on first frame, smooth liquid-droplet stretch mid-glide, zero idle cost, prune on leave
+    {
+        glassfx::Engine g;
+        g.beginFrame(1.f / 60.f, false);
+        auto t0 = g.stepToggle(0x20050010ULL, true);
+        CHECK(t0.pos == 1.f && t0.stretch == 0.f);
+        g.endFrame();
+        CHECK(!g.busy() && g.toggleCount() == 1);
+
+        // Flip OFF -> glides smoothly with liquid stretch mid-flight, then settles to busy()==false
+        bool sawStretch = false;
+        float prev = 1.f;
+        for (int i = 0; i < 40; ++i) {
+            g.beginFrame(1.f / 60.f, false);
+            auto tp = g.stepToggle(0x20050010ULL, false);
+            CHECK(tp.pos <= prev + 1e-6f && tp.pos >= 0.f);
+            if (tp.stretch > 0.35f) sawStretch = true;
+            prev = tp.pos;
+            g.endFrame();
+        }
+        CHECK(sawStretch && prev == 0.f && !g.busy());
+
+        // Leaving tab (stop calling stepToggle) prunes the entry completely
+        g.beginFrame(1.f / 60.f, false);
+        g.endFrame();
+        CHECK(g.toggleCount() == 0 && !g.busy());
+    }
+
     if (failures) { std::printf("%d check(s) failed\n", failures); return 1; }
     std::printf("regression_298 ok\n");
     return 0;

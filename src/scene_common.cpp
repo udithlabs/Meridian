@@ -73,14 +73,15 @@ void drawGlassEffects(Ctx& c, uint64_t key, const glassfx::Pose& gp, bool active
             const float sx = hasPtr ? std::max(gp.x, std::min(gp.x + gp.w, mx)) : (gp.x + gp.w * 0.5f);
             const float sy = hasPtr ? std::max(gp.y, std::min(gp.y + gp.h, my)) : (gp.y + gp.h * 0.35f);
             const Color sheenCol = active ? tint(P, lerp(P.plate, P.accent, 0.32f)) : tint(P, lerp(P.ink, P.accent, 0.24f));
-            const float rx = std::max(gp.w * (cardStyle ? 0.42f : 0.56f), 42.f * s);
-            const float ry = std::max(gp.h * (cardStyle ? 0.65f : 0.90f), 26.f * s);
-            const float inten = (cardStyle ? (P.dark ? 0.16f : 0.20f) : (active ? 0.16f : (P.dark ? 0.16f : 0.15f))) * gp.sheenA * baseA;
+            const bool smallCtl = gp.w <= 54.f * s && gp.h <= 54.f * s;
+            const float rx = smallCtl ? std::max(gp.w * 0.62f, 16.f * s) : std::max(gp.w * (cardStyle ? 0.42f : 0.56f), 42.f * s);
+            const float ry = smallCtl ? std::max(gp.h * 0.62f, 14.f * s) : std::max(gp.h * (cardStyle ? 0.65f : 0.90f), 26.f * s);
+            const float inten = (cardStyle ? (P.dark ? 0.18f : 0.22f) : (smallCtl ? (P.dark ? 0.26f : 0.22f) : (active ? 0.18f : (P.dark ? 0.17f : 0.16f)))) * gp.sheenA * baseA;
             g.glowEllipse(sx, sy, rx, ry, sheenCol, inten);
             // Subtle curved-glass top-edge Fresnel catch
-            const float topI = (cardStyle ? 0.14f : 0.10f) * clamp01(gp.sheenA * 0.62f + gp.bounceEnergy * 0.55f) * baseA;
+            const float topI = (cardStyle ? 0.16f : (smallCtl ? 0.20f : 0.11f)) * clamp01(gp.sheenA * 0.68f + gp.bounceEnergy * 0.55f) * baseA;
             if (topI > 0.006f) {
-                g.glowEllipse(gp.x + gp.w * 0.5f, gp.y + 1.f * s, gp.w * 0.46f, std::max(7.f * s, gp.h * 0.38f), sheenCol, topI);
+                g.glowEllipse(gp.x + gp.w * 0.5f, gp.y + 1.f * s, gp.w * 0.46f, std::max(5.f * s, gp.h * 0.36f), sheenCol, topI);
             }
         }
         if (gp.hasRipple) {
@@ -750,12 +751,26 @@ void drawWeatherBlock(Ctx& c, float x, float y, float w, float h) {
         const float afs = 12.5f * s, iconW = 19.f * s, padX = 11.f * s, pillH = 26.f * s;
         const float twAq = g.textWidth(F_MONO_M, afs, aqTxt, 0.08f);
         const float pillW = std::min(cwid * 0.56f, padX + iconW + 7.f * s + twAq + padX);
-        const float px = x + w - pillW, py = y + 9.f * s, pcy = py + pillH * 0.5f;
-        Color pbg = P.panel; pbg.a = std::max(pbg.a, P.dark ? 0.07f : 0.06f);
-        g.fillRoundRect(px, py, pillW, pillH, pillH * 0.5f, pbg);
-        g.strokeRoundRect(px + 0.5f, py + 0.5f, pillW - 1.f, pillH - 1.f, pillH * 0.5f, d.hasAir ? withA(aqCol, P.dark ? 0.42f : 0.50f) : P.line, std::max(1.f, s));
-        // crisp vector air-quality waves emblem (three well-separated breeze lines with curl tips)
-        const float ix = px + padX, lw = std::max(1.25f, 1.50f * s);
+        const float px = x + w - pillW, py = y + 9.f * s;
+        const float mxAq = a.mouseX - a.shiftX, myAq = a.mouseY - a.shiftY;
+        const bool allowAq = !a.showSettings && !a.showHelp && !a.isSaver && a.mouseX >= 0.f;
+        const bool hovAq = allowAq && mxAq >= px - 3.f * s && mxAq <= px + pillW + 3.f * s && myAq >= py - 3.f * s && myAq <= py + pillH + 3.f * s;
+        const glassfx::Pose gpAq = a.glass.pose(HIT_SKY_AQI, px, py, pillW, pillH, pillH * 0.5f, s, hovAq, true);
+        if (gpAq.sheenA > 0.02f || gpAq.bounceEnergy > 0.02f) {
+            g.fillRoundRect(gpAq.x, gpAq.y + 2.5f * s, gpAq.w, gpAq.h, gpAq.r, Color{0, 0, 0, (P.dark ? 0.22f : 0.09f) * clamp01(gpAq.sheenA + gpAq.bounceEnergy)});
+        }
+        Color pbg = P.panel; pbg.a = std::max(pbg.a, P.dark ? 0.075f : 0.065f);
+        g.fillRoundRect(gpAq.x, gpAq.y, gpAq.w, gpAq.h, gpAq.r, pbg);
+        if (gpAq.hoverT > 0.01f) g.fillRoundRect(gpAq.x, gpAq.y, gpAq.w, gpAq.h, gpAq.r, withA(aqCol, (P.dark ? 0.14f : 0.11f) * gpAq.hoverT));
+        const Color aqRim = d.hasAir
+            ? withA(aqCol, (P.dark ? 0.42f : 0.50f) + 0.34f * clamp01(gpAq.hoverT + gpAq.bounceEnergy))
+            : lerp(P.line, withA(P.ink, 0.55f), gpAq.hoverT);
+        g.strokeRoundRect(gpAq.x + 0.5f, gpAq.y + 0.5f, std::max(1.f, gpAq.w - 1.f), std::max(1.f, gpAq.h - 1.f), std::max(0.5f, gpAq.r - 0.5f), aqRim, std::max(1.f, s));
+        drawGlassEffects(c, HIT_SKY_AQI, gpAq, false, true);
+        // crisp vector air-quality waves emblem (flexes softly with the liquid-glass touch pill)
+        const float offX = (gpAq.x - px) * 0.35f, offY = (gpAq.y - py) * 0.35f;
+        const float pcy = py + pillH * 0.5f + offY;
+        const float ix = px + offX + padX, lw = std::max(1.25f, 1.50f * s);
         g.line(ix, pcy - 4.4f * s, ix + 9.2f * s, pcy - 4.4f * s, aqCol, lw, true);
         g.arc(ix + 9.2f * s, pcy - 6.3f * s, 1.9f * s, 180.f, -245.f, aqCol, lw, true);
         g.line(ix + 1.2f * s, pcy, ix + 14.8f * s, pcy, aqCol, lw, true);
@@ -764,6 +779,7 @@ void drawWeatherBlock(Ctx& c, float x, float y, float w, float h) {
         g.arc(ix + 11.0f * s, pcy + 6.3f * s, 1.9f * s, 0.f, 245.f, withA(aqCol, 0.85f), lw, true);
         const float txtRoom = std::max(40.f * s, pillW - (padX + iconW + 7.f * s + padX));
         g.text(F_MONO_M, afs, ix + iconW + 7.f * s, pcy + g.capHeight(F_MONO_M, afs) * 0.5f, g.ellipsize(F_MONO_M, afs, aqTxt, txtRoom, 0.08f), aqCol, Align::Left, 0.08f);
+        addHit(a, px - 3.f * s, py - 3.f * s, pillW + 6.f * s, pillH + 6.f * s, HIT_SKY_AQI);
         condMaxW = std::max(90.f * s, cwid - pillW - 14.f * s);
     }
     g.text(F_LIGHT, 28 * s, cx0, y + 30 * s, g.ellipsize(F_LIGHT, 28 * s, Ws(kd.text), condMaxW), P.ink);

@@ -348,6 +348,7 @@ void rotorDots(Ctx& c, Rotor& r, const std::vector<int>& list, int secs, float x
     const bool allowHover = !a.showSettings && !a.showHelp && a.mouseX >= 0;
     Rotor* rp = &r;
 
+    const bool isSkyRot = (&r == &a.skyRot);
     auto drawNavBtn = [&](float bx, int dir) {
         const float by = cy - br;
         // Generous hit area extending outward and vertically so stepping panels never needs pixel-precise aim
@@ -355,18 +356,21 @@ void rotorDots(Ctx& c, Rotor& r, const std::vector<int>& list, int secs, float x
         const float padR = dir > 0 ? 6.f * s : 4.f * s;
         const float hx = bx - padL, hy = cy - 18.f * s, hw = d + padL + padR, hh = 36.f * s;
         const bool hover = allowHover && mx >= hx && mx <= hx + hw && my >= hy && my <= hy + hh;
-        const uint64_t gkey = a.nextActionGlassKey();
+        // Dedicated stable HitId so click ripple & jelly bounce survive page/panel slide transitions cleanly!
+        const int hitId = isSkyRot ? (dir < 0 ? HIT_PANEL_PREV : HIT_PANEL_NEXT)
+                                   : (dir < 0 ? HIT_WGT_PREV : HIT_WGT_NEXT);
+        const uint64_t gkey = (uint64_t)hitId;
         const glassfx::Pose gp = a.glass.pose(gkey, bx, by, d, d, br, s, hover, false);
 
         Color bg = P.panel;
-        bg.a = std::max(bg.a, P.dark ? 0.075f : 0.065f) * c.alpha;
+        bg.a = std::max(bg.a, P.dark ? 0.095f : 0.08f) * c.alpha;
         g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, bg);
 
         const Color ac = tint(P, P.accent);
-        if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(ac, (P.dark ? 0.22f : 0.16f) * gp.hoverT * c.alpha));
+        if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(ac, (P.dark ? 0.26f : 0.18f) * gp.hoverT * c.alpha));
 
-        Color brd = lerp(withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.45f : 1.35f)) * c.alpha),
-                         withA(ac, (P.dark ? 0.78f : 0.72f) * c.alpha), gp.hoverT);
+        Color brd = lerp(withA(P.line, std::min(1.f, P.line.a * (P.dark ? 1.50f : 1.40f)) * c.alpha),
+                         withA(ac, (P.dark ? 0.85f : 0.78f) * c.alpha), gp.hoverT);
         g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), brd, std::max(1.f, s));
         drawGlassEffects(c, gkey, gp, false, false);
 
@@ -380,7 +384,7 @@ void rotorDots(Ctx& c, Rotor& r, const std::vector<int>& list, int secs, float x
         const Color col = lerp(mulA(P.ink2, (P.dark ? 0.92f : 0.96f) * c.alpha), mulA(P.ink, c.alpha), gp.hoverT);
         g.polyline(chev, false, col, std::max(1.35f, (1.60f + 0.30f * gp.hoverT) * s), true);
 
-        a.addAction(hx + a.shiftX, hy + a.shiftY, hw, hh, [rp, dir]() { rp->pending = dir; });
+        addHit(a, hx, hy, hw, hh, hitId);
     };
 
     drawNavBtn(leftX, -1);

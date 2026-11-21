@@ -170,6 +170,9 @@ enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PRE
              HIT_TAB0 = 300, HIT_PRESET0 = 320, HIT_START = 340, HIT_RESET = 341, HIT_LAP = 342,
              HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 380,
              HIT_FCARD_CLOCK = 390, HIT_FCARD_WEATHER = 391,
+             HIT_SKY_AQI = 392, HIT_PANEL_PREV = 393, HIT_PANEL_NEXT = 394,
+             HIT_WGT_PREV = 395, HIT_WGT_NEXT = 396,
+             HIT_CAL_PREV = 397, HIT_CAL_NEXT = 398, HIT_CAL_TODAY = 399,
              HIT_PACKFACE0 = 400 };          // 400..463: the dock buttons of pack tabs
 
 struct SysInfo {

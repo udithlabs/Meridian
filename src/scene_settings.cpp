@@ -106,24 +106,51 @@ struct UI {
     float capMid(FontId f, float size, float mid) { return mid + g.capHeight(f, size) * 0.5f; }
     Color acc() const { return tint(P, P.accent); }
 
-    void drawSwitch(float rx, float mid, bool on) {
+    void drawSwitch(float rx, float mid, bool on, uint64_t gkey = 0, bool hovered = false) {
         const float tw = 46 * s, th = 26 * s, x = rx - tw, y = mid - th * 0.5f;
-        g.fillRoundRect(x, y, tw, th, th * 0.5f, on ? withA(acc(), 0.92f) : mulA(P.ink, 0.17f));
-        const float r = th * 0.5f - 3.f * s;
-        g.fillCircle(on ? x + tw - th * 0.5f : x + th * 0.5f, mid, r, on ? P.plate : P.ink2);
+        const uint64_t key = gkey ? gkey : a.nextActionGlassKey();
+        const bool hv = hovered || over(x - 4 * s, y - 4 * s, tw + 8 * s, th + 8 * s);
+        const glassfx::Pose gp = a.glass.pose(key, x, y, tw, th, th * 0.5f, s, hv, false);
+        const glassfx::TogglePose tp = a.glass.stepToggle(key, on);
+        const Color offTrack = mulA(P.ink, 0.16f + 0.06f * gp.hoverT);
+        const Color onTrack  = withA(acc(), 0.86f + 0.12f * gp.hoverT);
+        const Color trackCol = lerp(offTrack, onTrack, tp.pos);
+        g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, trackCol);
+        const Color rimCol = lerp(lerp(P.line, withA(acc(), 0.55f), gp.hoverT),
+                                  withA(lerp(acc(), P.ink, 0.25f), 0.72f + 0.20f * gp.hoverT), tp.pos);
+        g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), rimCol, std::max(1.f, s));
+        drawGlassEffects(c, key, gp, tp.pos > 0.5f, false);
+        // Liquid-glass gliding droplet knob: elongates smoothly while zipping across the pill track
+        const float rBase = std::max(4.f, gp.h * 0.5f - 3.f * s);
+        const float travel = std::max(0.f, gp.w - gp.h);
+        const float kcx = gp.x + gp.h * 0.5f + travel * tp.pos;
+        const float kcy = gp.y + gp.h * 0.5f;
+        const float extraW = (6.5f * tp.stretch + 1.8f * gp.holdT) * s;
+        const float kw = std::min(gp.w - 6.f * s, 2.f * rBase + extraW);
+        const float kh = std::max(6.f, 2.f * rBase - 1.6f * tp.stretch * s);
+        const float kx = std::max(gp.x + 3.f * s, std::min(gp.x + gp.w - 3.f * s - kw, kcx - kw * 0.5f));
+        const float ky = kcy - kh * 0.5f;
+        const Color knobCol = lerp(lerp(P.ink2, P.ink, gp.hoverT), P.plate, tp.pos);
+        g.fillRoundRect(kx, ky + 1.f * s, kw, kh, kh * 0.5f, Color{0, 0, 0, P.dark ? 0.22f : 0.12f});
+        g.fillRoundRect(kx, ky, kw, kh, kh * 0.5f, knobCol);
+        // Crisp glass specular glint on the upper side of the droplet knob
+        const Color glintC = tp.pos > 0.5f ? Color{1, 1, 1, P.dark ? 0.28f : 0.45f} : Color{1, 1, 1, P.dark ? 0.36f : 0.55f};
+        g.glowEllipse(kx + kw * 0.42f, ky + kh * 0.30f, kw * 0.30f, kh * 0.22f, glintC, 0.75f);
     }
 
     // a labelled on/off row; returns its height
     float toggle(float x, float y, float w, const char* label, const char* hint, bool& v, std::function<void()> after = {}) {
         const float h = hint ? 62.f * s : 46.f * s;
-        if (over(x - 10 * s, y, w + 20 * s, h)) g.fillRoundRect(x - 10 * s, y + 2 * s, w + 20 * s, h - 4 * s, 14 * s, mulA(P.ink, 0.05f));
+        const bool hv = over(x - 10 * s, y, w + 20 * s, h);
+        if (hv) g.fillRoundRect(x - 10 * s, y + 2 * s, w + 20 * s, h - 4 * s, 14 * s, mulA(P.ink, 0.05f));
         const float mid = y + h * 0.5f;
         const float lw = w - 66 * s;
         if (hint) {
             g.text(F_LIGHT, 19.5f * s, x, mid - 3 * s, g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
             g.text(F_LIGHT, 14.f * s, x, mid + 17 * s, g.ellipsize(F_LIGHT, 14.f * s, Ws(hint), lw), P.ink3);
         } else g.text(F_LIGHT, 19.5f * s, x, capMid(F_LIGHT, 19.5f * s, mid), g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
-        drawSwitch(x + w, mid, v);
+        const uint64_t gkey = a.nextActionGlassKey();
+        drawSwitch(x + w, mid, v, gkey, hv);
         bool* vp = &v; App* ap = &a;
         act(x - 10 * s, y, w + 20 * s, h, [vp, ap, after] { *vp = !*vp; if (after) after(); ap->cmd(CMD_SAVE); });
         return h;
@@ -132,14 +159,16 @@ struct UI {
     // like toggle(), for a state that is not one plain bool: flip() makes the change
     float toggleFn(float x, float y, float w, const char* label, const char* hint, bool on, std::function<void()> flip) {
         const float h = hint ? 62.f * s : 46.f * s;
-        if (over(x - 10 * s, y, w + 20 * s, h)) g.fillRoundRect(x - 10 * s, y + 2 * s, w + 20 * s, h - 4 * s, 14 * s, mulA(P.ink, 0.05f));
+        const bool hv = over(x - 10 * s, y, w + 20 * s, h);
+        if (hv) g.fillRoundRect(x - 10 * s, y + 2 * s, w + 20 * s, h - 4 * s, 14 * s, mulA(P.ink, 0.05f));
         const float mid = y + h * 0.5f;
         const float lw = w - 66 * s;
         if (hint) {
             g.text(F_LIGHT, 19.5f * s, x, mid - 3 * s, g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
             g.text(F_LIGHT, 14.f * s, x, mid + 17 * s, g.ellipsize(F_LIGHT, 14.f * s, Ws(hint), lw), P.ink3);
         } else g.text(F_LIGHT, 19.5f * s, x, capMid(F_LIGHT, 19.5f * s, mid), g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
-        drawSwitch(x + w, mid, on);
+        const uint64_t gkey = a.nextActionGlassKey();
+        drawSwitch(x + w, mid, on, gkey, hv);
         App* ap = &a;
         act(x - 10 * s, y, w + 20 * s, h, [ap, flip] { flip(); ap->dayIndex = -1; ap->minuteCacheAt = -1e9; ap->cmd(CMD_SAVE); });
         return h;
@@ -167,7 +196,7 @@ struct UI {
         return tot;
     }
 
-    // label at the left, [-] value [+] at the right
+    // label at the left, [-] value [+] at the right (tactile circular Liquid Glass buttons)
     float stepper(float x, float y, float w, const char* label, const std::string& val, std::function<void()> minus, std::function<void()> plus) {
         const float h = 46 * s, r = 16 * s;
         const float mid = y + h * 0.5f;
@@ -175,14 +204,19 @@ struct UI {
         const float pcx = x + w - r, vcx = pcx - r - 40 * s, mcx = vcx - 40 * s - r;
         for (int k = 0; k < 2; ++k) {
             const float cx = k ? pcx : mcx;
-            const bool hv = over(cx - r, mid - r, 2 * r, 2 * r);
+            const bool hv = over(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s);
             const uint64_t gkey = a.nextActionGlassKey();
             const glassfx::Pose gp = a.glass.pose(gkey, cx - r, mid - r, 2 * r, 2 * r, r, s, hv, false);
             const float gcx = gp.x + gp.w * 0.5f, gcy = gp.y + gp.h * 0.5f;
-            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.07f + 0.08f * gp.hoverT));
+            g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.08f + 0.06f * gp.hoverT));
+            if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), (P.dark ? 0.24f : 0.16f) * gp.hoverT));
+            g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f),
+                              lerp(P.line, withA(acc(), 0.78f), gp.hoverT), std::max(1.f, s));
             drawGlassEffects(c, gkey, gp, false, false);
-            g.line(gcx - 6 * s, gcy, gcx + 6 * s, gcy, P.ink, std::max(1.5f, 1.8f * s), true);
-            if (k) g.line(gcx, gcy - 6 * s, gcx, gcy + 6 * s, P.ink, std::max(1.5f, 1.8f * s), true);
+            const Color ic = lerp(P.ink2, P.ink, gp.hoverT);
+            const float lw = std::max(1.5f, (1.75f + 0.25f * gp.hoverT) * s);
+            g.line(gcx - 5.5f * s, gcy, gcx + 5.5f * s, gcy, ic, lw, true);
+            if (k) g.line(gcx, gcy - 5.5f * s, gcx, gcy + 5.5f * s, ic, lw, true);
             act(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s, k ? plus : minus);
         }
         g.text(F_MEDIUM, 19.f * s, vcx, capMid(F_MEDIUM, 19.f * s, mid), Ws(val), P.ink, Align::Center);
@@ -427,16 +461,26 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
         if (a.st.pinned == id) g.text(F_MONO, 10.5f * s, x + 52 * s + g.textWidth(F_LIGHT, 20.f * s, Ws(widgetName(id))) + 12 * s, u.capMid(F_MONO, 10.5f * s, mid), L"ON SKY", withA(P.accent2, 0.95f), Align::Left, 0.14f);
         // arrows and switch
         const float swR = x + lw - 14 * s;
-        u.drawSwitch(swR, mid, on);
+        u.drawSwitch(swR, mid, on, a.nextActionGlassKey(), u.over(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s));
         u.act(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s, [ap, id] { toggleWidget(ap, id); });
         if (on) {
             for (int k = 0; k < 2; ++k) {
                 const float ax = swR - 52 * s - 44 * s * (2 - k) + 10 * s;     // up, down
                 const bool can = k == 0 ? order > 1 : order < (int)v.size();
                 const bool hv = u.over(ax - 14 * s, mid - 16 * s, 28 * s, 32 * s) && can;
-                Color col = can ? (hv ? P.ink : P.ink2) : mulA(P.ink3, 0.4f);
+                const float rBtn = 13.f * s;
+                const uint64_t aKey = can ? a.nextActionGlassKey() : 0;
+                const glassfx::Pose gpA = a.glass.pose(aKey, ax - rBtn, mid - rBtn, 2.f * rBtn, 2.f * rBtn, rBtn, s, hv, false);
+                if (can) {
+                    g.fillRoundRect(gpA.x, gpA.y, gpA.w, gpA.h, gpA.r, mulA(P.ink, 0.06f + 0.06f * gpA.hoverT));
+                    if (gpA.hoverT > 0.01f) g.fillRoundRect(gpA.x, gpA.y, gpA.w, gpA.h, gpA.r, withA(u.acc(), 0.22f * gpA.hoverT));
+                    g.strokeRoundRect(gpA.x + 0.5f, gpA.y + 0.5f, std::max(1.f, gpA.w - 1.f), std::max(1.f, gpA.h - 1.f), std::max(0.5f, gpA.r - 0.5f), lerp(P.line, withA(u.acc(), 0.72f), gpA.hoverT), std::max(1.f, s));
+                    drawGlassEffects(u.c, aKey, gpA, false, false);
+                }
+                const float gcx = gpA.x + gpA.w * 0.5f, gcy = gpA.y + gpA.h * 0.5f;
+                Color col = can ? lerp(P.ink2, P.ink, gpA.hoverT) : mulA(P.ink3, 0.35f);
                 const float d = k == 0 ? 1.f : -1.f;           // up chevron points up, down chevron points down
-                g.polyline({{ax - 7 * s, mid + d * 3.5f * s}, {ax, mid - d * 3.5f * s}, {ax + 7 * s, mid + d * 3.5f * s}}, false, col, std::max(1.5f, 1.8f * s), true);
+                g.polyline({{gcx - 5.5f * s, gcy + d * 2.8f * s}, {gcx, gcy - d * 2.8f * s}, {gcx + 5.5f * s, gcy + d * 2.8f * s}}, false, col, std::max(1.4f, 1.7f * s), true);
                 if (can) u.act(ax - 14 * s, mid - 16 * s, 28 * s, 32 * s, [ap, id, k] { moveWidget(ap, id, k == 0 ? -1 : 1); });
             }
         }
@@ -458,10 +502,11 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
         bool pin = a.st.pinned == sel;
         const float hh = 62.f * s;
         const float mid = ry + hh * 0.5f;
-        if (u.over(rx - 10 * s, ry, rw + 20 * s, hh)) g.fillRoundRect(rx - 10 * s, ry + 2 * s, rw + 20 * s, hh - 4 * s, 14 * s, mulA(P.ink, 0.05f));
+        const bool hvPin = u.over(rx - 10 * s, ry, rw + 20 * s, hh);
+        if (hvPin) g.fillRoundRect(rx - 10 * s, ry + 2 * s, rw + 20 * s, hh - 4 * s, 14 * s, mulA(P.ink, 0.05f));
         g.text(F_LIGHT, 19.5f * s, rx, mid - 3 * s, L"Add to the rotating panel", P.ink);
         g.text(F_LIGHT, 14.f * s, rx, mid + 17 * s, L"Takes the place of the Today list", P.ink3);
-        u.drawSwitch(rx + rw, mid, pin);
+        u.drawSwitch(rx + rw, mid, pin, a.nextActionGlassKey(), hvPin);
         u.act(rx - 10 * s, ry, rw + 20 * s, hh, [ap, sel] { ap->st.pinned = ap->st.pinned == sel ? -1 : sel; ap->cmd(CMD_SAVE); });
         ry += hh + 10 * s;
     }
@@ -670,7 +715,7 @@ void tabThemes(UI& u, float x, float y, float w, float h) {
         g.text(F_MONO, 11.f * s, x + 28 * s, mid + 26 * s, g.ellipsize(F_MONO, 11.f * s, Ws(status), tw), P.ink3, Align::Left, 0.1f);
         if (p->ok) {                                                  // switch it off without deleting it
             const float swR = x + lw - 6 * s;
-            u.drawSwitch(swR, mid, !p->disabled);
+            u.drawSwitch(swR, mid, !p->disabled, a.nextActionGlassKey(), u.over(swR - 56 * s, mid - 20 * s, 60 * s, 40 * s));
             u.act(swR - 56 * s, mid - 20 * s, 60 * s, 40 * s, [ap, id] {
                 auto& v = ap->st.packsOff; auto it = std::find(v.begin(), v.end(), id);
                 if (it != v.end()) v.erase(it); else v.push_back(id);
@@ -1165,7 +1210,8 @@ void tabWeather(UI& u, float x, float y, float w, float h) {
         const bool en = st.provEnabled[i];
         const bool needsKey = weather::providerNeedsKey(i);
         const bool keyOk = !needsKey || (i == weather::PV_WEATHERAPI ? hasKey(st.weatherApiKey) : hasKey(st.openWeatherKey));
-        if (u.over(x - 10 * s, yy, lw + 20 * s, rowH)) g.fillRoundRect(x - 10 * s, yy + 2 * s, lw + 20 * s, rowH - 4 * s, 12 * s, mulA(P.ink, 0.05f));
+        const bool hvProv = u.over(x - 10 * s, yy, lw + 20 * s, rowH);
+        if (hvProv) g.fillRoundRect(x - 10 * s, yy + 2 * s, lw + 20 * s, rowH - 4 * s, 12 * s, mulA(P.ink, 0.05f));
         const float mid = yy + rowH * 0.5f;
         const bool inUse = a.wx.valid && a.wx.source == weather::providerName(i);
         Color dotC = !en ? mulA(P.ink, 0.25f) : (ps.ok || inUse) ? P.accent2 : (needsKey && !keyOk) ? mulA(P.ink, 0.35f) : ps.tried ? rgb(0xFF9F7A) : mulA(P.ink, 0.45f);
@@ -1179,7 +1225,7 @@ void tabWeather(UI& u, float x, float y, float w, float h) {
         else if (ps.tried) status = ps.err.empty() ? "no answer" : ps.err;
         else status = i == 0 ? "waiting for the first answer" : (i == weather::PV_BRIGHTSKY ? "backup \xC2\xB7 DWD / Europe" : (i == weather::PV_NWS ? "backup \xC2\xB7 US / NOAA" : "kept as a backup"));
         g.text(F_LIGHT, 13.f * s, x + 28 * s, mid + 15.5f * s, g.ellipsize(F_LIGHT, 13.f * s, Ws(status), lw - 28 * s - 86 * s), (ps.ok || inUse) && en ? P.accent2 : P.ink3);
-        u.drawSwitch(x + lw, mid, en);
+        u.drawSwitch(x + lw, mid, en, a.nextActionGlassKey(), hvProv);
         bool* vp = &st.provEnabled[i];
         u.act(x - 10 * s, yy, lw + 20 * s, rowH, [vp, ap] { *vp = !*vp; ap->cmd(CMD_WEATHER_CFG); ap->cmd(CMD_WEATHER_REFRESH); ap->cmd(CMD_SAVE); });
         yy += rowH;
@@ -1372,12 +1418,13 @@ struct Release { const char* version; const char* name; std::vector<const char*>
 const std::vector<Release>& releaseNotes() {
     static const std::vector<Release> r = {
         {"2.9.8", "Glass", {
-            "Glass. Tactile Liquid Glass physics across every button, sliding segmented pills, touch-reactive Focus Studio cards, and a dramatic artistic Blizzard snowstorm mode.",
-            "Liquid Glass buttons everywhere: every button across Timer (mode tabs, duration presets, Start & Reset), Focus Studio (duration presets, Start & Reset, Ambience & Theme orb), the bottom navigation dock, rotating panel arrows, and all Settings controls now responds with smooth spring-eased hover bloom, cursor-tracking specular glass sheen, tactile press-and-hold compression, elastic liquid-jelly rebound on release, and an expanding refractive caustic ripple from the exact point you click.",
+            "Glass. Tactile Liquid Glass physics across every button, sliding segmented pills, touch-reactive Focus Studio cards, a dramatic artistic Blizzard snowstorm, and a completely remade Deep-Space Cosmos for Midnight & Stars.",
+            "Liquid Glass buttons everywhere: every button across Timer (mode tabs, duration presets, Start & Reset), Focus Studio (duration presets, Start & Reset, Ambience & Theme orb), the bottom navigation dock, Sky & Widgets < / > page arrows and Month Calendar arrows, and all Settings controls (including liquid-droplet gliding toggle switches and frosted -/+ steppers) now responds with smooth spring-eased hover bloom, cursor-tracking specular glass sheen, tactile press-and-hold compression, elastic liquid-jelly rebound on release, and an expanding refractive caustic ripple from the exact point you click.",
             "Gliding segmented pills: active selection capsules on Timer (Timer / Stopwatch / Alarm and 1m–1h presets), Focus Studio (5m–1h presets), and the bottom navigation dock now glide and stretch fluidly from one button to the next instead of snapping.",
-            "Touch-reactive Focus Studio corner cards: the top-left live Clock & Date card and top-right live Weather & AQI card on Focus Studio now respond to hover and click with volume-preserving liquid-glass jelly wobble, cursor-tracking glass sheen, and a dual-ring shimmering caustic ripple — purely tactile motion when touched, with zero unintended side effects.",
-            "Artistic Blizzard / Harsh Snowstorm: alongside the existing calm snowfall, Meridian now renders a fierce yet deeply artistic driving snowstorm — three parallax depths of feathery wind-sheared snow streaks, sweeping whiteout squall curtains, curling frosted spindrift ribbons, racing ground snowdrifts, and fast foreground wisps that keep every digit crisp. Triggers automatically during real winter snowstorms and thundersnow, previews with a new BLIZZARD chip in Settings > Quiet, falls cleanly behind the Sky map, and joins the Focus Studio Ambience Orb.",
-            "Zero idle overhead: all Liquid Glass springs, ripples, and sliding pills run smoothly at display refresh rate while interacting and settle completely back to 1 FPS idle within half a second, with nested Direct2D rounded-capsule clipping and automatic hold recovery on Alt+Tab or mouse leave.",
+            "Touch-reactive glass cards & Sky AQI badge: the Focus Studio top-left Clock & Date card, top-right Weather & AQI card, and the Sky face Air Quality pill badge all respond to hover and click with volume-preserving liquid-glass jelly wobble, cursor-tracking glass sheen, and a dual-ring shimmering caustic ripple — purely tactile motion when touched, with zero unintended side effects.",
+            "Artistic Blizzard / Harsh Snowstorm: alongside the existing calm snowfall, Meridian now renders a fierce yet deeply artistic driving snowstorm — four organic blowing-snow variants across three parallax depths, billowing whiteout squall curtains, curling frosted spindrift ribbons, racing ground snowdrifts, and fast foreground wisps that keep every digit crisp. Triggers automatically during real winter snowstorms and thundersnow, previews with a new BLIZZARD chip in Settings > Quiet, falls cleanly behind the Sky map, and joins the Focus Studio Ambience Orb.",
+            "Remade Deep-Space Cosmos (Midnight & Focus Stars): a museum-grade deep-sky backdrop featuring a sculpted Milky Way with its meandering Great Dark Rift, multi-layered Orion/Carina-inspired organic emission nebula ridges, ~1,400 spectral O–M stars with 4-point optical diffraction starbursts, the Pleiades reflection cluster, a feathered logarithmic-arm Andromeda spiral galaxy with companion dwarf galaxy, an axially tilted banded Saturn with Cassini Division gap and orbiting moons, a distant backlit crescent ice-giant, 44 living scintillating jewel stars, whisper-slow galactic stardust, a breathing nebula veil, and weather-immune dual shooting-star streams & comets in Focus Studio STARS.",
+            "Windowed z-order & zero idle overhead: fixed normal/fullscreen windows staying stuck above other apps when clicking away (only Keep on top / P or screen saver stays topmost, with a clear title-bar indicator when pinned). All Liquid Glass springs, ripples, toggles, and sliding pills settle cleanly back to 1 FPS idle within half a second.",
         }, "22 Nov 2026"},
         {"2.9.7", "Snowfall", {
             "Snowfall. Meditative layered snowfall, Focus Studio ambient backdrops, Daylight Saving awareness, shooting-star physics, Air Quality emblem, Golden and Blue Hour, and precision polish across every face.",

@@ -59,6 +59,11 @@ struct SlidePose {
     bool  visible = false;
 };
 
+struct TogglePose {
+    float pos = 0.f;                 // 0 (off) .. 1 (on), smoothly eased
+    float stretch = 0.f;             // 0..1 liquid droplet elongation while gliding
+};
+
 class Engine {
 public:
     void beginFrame(float dt, bool saverBlocked) {
@@ -89,6 +94,7 @@ public:
                 if (it.bounceAge >= kBounceDur) it.bounceAge = kBounceDur + 1.f;
             }
         }
+        for (auto& kv : toggles_) kv.second.seen = false;
     }
 
     // Called on WM_LBUTTONDOWN (holding=true) or synthetic/keyboard click (holding=false).
@@ -163,6 +169,7 @@ public:
 
     void clearAll() {
         items_.clear();
+        toggles_.clear();
         ripples_.clear();
         heldId_ = 0;
         for (int i = 0; i < SLIDE_COUNT; ++i) slides_[i] = SlideGroup{};
@@ -320,6 +327,27 @@ public:
         return sp;
     }
 
+    // Smoothly glides and liquid-stretches a Settings toggle switch knob (snaps cleanly on first frame, prunes on tab leave).
+    TogglePose stepToggle(uint64_t id, bool on) {
+        const float target = on ? 1.f : 0.f;
+        if (blocked_ || id == 0) return {target, 0.f};
+        auto it = toggles_.find(id);
+        if (it == toggles_.end()) {
+            ToggleState ts{}; ts.pos = target; ts.target = target; ts.seen = true;
+            toggles_[id] = ts;
+            return {target, 0.f};
+        }
+        ToggleState& ts = it->second;
+        ts.seen = true;
+        ts.target = target;
+        const float k = 1.f - std::exp(-dt_ * 18.f);
+        ts.pos = clamp01(ts.pos + (target - ts.pos) * k);
+        if (std::fabs(ts.pos - target) < 0.004f) ts.pos = target;
+        const float moving = std::fabs(ts.pos - target) > 0.005f ? 1.f : 0.f;
+        const float stretch = moving * clamp01(4.f * ts.pos * (1.f - ts.pos));
+        return {ts.pos, stretch};
+    }
+
     // Must be called once at the end of App::render to prune unseen idle controls and compute busy().
     void endFrame() {
         if (blocked_) { busy_ = false; return; }
@@ -344,6 +372,13 @@ public:
             if (idleDead) it = items_.erase(it);
             else ++it;
         }
+        for (auto it = toggles_.begin(); it != toggles_.end(); ) {
+            if (!it->second.seen) it = toggles_.erase(it);
+            else {
+                if (std::fabs(it->second.pos - it->second.target) > 0.004f) anyBusy = true;
+                ++it;
+            }
+        }
         for (int i = 0; i < SLIDE_COUNT; ++i) {
             if (slides_[i].busy) anyBusy = true;
         }
@@ -352,6 +387,7 @@ public:
 
     bool busy() const { return busy_; }
     size_t itemCount() const { return items_.size(); }
+    size_t toggleCount() const { return toggles_.size(); }
     size_t rippleCount() const { return ripples_.size(); }
     uint64_t heldId() const { return heldId_; }
 
@@ -363,6 +399,10 @@ private:
         float bounceAmp = 1.f;
         float bounceScale = 1.f;
         bool  tapDip = false;
+        bool  seen = false;
+    };
+    struct ToggleState {
+        float pos = 0.f, target = 0.f;
         bool  seen = false;
     };
     struct Ripple {
@@ -382,6 +422,7 @@ private:
     }
 
     std::unordered_map<uint64_t, Item> items_;
+    std::unordered_map<uint64_t, ToggleState> toggles_;
     std::vector<Ripple> ripples_;
     SlideGroup slides_[SLIDE_COUNT];
     uint64_t heldId_ = 0;
