@@ -204,8 +204,8 @@ void App::renderFocus(Gfx& g, int w, int h) {
     const FocusState& F = focus;
     const float m = (portrait ? 34.f : 56.f) * s;
 
-    // 1. Ambient weather / starry sky backdrop chosen by the user
-    if (st.focusFx > 0) drawFocusBackdrop(c);
+    // 1. Ambient weather / Midnight nocturne / Galaxy cosmos backdrop chosen by the user (also honours active Midnight/Galaxy theme when Ambience is Off)
+    drawFocusBackdrop(c);
 
     // 2. Top studio corner cards: tactile Liquid Glass clock + date (top-left) and live weather + AQI (top-right).
     // Touching either card moves & ripples like liquid glass with zero side effects (pure tactile response).
@@ -412,9 +412,9 @@ void App::renderFocus(Gfx& g, int w, int h) {
 
     // 5. Collapsible Lo-Fi Ambience & Theme Studio Orb -> Expanded Card on Hover (zero clutter at rest, clear of bottom dock)
     {
-        static const wchar_t* fxLabels[9] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS", L"BLIZZARD"};
-        static const int fxSideOrder[9] = {0, 1, 2, 6, 3, 8, 4, 5, 7};
-        static const int fxCompactOrder[9] = {0, 1, 7, 2, 6, 4, 3, 8, 5};
+        static const wchar_t* fxLabels[14] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS", L"BLIZZARD", L"DRIZZLE", L"SLEET", L"HAIL", L"GALE", L"MIDNIGHT"};
+        static const int fxSideOrder[14] = {0, 1, 9, 2, 6, 11, 10, 3, 8, 12, 4, 5, 13, 7};
+        static const int fxCompactOrder[14] = {0, 1, 4, 5, 9, 2, 6, 11, 10, 3, 8, 12, 13, 7};
         const float mx = mouseX - shiftX, my = mouseY - shiftY;
         const float idleS = (float)(now - lastMouseMove);
         const std::wstring thName = Ws(util::upper(themeName()));
@@ -424,10 +424,10 @@ void App::renderFocus(Gfx& g, int w, int h) {
         float orbX = 0, orbY = 0;
 
         const float pad = (useSidePanel ? 16.f : 14.f) * s;
-        const float colGap = (useSidePanel ? 7.f : 6.f) * s, rowGap = (useSidePanel ? 7.f : 6.f) * s;
-        const float ch = (useSidePanel ? 30.f : 28.f) * s, navD = (useSidePanel ? 28.f : 26.f) * s;
+        const float colGap = (useSidePanel ? 7.f : 6.f) * s, rowGap = (useSidePanel ? 6.f : 6.f) * s;
+        const float ch = (useSidePanel ? 28.f : 26.f) * s, navD = (useSidePanel ? 28.f : 26.f) * s;
         if (useSidePanel) {
-            const float gridH = 5.f * ch + 4.f * rowGap;
+            const float gridH = 7.f * ch + 6.f * rowGap;
             expW = sidePanelW;
             expH = pad + 22.f * s + gridH + 14.f * s + 1.f + 14.f * s + 20.f * s + navD + pad;
             expX = W - m - expW;
@@ -438,8 +438,8 @@ void App::renderFocus(Gfx& g, int w, int h) {
             orbY = std::max(topLimit, std::min(H - 116.f * s - orbD, cy - orbD * 0.5f));
             cardR = 20.f * s;
         } else {
-            expW = std::min(W - 2.f * m, 440.f * s);
-            expH = pad + 3.f * ch + 2.f * rowGap + 10.f * s + 1.f + 10.f * s + navD + pad;
+            expW = std::min(W - 2.f * m, 448.f * s);
+            expH = pad + 4.f * ch + 3.f * rowGap + 10.f * s + 1.f + 10.f * s + navD + pad;
             expX = (W - expW) * 0.5f;
             expY = std::min(btnY + btnH + 22.f * s, H - 118.f * s - expH);
             orbX = cx - orbD * 0.5f;
@@ -545,17 +545,16 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 const float gridY = expY + pad + 22.f * s;
                 const float fullW = expW - 2.f * pad;
                 const float cw = (fullW - colGap) * 0.5f;
-                for (int slot = 0; slot < 9; ++slot) {
+                for (int slot = 0; slot < 14; ++slot) {
                     const int modeId = fxSideOrder[slot];
-                    const bool fullRow = (slot == 8);
-                    const int colI = fullRow ? 0 : (slot % 2), rowI = fullRow ? 4 : (slot / 2);
+                    const int colI = slot % 2, rowI = slot / 2;
                     const float bx = expX + pad + colI * (cw + colGap);
                     const float by = gridY + rowI * (ch + rowGap);
-                    const float bw = fullRow ? fullW : cw;
-                    const float bfs = (modeId == 8 && bw < 100.f * s) ? 10.4f : 11.0f;
+                    const float bw = cw;
+                    const float bfs = ((modeId == 8 || modeId == 9 || modeId == 13) && bw < 102.f * s) ? 10.2f : 10.8f;
                     drawButton(cb, bx, by, bw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, bfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
-                const float divY = gridY + (5.f * ch + 4.f * rowGap) + 14.f * s;
+                const float divY = gridY + (7.f * ch + 6.f * rowGap) + 14.f * s;
                 g.line(expX + pad, divY, expX + expW - pad, divY, Pb.line, std::max(1.f, s), false);
                 const float thEyY = divY + 14.f * s + g.capHeight(F_MONO, 10.5f * s);
                 g.text(F_MONO, 10.5f * s, expX + pad, thEyY, L"THEME", Pb.ink3, Align::Left, 0.20f);
@@ -568,16 +567,20 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 if (canHit) addHit(*this, midX, navY, midW, navD, HIT_THEME);
                 drawThemeNav(rx, navY, navD, +1, HIT_THEME);
             } else {
-                const float cw = (expW - 2.f * pad - 2.f * colGap) / 3.f;
-                const float pfs = cw < 86.f * s ? 10.0f : 11.0f;
-                for (int slot = 0; slot < 9; ++slot) {
+                const float fullW = expW - 2.f * pad;
+                const float cw = (fullW - 3.f * colGap) / 4.f;
+                const float pfs = cw < 90.f * s ? 9.5f : 10.4f;
+                for (int slot = 0; slot < 14; ++slot) {
                     const int modeId = fxCompactOrder[slot];
-                    const int colI = slot % 3, rowI = slot / 3;
-                    const float bx = expX + pad + colI * (cw + colGap);
+                    const bool pairRow = (slot >= 12);
+                    const float halfW = (fullW - colGap) * 0.5f;
+                    const int colI = pairRow ? (slot - 12) : (slot % 4), rowI = pairRow ? 3 : (slot / 4);
+                    const float bx = expX + pad + (pairRow ? colI * (halfW + colGap) : colI * (cw + colGap));
                     const float by = expY + pad + rowI * (ch + rowGap);
-                    drawButton(cb, bx, by, cw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, pfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
+                    const float bw = pairRow ? halfW : cw;
+                    drawButton(cb, bx, by, bw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, pfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
-                const float divY = expY + pad + 3.f * ch + 2.f * rowGap + 10.f * s;
+                const float divY = expY + pad + 4.f * ch + 3.f * rowGap + 10.f * s;
                 g.line(expX + pad, divY, expX + expW - pad, divY, Pb.line, std::max(1.f, s), false);
                 const float navY = divY + 10.f * s;
                 g.text(F_MONO, 10.5f * s, expX + pad, navY + navD * 0.5f + g.capHeight(F_MONO, 10.5f * s) * 0.5f, L"THEME", Pb.ink3, Align::Left, 0.20f);

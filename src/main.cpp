@@ -365,10 +365,10 @@ void loadSettings() {
         FocusState& fc = G.app.focus;
         fc.durationSec = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, ini.getNum("focus", "duration", fc.durationSec)));
         fc.pausedRemaining = fc.durationSec;
-        static const char* const kFx[9] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard"};
+        static const char* const kFx[14] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard", "drizzle", "sleet", "hail", "gale", "midnight"};
         const std::string bk = lowerTrim(ini.get("focus", "backdrop", "live"));
         st.focusFx = 1;
-        for (int i = 0; i < 9; ++i) if (bk == kFx[i]) { st.focusFx = i; break; }
+        for (int i = 0; i < 14; ++i) if (bk == kFx[i]) { st.focusFx = i; break; }
     }
 }
 
@@ -400,7 +400,7 @@ bool saveSettings() {                                      // false only when th
     o += "\n[events]\n; your own dates shown under TODAY.  MM-DD repeats every year, YYYY-MM-DD happens once.\n";
     for (auto& e : st.events) o += (e.y ? fmt("%04d-%02d-%02d", e.y, e.m, e.d) : fmt("%02d-%02d", e.m, e.d)) + "=" + e.title + "\n";
     o += "\n[view]\n";
-    o += fmt("theme=%d\n; 0 auto, 1 day, 2 dusk, 3 night, 4 ember, 5 dawn, 6 sunset, 7 sunlit, 8 sunlit II, 9 midnight\nface=%d\n; 0 sky, 1 quiet, 2 timer, 3 almanac, 4 widgets, 5 focus\n", st.theme, st.face == FACE_PACK ? (int)FACE_QUIET : st.face);
+    o += fmt("theme=%d\n; 0 auto, 1 day, 2 dusk, 3 night, 4 ember, 5 dawn, 6 sunset, 7 sunlit, 8 sunlit II, 9 galaxy, 10 midnight\nface=%d\n; 0 sky, 1 quiet, 2 timer, 3 almanac, 4 widgets, 5 focus\n", st.theme, st.face == FACE_PACK ? (int)FACE_QUIET : st.face);
     o += "; a theme pack (a folder in the themes folder) used as the theme, and the pack tab that was open. Leave empty for the built-in themes.\ntheme_pack=" + st.themePack + "\nface_pack=" + st.facePack + fmt("\nface_is_pack=%d\n", st.face == FACE_PACK ? 1 : 0);
     o += fmt("h24=%d\nseconds=%d\nfahrenheit=%d\npoya=%d\npixel_shift=%d\nkeep_awake=%d\ntopmost=%d\nfullscreen=%d\nbrightness=%.2f\n",
              st.h24, st.seconds, st.useF, st.poya, st.pixelShift, st.keepAwake, st.topmost, st.fullscreen, st.brightness);
@@ -424,7 +424,7 @@ bool saveSettings() {                                      // false only when th
     o += fmt("; free_rotate=1 turns the whole sky slowly, one full turn every seconds_per_turn seconds; direction is clockwise or counterclockwise\nfree_rotate=%d\nseconds_per_turn=%d\ndirection=%s\n\n",
              st.skySpin, st.skySpinSecs, st.skySpinDir > 0 ? "clockwise" : "counterclockwise");
     o += fmt("[quiet]\n; draw the weather behind the clock on the Quiet face (clouds, wind, rain, a tornado in a thunderstorm). 1 = on, 0 = off\nweather=%d\n; how strongly it is drawn, in percent (50 to 200). 100 is the default\nstrength=%.0f\n; a soft sun flare from the side the Sun is on, in the morning and the evening. 1 = on, 0 = off\nsun_flare=%d\n; rain and wind drawn at your screen's own refresh rate (up to 90 frames a second) so they stay smooth. 0 = 30 frames a second, lighter on a laptop battery\nsmooth_motion=%d\n", st.quietFx, st.quietStrength * 100.f, st.quietFlare, st.quietSmooth);
-    o += fmt("; rain also falls behind the map on the Sky face. 1 = on, 0 = off\nsky_rain=%d\n; the Midnight theme's stars, meteors and comet behind the Quiet and Sky faces. 1 = on, 0 = off\nmidnight_sky=%d\n", st.skyRain, st.spaceFx);
+    o += fmt("; rain also falls behind the map on the Sky face. 1 = on, 0 = off\nsky_rain=%d\n; the Galaxy theme's stars, meteors and comet behind the Quiet and Sky faces. 1 = on, 0 = off\nmidnight_sky=%d\n", st.skyRain, st.spaceFx);
     if (!st.aliensEnabled) o += "aliens=0\n";
     o += fmt("; the light follows the weather on every face: heavy cloud and storms darken and cool the theme, fog flattens it. 1 = on, 0 = off\nweather_light=%d\n; how strong that is, in percent (50 to 150)\nweather_light_strength=%.0f\n\n", st.weatherMood, st.moodStrength * 100.f);
     o += fmt("[storms]\n; show named storms (cyclones, typhoons, hurricanes) when one is near you: its name, distance and direction. 1 = on, 0 = off\nwatch=%d\n; how far away still counts as near, in km\nradius_km=%d\n\n", st.stormWatch, st.stormRadius);
@@ -444,8 +444,8 @@ bool saveSettings() {                                      // false only when th
     }
     o += fmt("[window]\nx=%d\ny=%d\nw=%d\nh=%d\n\n", st.winX, st.winY, st.winW, st.winH);
     o += fmt("[timer]\nduration=%.0f\nalarm_minutes=%d\nalarm_on=%d\n\n", tm.durationSec, tm.alarmMinutes, tm.alarmOn ? 1 : 0);
-    static const char* const kFxNames[9] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard"};
-    const int fxIdx = std::max(0, std::min(8, st.focusFx));
+    static const char* const kFxNames[14] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard", "drizzle", "sleet", "hail", "gale", "midnight"};
+    const int fxIdx = std::max(0, std::min(13, st.focusFx));
     o += fmt("[focus]\nduration=%.0f\nbackdrop=%s\n", G.app.focus.durationSec, kFxNames[fxIdx]);
     return writeFile(G.settingsPath, o);
 }
@@ -1086,8 +1086,8 @@ void perform(int id) {
     else if (id >= HIT_FPRESET0 && id < HIT_FPRESET0 + 7) { a.focusSetDuration(FOCUS_PRESETS[id - HIT_FPRESET0]); markDirty(); }
     else if (id == HIT_FSTART) { a.focusStartPause(); markDirty(); }
     else if (id == HIT_FRESET) a.focusReset();
-    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 9) {
-        static const wchar_t* const kFxToast[9] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars", L"Blizzard"};
+    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 14) {
+        static const wchar_t* const kFxToast[14] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars", L"Blizzard", L"Drizzle", L"Sleet", L"Hail", L"Gale", L"Midnight"};
         const int m = id - HIT_FOCUSFX0;
         a.st.focusFx = m;
         markDirty();
@@ -1118,7 +1118,7 @@ void handleSecretKey(wchar_t kch) {
             a.aliensNuts = true;
             a.aliensNutsSince = unixNow();
             markDirty();
-            toast(L"Aliens are nuts! (2x per minute on Midnight)");
+            toast(L"Aliens are nuts! (2x per minute on Galaxy)");
             break;
         case ufoaudio::SecretAction::AliensNormal:
             a.aliensNuts = false;
@@ -1243,12 +1243,12 @@ void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
         case VK_OEM_6: st.brightness = std::min(1.0f, st.brightness + 0.1f); toast(Ws(fmt("Brightness %.0f%%", st.brightness * 100))); markDirty(); return;
         case 'U':
             if (!st.aliensEnabled) return;
-            if (st.theme == THEME_MIDNIGHT && st.spaceFx && (st.face == FACE_QUIET || st.face == FACE_SKY) && !a.packTheme()) {
+            if (st.theme == THEME_GALAXY && st.spaceFx && (st.face == FACE_QUIET || st.face == FACE_SKY) && !a.packTheme()) {
                 ++a.alienSeq; a.alienAt = unixNow(); toast(L"Hello");
             } else {
-                toast(L"Switch to Midnight theme (Sky or Quiet) to summon the visitor");
+                toast(L"Switch to Galaxy theme (Sky or Quiet) to summon the visitor");
             }
-            return;           // an easter egg: calls the saucer (Midnight theme, Quiet and Sky faces)
+            return;           // an easter egg: calls the saucer (Galaxy theme, Quiet and Sky faces)
         case 'B': st.emberAtNight = !st.emberAtNight; toast(st.emberAtNight ? Ws(fmt("Red night mode %02d:00–%02d:00", st.emberFrom, st.emberTo)) : L"Red night mode off"); markDirty(); return;
         case 'W': a.wxStatus = "Refreshing…"; W.request(st.geo.lat, st.geo.lon); toast(L"Refreshing weather"); return;
         case 'N': switchPlace(); return;
@@ -1480,8 +1480,9 @@ void renderFrame() {
     const bool spaceNow = spaceBusyNow(a, now);                  // Midnight: a meteor, the comet or the saucer is on screen
     const bool focusSmooth = a.focusFxBusy() && a.st.quietSmooth &&
         (a.st.focusFx == 2 || a.st.focusFx == 3 || a.st.focusFx == 6 || a.st.focusFx == 7 || a.st.focusFx == 8 ||
-         (a.st.focusFx == 1 && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] + a.qfx[7] > 0.05f)));
-    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && (a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[6] + a.qfx[7] > 0.05f)) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy() || a.glassBusy();     // fluid Liquid Glass UI morphs (dock, focus orb, buttons/cards) & saver reveal run on screen refresh too
+         a.st.focusFx == 9 || a.st.focusFx == 10 || a.st.focusFx == 11 || a.st.focusFx == 12 ||
+         (a.st.focusFx == 1 && a.qfxFastActive()));
+    const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && a.qfxFastActive()) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy() || a.glassBusy();     // fluid Liquid Glass UI morphs (dock, focus orb, buttons/cards) & saver reveal run on screen refresh too
     G.smooth = smooth;
     double next;
     a.frameTarget = 0;
@@ -1804,7 +1805,7 @@ int runShot(const ShotArgs& sa) {
     if (sa.heading >= 0) { a.st.skyHeading = sa.heading; a.spinBase = sa.heading; a.spinT0 = now; }
     if (sa.spin > 0) { a.st.skySpin = true; a.st.skySpinSecs = sa.spin; a.spinT0 = now - sa.spinAt; }
     if (sa.quiet >= 0) a.st.quietPreview = sa.quiet;
-    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(8, sa.focusfx));
+    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(13, sa.focusfx));
     if (sa.alien) { a.st.aliensEnabled = true; a.alienSeq = 1; a.alienAt = now - 4.2; }
     if (sa.dayStars) a.st.dayStars = true;
     if (sa.meteor > 0.f) a.meteorDemoU = sa.meteor;

@@ -13,8 +13,8 @@ IDR_NOTES        RCDATA "notes.txt"
 IDR_SONG         RCDATA "song.dat"
 
 1 VERSIONINFO
-FILEVERSION 2,9,8,0
-PRODUCTVERSION 2,9,8,0
+FILEVERSION 2,9,9,0
+PRODUCTVERSION 2,9,9,0
 FILEOS 0x4
 FILETYPE 0x1
 BEGIN
@@ -23,13 +23,13 @@ BEGIN
     BLOCK "040904B0"
     BEGIN
       VALUE "CompanyName", "Meridian"
-      VALUE "FileDescription", "Meridian 2.9.8 ""Glass"" Setup (Sonnet Edition)"
-      VALUE "FileVersion", "2.9.8.0"
+      VALUE "FileDescription", "Meridian 2.9.9 ""Nimbus"" Setup (Sonnet Edition)"
+      VALUE "FileVersion", "2.9.9.0"
       VALUE "InternalName", "Meridian-Setup"
       VALUE "LegalCopyright", "Fonts: Sora, Instrument Serif, DM Mono (SIL OFL 1.1)."
       VALUE "OriginalFilename", "Meridian-Setup.exe"
       VALUE "ProductName", "Meridian - Sonnet Edition"
-      VALUE "ProductVersion", "2.9.8.0"
+      VALUE "ProductVersion", "2.9.9.0"
     END
   END
   BLOCK "VarFileInfo"

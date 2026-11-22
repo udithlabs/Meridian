@@ -507,8 +507,8 @@ struct Loader {
         }
         // palette: start from a built-in one, then change what the file says
         std::string base = "night"; str(o, "base", base); base = lower(base);
-        pk.pal = base == "day" ? gfx::PAL_DAY : base == "sunlit" ? gfx::PAL_SUNLIT : base == "sunlit2" ? gfx::PAL_SUNLIT2 : base == "midnight" ? gfx::PAL_MIDNIGHT : base == "dawn" ? gfx::PAL_DAWN : base == "sunset" ? gfx::PAL_SUNSET : base == "dusk" ? gfx::PAL_DUSK : base == "ember" ? gfx::PAL_EMBER : gfx::PAL_NIGHT;
-        if (base != "day" && base != "sunlit" && base != "sunlit2" && base != "midnight" && base != "dawn" && base != "sunset" && base != "dusk" && base != "night" && base != "ember") warn("theme.json", "'base' should be day, sunlit, sunlit2, dawn, sunset, dusk, night, midnight or ember (using night)");
+        pk.pal = base == "day" ? gfx::PAL_DAY : base == "sunlit" ? gfx::PAL_SUNLIT : base == "sunlit2" ? gfx::PAL_SUNLIT2 : base == "midnight" ? gfx::PAL_MIDNIGHT : base == "galaxy" ? gfx::PAL_GALAXY : base == "dawn" ? gfx::PAL_DAWN : base == "sunset" ? gfx::PAL_SUNSET : base == "dusk" ? gfx::PAL_DUSK : base == "ember" ? gfx::PAL_EMBER : gfx::PAL_NIGHT;
+        if (base != "day" && base != "sunlit" && base != "sunlit2" && base != "midnight" && base != "galaxy" && base != "dawn" && base != "sunset" && base != "dusk" && base != "night" && base != "ember") warn("theme.json", "'base' should be day, sunlit, sunlit2, dawn, sunset, dusk, night, midnight, galaxy or ember (using night)");
         pk.pal.neon = 0.f;
         loadPalette(o.get("palette"));
         // fonts

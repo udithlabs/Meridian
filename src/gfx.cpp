@@ -99,9 +99,24 @@ const Palette PAL_NIGHT = [] {
     p.skyZen = rgb(0x030612); p.skyHor = rgb(0x0B1630); p.skyNZen = rgb(0x030612); p.skyNHor = rgb(0x0B1630); p.skyOwn = 1;                 // deep velvet nocturnal navy
     return p;
 }();
-// Midnight: the deepest of the night themes, almost black with a breath of indigo toward the bottom, cool white text and a soft violet accent. Its scenery
-// (dim stars, nebula, meteors, a comet, now and then a saucer) is drawn in scene_space.cpp.
+// Midnight: artistic Prussian-velvet & moonlit champagne-gold nocturne. Deep velvety sapphire zenith melting into a luminous
+// indigo-cerulean horizon, moon-pearl typography, champagne-gold & cerulean moon-ice accents, and frosted sapphire-crystal panels
+// engineered to flatter every face and every weather mode. Subtle lunar airglow and crisp zenith stars are drawn in scene_space.cpp.
 const Palette PAL_MIDNIGHT = [] {
+    Palette p;
+    p.bgTop = rgb(0x050A18); p.bgBottom = rgb(0x111E38);
+    p.ink = rgb(0xF0F3FA); p.ink2 = rgb(0x9FB1CE); p.ink3 = rgb(0x63789C);
+    p.line = {168 / 255.f, 196 / 255.f, 238 / 255.f, 0.18f};
+    p.accent = rgb(0xE8C882); p.accent2 = rgb(0x7CC4E8);
+    p.panel = {170 / 255.f, 200 / 255.f, 245 / 255.f, 0.055f};
+    p.plate = rgb(0x0B1428); p.starVis = 1; p.dark = true;
+    p.nightness = 0.85f;
+    p.skyZen = rgb(0x030816); p.skyHor = rgb(0x13264A); p.skyNZen = rgb(0x030816); p.skyNHor = rgb(0x13264A); p.skyOwn = 1;
+    return p;
+}();
+// Galaxy: deep cosmic obsidian sky with a breath of indigo toward the bottom, cool starlight text and soft violet-cyan accents.
+// Its deep-space cosmos scenery (Milky Way, emission nebulae, Andromeda, ringed Saturn, meteors, comet, saucer) is drawn in scene_space.cpp.
+const Palette PAL_GALAXY = [] {
     Palette p;
     p.bgTop = rgb(0x010208); p.bgBottom = rgb(0x070C22);
     p.ink = rgb(0xE3EAFF); p.ink2 = rgb(0x8190BD); p.ink3 = rgb(0x4E5B84);
@@ -623,6 +638,16 @@ void Gfx::radialFillOffset(float cx, float cy, float r, float ox, float oy, cons
     ID2D1RadialGradientBrush* b = nullptr;
     rt_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(Point2F(cx, cy), Point2F(ox, oy), r, r), gs, &b);
     if (b) { rt_->FillEllipse(D2D1::Ellipse(Point2F(cx, cy), r, r), b); b->Release(); }
+    gs->Release();
+}
+
+void Gfx::radialEllipse(float cx, float cy, float rx, float ry, float ox, float oy, const std::vector<Stop>& st, float opacity) {
+    if (opacity < 0.002f || rx < 0.5f || ry < 0.5f) return;
+    ID2D1GradientStopCollection* gs = stops(st);
+    if (!gs) return;
+    ID2D1RadialGradientBrush* b = nullptr;
+    rt_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(Point2F(cx, cy), Point2F(ox, oy), rx, ry), gs, &b);
+    if (b) { b->SetOpacity(opacity); rt_->FillEllipse(D2D1::Ellipse(Point2F(cx, cy), rx, ry), b); b->Release(); }
     gs->Release();
 }
 

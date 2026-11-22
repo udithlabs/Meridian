@@ -42,8 +42,9 @@ bool spaceBusyNow(const App& a, double now);             // a meteor, the comet 
 double spaceNextStart(const App& a, double now);         // when the next one starts (unix seconds), so a short meteor is never missed between slow frames
 void spaceRelease(gfx::Gfx& g);
 void drawSkyRain(Ctx& c);                                // rain & snow behind everything on the Sky face (Settings > Quiet > Rain & snow on the Sky tab)
-void drawFocusBackdrop(Ctx& c);                          // Focus tab ambient weather / starry backdrop
-void drawSpaceBackdropOnly(Ctx& c);                      // Midnight deep sky & subtle meteors (no saucer), used by Focus tab Stars mode
+void drawFocusBackdrop(Ctx& c);                          // Focus tab ambient weather / starry / midnight backdrop
+void drawSpaceBackdropOnly(Ctx& c);                      // Galaxy deep sky & subtle meteors (no saucer), used by Focus tab Stars mode
+void drawMidnightBackdropOnly(Ctx& c, float weatherDim = 0.f, bool explicitMode = false); // Midnight Prussian-velvet lunar airglow & zenith stars, used by Midnight theme & Focus tab Midnight mode
 void drawQuietFront(Ctx& c, float midY, float clockH);   // the one cloud (and gentle snow/rain) that drifts in front of the time (drawn after the text)
 std::string quietFxDescribe(const App& a);
 

@@ -628,7 +628,7 @@ void tabElements(UI& u, float x, float y, float w, float h) {
     yy += 10 * s;
     g.text(F_LIGHT, 19.5f * s, x2, u.capMid(F_LIGHT, 19.5f * s, yy + 19 * s), L"Theme", u.P.ink);
     {
-        std::vector<std::wstring> names = {L"AUTO", L"DAY", L"SUNLIT", L"SUNLIT II", L"DAWN", L"SUNSET", L"DUSK", L"NIGHT", L"MIDNIGHT", L"EMBER"};
+        std::vector<std::wstring> names = {L"AUTO", L"DAY", L"SUNLIT", L"SUNLIT II", L"DAWN", L"SUNSET", L"DUSK", L"NIGHT", L"MIDNIGHT", L"GALAXY", L"EMBER"};
         std::vector<float> cw; float tot = 0;
         for (auto& n : names) { cw.push_back(g.textWidth(F_MONO_M, 12.5f * s, n, 0.1f) + 24 * s); tot += cw.back(); }
         const bool narrow = tot + g.textWidth(F_LIGHT, 19.5f * s, L"Theme") + 24 * s > colW;     // not enough room beside the label
@@ -730,7 +730,7 @@ void tabThemes(UI& u, float x, float y, float w, float h) {
     yy += 10 * s; u.divider(x, yy, lw); yy += 18 * s;
     u.sectionLabel(x, yy, "Light and weather"); yy += 28 * s;
     yy += u.toggle(x, yy, lw, "Light follows the weather", "Night gets deeper, dusk and dawn richer. Packs never change", st.weatherMood);
-    yy += u.toggle(x, yy, lw, "Midnight sky", "Stars, meteors, a comet and an evening visitor", st.spaceFx);
+    yy += u.toggle(x, yy, lw, "Galaxy sky", "Stars, nebulae, meteors, a comet and an evening visitor", st.spaceFx);
     if (st.weatherMood)
         u.stepper(x, yy, lw, "How strongly", fmt("%.0f%%", st.moodStrength * 100.f),
                   [ap] { ap->st.moodStrength = std::max(0.5f, std::round((ap->st.moodStrength - 0.25f) * 4.f) / 4.f); ap->cmd(CMD_SAVE); },
@@ -1062,17 +1062,17 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
     yy += u.toggle(x, yy, lw, "Rain & snow on the Sky tab", "Falls behind the map, never over the labels", st.skyRain);
     yy += u.toggle(x, yy, lw, "Smooth motion", "Rain, snow and wind at refresh rate (off: 30 fps)", st.quietSmooth);
     yy += 8 * s;
-    u.sectionLabel(x, yy, "Preview"); yy += 24 * s;
+    u.sectionLabel(x, yy, "Preview"); yy += 22 * s;
     {
-        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"WIND", L"BOTH", L"RAIN", L"SNOW", L"BLIZZARD", L"FOG", L"THUNDER", L"T-STORM", L"TORNADO", L"SUN FLARE"};
-        static const int previewIdx[12] = {0, 1, 2, 3, 4, 10, 11, 8, 6, 7, 5, 9};      // SNOW = 10, BLIZZARD = 11, FOG = 8, THUNDER = 6, T-STORM = 7, TORNADO = 5, SUN FLARE = 9
+        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"FOG", L"WIND", L"GALE", L"BOTH", L"DRIZZLE", L"RAIN", L"SLEET", L"HAIL", L"SNOW", L"BLIZZARD", L"THUNDER", L"T-STORM", L"TORNADO", L"SUN FLARE"};
+        static const int previewIdx[16] = {0, 1, 8, 2, 15, 3, 12, 4, 13, 14, 10, 11, 6, 7, 5, 9};
         float cx = x, cy = yy;
-        const float cfs = 12.2f * s, ch = 28 * s, cgap = 5 * s;
+        const float cfs = 10.6f * s, ch = 25 * s, cgap = 3.6f * s;
         for (size_t i = 0; i < names.size(); ++i) {
             int idx = previewIdx[i];
             const bool on = st.quietPreview == idx;
-            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 13 * s;
-            if (cx + cw > x + lw && cx > x) { cx = x; cy += ch + cgap; }
+            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 8.5f * s;
+            if (cx + cw > x + lw + 1.f && cx > x) { cx = x; cy += ch + cgap; }
             const bool hv = u.over(cx, cy, cw, ch);
             const uint64_t gkey = a.nextActionGlassKey();
             const glassfx::Pose gp = a.glass.pose(gkey, cx, cy, cw, ch, ch * 0.5f, s, hv, false);
@@ -1083,13 +1083,13 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
             u.act(cx, cy, cw, ch, [ap, idx] { ap->st.quietPreview = idx; ap->st.quietFx = true; if (idx == 9) ap->st.quietFlare = true; ap->cmd(CMD_SAVE); ap->setToast(idx == 0 ? L"Quiet face follows the live weather" : L"Previewing: open the Quiet face with 2"); });
             cx += cw + cgap;
         }
-        yy = cy + ch + 10 * s;
+        yy = cy + ch + 8 * s;
     }
     {
-        auto lines = g.wrap(F_LIGHT, 13.8f * s, L"Pick one to see how it looks on the Quiet face (key 2). Set it back to Live so it follows the real weather again.", lw, 0, 3);
-        for (auto& l : lines) { g.text(F_LIGHT, 13.8f * s, x, yy + 11 * s, l, P.ink3); yy += 19 * s; }
+        auto lines = g.wrap(F_LIGHT, 13.4f * s, L"Pick one to preview on Quiet (key 2). Set back to Live to follow real weather.", lw, 0, 2);
+        for (auto& l : lines) { g.text(F_LIGHT, 13.4f * s, x, yy + 10 * s, l, P.ink3); yy += 18 * s; }
     }
-    yy += 10 * s;
+    yy += 8 * s;
     u.sectionLabel(x, yy, "Named storms"); yy += 24 * s;
     yy += u.toggle(x, yy, lw, "Show storms near me", "Cyclone, typhoon or hurricane name, distance, direction", st.stormWatch, [ap] { ap->cmd(CMD_STORM_CFG); });
     {
@@ -1135,14 +1135,21 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
     ry += 14 * s; u.divider(rx, ry, rw); ry += 20 * s;
     u.sectionLabel(rx, ry, "What shows up"); ry += 30 * s;
     struct Row { const wchar_t* k; const wchar_t* d; };
-    static const Row rows[] = {{L"CLOUDS", L"drift by when more than about a third of the sky is covered, and one big cloud passes in front of the time"}, {L"WIND", L"small bright particles with trailing tails blow across from about 12 km/h, faster as it picks up"},
-                               {L"RAIN", L"streaks down in three depths with splashes where drops land, and falls behind the Sky face"}, {L"SNOW", L"calm layered snowflakes drift softly; strong winter winds whip them into a driving blizzard"}, {L"FOG", L"a soft haze drifts in front of the sky when fog or mist is reported, and the light turns flat"}, {L"THUNDER", L"dark cloud and lightning whenever thunder is reported, with rain only if rain is"},
-                               {L"TORNADO", L"twists up for very strong gusts, about 70 km/h or more"}, {L"SUN FLARE", L"a soft golden flare from the Sun's side while it is low. Switch it off above"}, {L"SUNNY", L"and calm shows nothing at all"}};
+    static const Row rows[] = {
+        {L"CLOUDS", L"sculpted cirrus wisps, cumulus towers and stratocumulus decks with directional light, plus a soft foreground veil"},
+        {L"FOG", L"layered valley mist banks, diffused sky glow, curling gossamer tendrils and floating dew-light motes"},
+        {L"WIND & GALE", L"painterly breeze ribbons from 12 km/h; strong gusts unleash sweeping gale streams and swirling leaf whirlwinds"},
+        {L"DRIZZLE", L"silky ultra-fine mist rain falling lazily with whisper-thin surface ripples and damp low haze"},
+        {L"RAIN", L"streaks down in three depths with splashes where drops land, and falls behind the Sky face"},
+        {L"SLEET & HAIL", L"freezing icy streaks mixed with wet snow for sleet; faceted ice stones with energetic ground bounces for hail"},
+        {L"SNOW", L"calm layered snowflakes drift softly; strong winter winds whip them into a driving blizzard"},
+        {L"STORMS", L"dark cloud and lightning for thunder; a twisting tornado for severe warm gusts of 70 km/h or more"},
+        {L"SUN FLARE", L"a soft golden flare from the Sun's side while it is low; clear and calm skies show nothing at all"}};
     for (const Row& r : rows) {
-        g.text(F_MONO_M, 12.f * s, rx, ry + 13 * s, r.k, u.acc(), Align::Left, 0.14f);
-        auto lines = g.wrap(F_LIGHT, 14.8f * s, r.d, rw - 98 * s, 0, 3);
-        for (auto& l : lines) { g.text(F_LIGHT, 14.8f * s, rx + 98 * s, ry + 13 * s, l, P.ink2); ry += 20.5f * s; }
-        ry += 5 * s;
+        g.text(F_MONO_M, 11.3f * s, rx, ry + 13 * s, r.k, u.acc(), Align::Left, 0.10f);
+        auto lines = g.wrap(F_LIGHT, 14.2f * s, r.d, rw - 118 * s, 0, 3);
+        for (auto& l : lines) { g.text(F_LIGHT, 14.2f * s, rx + 118 * s, ry + 13 * s, l, P.ink2); ry += 19.5f * s; }
+        ry += 4 * s;
     }
 }
 
@@ -1417,6 +1424,14 @@ void tabPlace(UI& u, float x, float y, float w, float h) {
 struct Release { const char* version; const char* name; std::vector<const char*> notes; const char* date = ""; };
 const std::vector<Release>& releaseNotes() {
     static const std::vector<Release> r = {
+        {"2.9.9", "Nimbus", {
+            "Nimbus. Completely remade high-end sculpted Clouds and cinematic atmospheric Fog, four brand-new artistic weather systems (Drizzle, Sleet, Hail, and Gale), the Deep-Space Cosmos theme renamed to Galaxy, and a brand-new intentional Prussian-velvet & moonlit champagne-gold Midnight theme.",
+            "Galaxy & Brand-New Artistic Midnight Theme: the deep-space cosmos theme (Milky Way, emission nebulae, Andromeda, ringed Saturn, meteors, comet, and U-key UFO visitor) is now named Galaxy, while a brand-new Midnight theme brings a gallery-grade Prussian-velvet to moonlit indigo-cerulean palette, moon-pearl typography, champagne-gold & cerulean accents, frosted sapphire-crystal panels, subtle lunar airglow, and crisp zenith stars engineered to flatter every face and every weather mode.",
+            "Remade Sculpted Volumetric Clouds: replaces the old uniform circle blobs with three intentional sky-altitude archetypes painted with smooth directional elliptical gradients (zero polka-dot artifacts) — feathery wind-swept cirrus wisps high overhead, asymmetric cauliflower cumulus towers with flat shadowed bases and crisp sunlit/moonlit crown rims, and sweeping coastal/storm stratocumulus decks sorted cleanly back-to-front. Harmonized across all 11 built-in themes, paired with a sculpted storm canopy and an ethereal feathered foreground cloud veil.",
+            "Remade Cinematic Atmospheric Fog: transforms fog from a flat uniform haze into intentional four-tone layered valley mist with luminous contrast on both dark and light themes — a cached diffused upper-sky light bloom, three sculpted rolling mist-bank sprites with cool troughs beneath bright crests, counter-drifting thermal depth strata, slow velvety vapor tendrils, floating dew-light micro-motes, and a whisper-soft low foreground mist veil on Quiet.",
+            "Four New Artistic Weather Effects — Drizzle, Sleet, Hail & Gale: Drizzle weaves a poetic, ultra-fine misty micro-rain veil with delicate ground ripples and damp low haze; Sleet blends brisk translucent ice-beaded freezing streaks with tumbling wet snowflakes and icy ground flecks; Hail sends faceted glacier-lit ice stones plunging into kinetic two-hop parabolic ground bounces with crystalline shard sparks; Gale unleashes Meridian's painterly wind language into sweeping double-curled storm ribbons, racing gust-shear mist plumes, motion-streaked spray, and swirling leaf whirlwinds.",
+            "Live Weather, Sky & Focus Studio Integration: Drizzle, Sleet, Hail, and Gale trigger automatically from live WMO weather codes and gale-force wind gusts, join the Sky tab's behind-the-dome precipitation, add dedicated preview chips in Settings > Quiet, and expand the Focus Studio Ambience Orb to 14 curated studio backdrops (Off, Live, Drizzle, Rain, Storm, Hail, Sleet, Snow, Blizzard, Gale, Clouds, Fog, Midnight, and Stars) while applying the active Midnight or Galaxy sky directly behind Focus Studio.",
+        }, "22 Nov 2026"},
         {"2.9.8", "Glass", {
             "Glass. Tactile Liquid Glass physics across every button, sliding segmented pills, touch-reactive Focus Studio cards, a dramatic artistic Blizzard snowstorm, and a completely remade Deep-Space Cosmos for Midnight & Stars.",
             "Liquid Glass buttons everywhere: every button across Timer (mode tabs, duration presets, Start & Reset), Focus Studio (duration presets, Start & Reset, Ambience & Theme orb), the bottom navigation dock, Sky & Widgets < / > page arrows and Month Calendar arrows, and all Settings controls (including liquid-droplet gliding toggle switches and frosted -/+ steppers) now responds with smooth spring-eased hover bloom, cursor-tracking specular glass sheen, tactile press-and-hold compression, elastic liquid-jelly rebound on release, and an expanding refractive caustic ripple from the exact point you click.",
@@ -1600,12 +1615,12 @@ void tabAbout(UI& u, float x, float y, float w, float h) {
         struct F { const wchar_t* k; const wchar_t* d; };
         static const F fs[] = {
             {L"SKY", L"The live sky map with the Sun, Moon, planets, stars and eclipses, plus weather, air quality, sunrise, sunset and Today."},
-            {L"QUIET", L"The big clock with the weather drawn behind it: clouds, wind, rain, snow, blizzard, thunder, fog."},
+            {L"QUIET", L"The big clock with the weather behind it: clouds, fog, drizzle, rain, sleet, hail, snow, blizzard, gale and storms."},
             {L"TIMER", L"Timer, stopwatch and alarm."},
             {L"ALMANAC", L"The Moon, Golden and Blue Hour, the day and the year, and what is special today."},
             {L"WIDGETS", L"World clocks, a month calendar, a countdown and a note."},
             {L"FOCUS", L"Lo-fi focus timer with smaller live clock, weather and ambient backdrops."},
-            {L"THEMES", L"Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight and Ember, plus theme packs you drop in."},
+            {L"THEMES", L"Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight, Galaxy and Ember, plus theme packs you drop in."},
         };
         for (const F& f : fs) {
             g.text(F_MONO_M, 12.f * s, x, yy + 13 * s, f.k, u.acc(), Align::Left, 0.14f);

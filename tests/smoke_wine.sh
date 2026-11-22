@@ -36,7 +36,7 @@ shot() {
 }
 echo "== faces x themes"
 for face in 0 1 2 3 4 5; do for theme in 1 7; do shot "face$face-theme$theme" 1280x720 300 --face $face --theme $theme --time "2026-11-12 20:15:00" --tz 5:30; done; done
-for theme in 0 2 3 4 5 6 8 9; do shot "sky-theme$theme" 1280x720 300 --face 0 --theme $theme --time "2026-11-12 20:15:00" --tz 5:30; done
+for theme in 0 2 3 4 5 6 8 9 10; do shot "sky-theme$theme" 1280x720 300 --face 0 --theme $theme --time "2026-11-12 20:15:00" --tz 5:30; done
 echo "== settings pages"
 for tab in 0 1 2 3 4 5 6 7 8 9 10 11; do shot "settings$tab" 1280x720 300 --settings --tab $tab --theme 7 --time "2026-11-12 20:15:00" --tz 5:30; done
 echo "== holidays.txt"

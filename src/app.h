@@ -30,14 +30,14 @@ const char* widgetName(int id);
 const char* widgetBlurb(int id);
 int cityCount();
 const char* cityName(int i);
-enum ThemeMode { THEME_AUTO = 0, THEME_DAY, THEME_DUSK, THEME_NIGHT, THEME_EMBER, THEME_DAWN, THEME_SUNSET, THEME_SUNLIT, THEME_SUNLIT2, THEME_MIDNIGHT, THEME_COUNT };
+enum ThemeMode { THEME_AUTO = 0, THEME_DAY, THEME_DUSK, THEME_NIGHT, THEME_EMBER, THEME_DAWN, THEME_SUNSET, THEME_SUNLIT, THEME_SUNLIT2, THEME_GALAXY, THEME_MIDNIGHT, THEME_COUNT };
 // the order themes are offered in (the numbers above are what settings.ini stores, so they never move)
-constexpr int THEME_ORDER[THEME_COUNT] = {THEME_AUTO, THEME_DAY, THEME_SUNLIT, THEME_SUNLIT2, THEME_DAWN, THEME_SUNSET, THEME_DUSK, THEME_NIGHT, THEME_MIDNIGHT, THEME_EMBER};
+constexpr int THEME_ORDER[THEME_COUNT] = {THEME_AUTO, THEME_DAY, THEME_SUNLIT, THEME_SUNLIT2, THEME_DAWN, THEME_SUNSET, THEME_DUSK, THEME_NIGHT, THEME_MIDNIGHT, THEME_GALAXY, THEME_EMBER};
 inline int themeSlot(int theme) { for (int i = 0; i < THEME_COUNT; ++i) if (THEME_ORDER[i] == theme) return i; return 0; }
 
 // The version shown in Settings > About. Change it here (and in src/app.rc) when you make a new build.
-constexpr const char* MERIDIAN_VERSION = "2.9.8";
-constexpr const char* MERIDIAN_CODENAME = "Glass";
+constexpr const char* MERIDIAN_VERSION = "2.9.9";
+constexpr const char* MERIDIAN_CODENAME = "Nimbus";
 // An "edition" is a name for one hand-made line of the app (the Astra Edition is another one). It is shown in Settings > About and in the setup.
 constexpr const char* MERIDIAN_EDITION = "Sonnet Edition";
 
@@ -60,7 +60,7 @@ struct Settings {
     int emberFrom = 22, emberTo = 6;
     bool hourlyChime = false;               // optional gentle glass chime on the hour (off by default; silent at bedtime & saver)
     bool placeLocalTime = false;            // when viewing a saved place (N), show the clock in that place's own local timezone
-    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars, 8 blizzard
+    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars, 8 blizzard, 9 drizzle, 10 sleet, 11 hail, 12 gale, 13 midnight
     int winX = -1, winY = -1, winW = 1280, winH = 720;
     std::vector<today::CustomEvent> events;
     std::vector<astro::Geo> places;
@@ -168,7 +168,7 @@ struct HolHit { float x, y, w, h; int key; };                      // hover targ
 enum Cmd { CMD_TOPMOST = 1, CMD_FULLSCREEN, CMD_KEEPAWAKE, CMD_WEATHER_CFG, CMD_WEATHER_REFRESH, CMD_GEO, CMD_GEO_SOON, CMD_SAVE, CMD_OPEN_INI, CMD_OPEN_LOG, CMD_STORM_CFG, CMD_OPEN_THEMES, CMD_RESCAN_THEMES, CMD_STORM_REFRESH, CMD_LOCATE, CMD_OPEN_LOCATION_SETTINGS, CMD_OPEN_HOLIDAYS };
 enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PREV = 205, HIT_FULLSCREEN = 201, HIT_HELP = 202, HIT_PIN = 203, HIT_SETTINGS = 204, HIT_DOCK_BG = 206,
              HIT_TAB0 = 300, HIT_PRESET0 = 320, HIT_START = 340, HIT_RESET = 341, HIT_LAP = 342,
-             HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 380,
+             HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 500,
              HIT_FCARD_CLOCK = 390, HIT_FCARD_WEATHER = 391,
              HIT_SKY_AQI = 392, HIT_PANEL_PREV = 393, HIT_PANEL_NEXT = 394,
              HIT_WGT_PREV = 395, HIT_WGT_NEXT = 396,
@@ -342,17 +342,20 @@ public:
     void skyHeadingSet(double deg);         // face this direction (keeps spinning from there when free rotate is on)
     void skySpinChanged();                  // call after st.skySpin / speed / direction changed
     // weather on the Quiet / Sky / Focus Studio faces: eased strengths of each effect
-    float qfx[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // clouds, wind, rain, tornado, thunder, fog, snow, blizzard (eased)
-    float qfxT[8] = {0, 0, 0, 0, 0, 0, 0, 0};  // what the weather asks for right now
+    static constexpr int QFX_COUNT = 12;    // 0:clouds, 1:wind, 2:rain, 3:tornado, 4:thunder, 5:fog, 6:snow, 7:blizzard, 8:drizzle, 9:sleet, 10:hail, 11:gale
+    float qfx[QFX_COUNT]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // eased strengths
+    float qfxT[QFX_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // what the weather asks for right now
     float gloom = 0, haze = 0;              // the light under weather, 0..1: heavy cloud or storm, and fog (drives moodPalette)
     int spriteBudget = 2;                   // cached weather images (re)drawn per frame at most, so a colour change never causes one long frame
-    bool weatherBusy() const { for (int i = 0; i < 8; ++i) if (std::fabs(qfx[i] - qfxT[i]) > 0.004f) return true; return false; }
+    bool weatherBusy() const { for (int i = 0; i < QFX_COUNT; ++i) if (std::fabs(qfx[i] - qfxT[i]) > 0.004f) return true; return false; }
     float fxQuality = 1.f, fxLate = 1.f;    // 0.3..1: how much detail the weather draws; lowered automatically if frames arrive late
     // Monotonic weather clocks so a new forecast or window resize never causes a jump.
-    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0, fxBlizzT = 0;
+    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0, fxBlizzT = 0, fxGaleT = 0;
     float fxWk = 0;                         // wind speed (km/h) eased toward the forecast
-    // wind, rain, snow, blizzard, thunder and the tornado get smooth frame pacing
-    int quietFps() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] + qfx[7] > 0.05f) ? (st.quietSmooth ? 60 : 30) : 15; }
+    // fast-moving weather effects get smooth frame pacing
+    bool qfxFastActive() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] + qfx[7] + qfx[8] + qfx[9] + qfx[10] + qfx[11]) > 0.05f; }
+    bool qfxAnyActive() const { float sum = 0.f; for (int i = 0; i < QFX_COUNT; ++i) sum += qfx[i]; return sum > 0.01f; }
+    int quietFps() const { return qfxFastActive() ? (st.quietSmooth ? 60 : 30) : 15; }
     double alienAt = -1e9;                 // when the saucer was called with the U key (Midnight)
     uint64_t alienSeq = 0;                 // increments each time U calls the saucer, so stereo audio restarts cleanly
     bool aliensNuts = false;               // hidden "aliensarenuts" mode: saucer flies twice every minute (stopped by "aliennohere")
@@ -369,8 +372,8 @@ public:
     void beginLeave() { if (leaveArmed) return; leaveArmed = true; leaveDone = false; leaveStart = -1.0; leaveFrom = (revealArmed && revealP >= 0.0 && revealP < 1.0) ? revealP : 1.0; revealArmed = false; }
     bool revealBusy() const { return revealArmed || leaveArmed; }
     bool focusFxBusy() const { return st.face == FACE_FOCUS && st.focusFx > 0; }
-    bool quietFxBusy() const { return (st.face == FACE_QUIET && st.quietFx && (qfx[0] + qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[5] + qfx[6] + qfx[7] > 0.01f)) || skyRainBusy() || focusFxBusy(); }
-    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f || qfx[7] > 0.01f); }
+    bool quietFxBusy() const { return (st.face == FACE_QUIET && st.quietFx && qfxAnyActive()) || skyRainBusy() || focusFxBusy(); }
+    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f || qfx[7] > 0.01f || qfx[8] > 0.01f || qfx[9] > 0.01f || qfx[10] > 0.01f); }
     bool isDstActive() const;               // true ONLY in timezones that observe DST while DST is currently in effect (always false in Sri Lanka, etc.)
     // named storms: everything active in the world, and the ones inside the chosen radius (nearest first)
     storms::Data stormData;

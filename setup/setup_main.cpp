@@ -28,8 +28,8 @@
 using gfx::Color; using gfx::rgb; using gfx::Align;
 using gfx::F_DISPLAY; using gfx::F_LIGHT; using gfx::F_MEDIUM; using gfx::F_SERIF; using gfx::F_SERIF_I; using gfx::F_MONO; using gfx::F_MONO_M;
 
-static const wchar_t* VERSION_W  = L"2.9.8";
-static const wchar_t* CODENAME_W = L"Glass";
+static const wchar_t* VERSION_W  = L"2.9.9";
+static const wchar_t* CODENAME_W = L"Nimbus";
 
 // ------------------------------------------------------------------ look
 static const int   W = 860, H = 540;                  // the window, in 96-dpi units (it is scaled for the screen)
@@ -616,7 +616,7 @@ struct App {
             L"Alarms and timers keep working while Meridian is minimised, and the taskbar button flashes when one goes off.",
             L"As a screen saver, any key, click or mouse move closes Meridian again.",
             L"The Halloween tab appears by itself from 1 October to 3 November, every year.",
-            L"On the Midnight theme, keep an eye on the evening sky — and your speakers. Press U if you do not feel like waiting.",
+            L"On the Galaxy theme, keep an eye on the evening sky — and your speakers. Press U if you do not feel like waiting.",
             L"Use the arrows beside the page dots — or press Tab — to glide between rotating panels and widget pages.",
         };
         if (inst) {

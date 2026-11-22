@@ -25,39 +25,60 @@ float ph(double t, double speed, double off = 0.0) { return (float)std::fmod(t *
 // a position that moves at speed along a loop of the given span, from a start offset
 float loopPos(double t, double speed, double start, double span) { double v = std::fmod(start + speed * t, span); if (v < 0) v += span; return (float)v; }
 
-bool snowCode(int c) { return (c >= 71 && c <= 77) || c == 85 || c == 86; }
-bool rainCode(int c) { return (c >= 51 && c <= 67) || (c >= 80 && c <= 82); }        // thunder codes are not rain on their own: a thunderstorm can be dry
+bool drizzleCode(int c) { return c == 51 || c == 53 || c == 55; }
+bool sleetCode(int c) { return c == 56 || c == 57 || c == 66 || c == 67 || c == 77; }
+bool hailCode(int c) { return c == 96 || c == 99 || c == 87 || c == 88 || c == 89 || c == 90; }
+bool snowCode(int c) { return (c >= 71 && c <= 76) || c == 85 || c == 86; }
+bool rainCode(int c) { return (c >= 61 && c <= 65) || (c >= 80 && c <= 82); }        // thunder codes are not rain on their own: a thunderstorm can be dry
 bool stormCode(int c) { return c == 95 || c == 96 || c == 99; }
 
-// what the weather asks for: strengths 0..1 of clouds, wind, rain, tornado, thunder (lightning), fog, snow and blizzard.
+// what the weather asks for: strengths 0..1 of clouds, wind, rain, tornado, thunder, fog, snow, blizzard, drizzle, sleet, hail and gale.
 // This is the weather itself, so the light can follow it on every face; whether it is drawn behind the clock is decided later.
-void targets(const App& a, float t[8]) {
-    for (int i = 0; i < 8; ++i) t[i] = 0.f;
+void targets(const App& a, float t[App::QFX_COUNT]) {
+    for (int i = 0; i < App::QFX_COUNT; ++i) t[i] = 0.f;
     switch (a.st.quietPreview) {
-        case 1: t[0] = 0.9f; return;
-        case 2: t[1] = 0.85f; return;
-        case 3: t[0] = 0.8f; t[1] = 0.8f; return;
-        case 4: t[0] = 0.95f; t[2] = 0.85f; return;
-        case 5: t[3] = 1.f; t[4] = 1.f; t[0] = 0.95f; t[1] = 0.7f; t[2] = 0.55f; return;     // severe: tornado and lightning
-        case 6: t[4] = 1.f; t[0] = 0.95f; t[1] = 0.2f; return;                                // thunder and cloud, no rain
-        case 7: t[4] = 1.f; t[0] = 0.95f; t[1] = 0.5f; t[2] = 0.8f; return;                   // thunderstorm with rain
-        case 8: t[5] = 1.f; t[0] = 0.35f; return;                                             // fog
-        case 9: return;                                                                        // the sun flare alone: no weather
-        case 10: t[0] = 0.65f; t[6] = 0.88f; return;                                          // calm, soothing snowfall
-        case 11: t[0] = 0.96f; t[1] = 0.92f; t[5] = 0.30f; t[6] = 0.90f; t[7] = 1.f; return;  // harsh snowstorm (blizzard)
+        case 1: t[0] = 0.90f; return;                                                                  // sculpted clouds
+        case 2: t[1] = 0.85f; return;                                                                  // calm painterly wind
+        case 3: t[0] = 0.82f; t[1] = 0.80f; return;                                                    // clouds and wind
+        case 4: t[0] = 0.95f; t[2] = 0.85f; return;                                                    // rain
+        case 5: t[3] = 1.f; t[4] = 1.f; t[0] = 0.95f; t[1] = 0.70f; t[2] = 0.55f; return;              // severe: tornado and lightning
+        case 6: t[4] = 1.f; t[0] = 0.95f; t[1] = 0.20f; return;                                        // thunder and cloud, no rain
+        case 7: t[4] = 1.f; t[0] = 0.95f; t[1] = 0.50f; t[2] = 0.80f; return;                          // thunderstorm with rain
+        case 8: t[5] = 1.f; t[0] = 0.32f; return;                                                      // cinematic fog
+        case 9: return;                                                                                // the sun flare alone: no weather
+        case 10: t[0] = 0.65f; t[6] = 0.88f; return;                                                   // calm, soothing snowfall
+        case 11: t[0] = 0.96f; t[1] = 0.92f; t[5] = 0.30f; t[6] = 0.90f; t[7] = 1.f; return;           // harsh snowstorm (blizzard)
+        case 12: t[0] = 0.72f; t[5] = 0.22f; t[8] = 1.f; return;                                       // silky misty drizzle
+        case 13: t[0] = 0.88f; t[1] = 0.30f; t[5] = 0.14f; t[9] = 1.f; return;                         // icy freezing sleet (ice streaks + wet snow)
+        case 14: t[0] = 0.96f; t[1] = 0.35f; t[4] = 0.45f; t[10] = 1.f; return;                        // dramatic bouncing hailstorm
+        case 15: t[0] = 0.80f; t[1] = 0.18f; t[11] = 1.f; return;                                      // roaring coastal gale
         default: break;
     }
     if (!a.wx.valid) return;
     const weather::Current& c = a.wx.cur;
     const bool thunder = stormCode(c.code);
-    const bool thunderSnow = thunder && c.temp <= 1.0 && (snowCode(c.code) || c.precip >= 0.2);
-    const bool snow = snowCode(c.code) || thunderSnow;
+    const bool hail = hailCode(c.code);
+    const bool thunderSnow = !hail && thunder && c.temp <= 1.0 && (snowCode(c.code) || c.precip >= 0.2);
+    const bool sleet = !hail && (sleetCode(c.code) || ((rainCode(c.code) || drizzleCode(c.code)) && c.temp >= -2.0 && c.temp <= 1.5));
+    const bool snow = !hail && !sleet && (snowCode(c.code) || thunderSnow);
+    const bool drizzle = !hail && !sleet && !snow && (drizzleCode(c.code) || (!rainCode(c.code) && c.precip >= 0.04 && c.precip < 0.45));
     if (c.cloud >= 30.0) t[0] = 0.3f + 0.7f * clamp01((float)(c.cloud - 30.0) / 55.f);
     const double w = std::max(c.wind, 0.6 * c.gust);
     if (w >= 12.0) t[1] = 0.28f + 0.72f * clamp01((float)(w - 12.0) / 30.f);
+    if (hail) {
+        t[10] = (c.code == 99) ? 1.0f : 0.82f;
+        t[0] = std::max(t[0], 0.94f);
+        t[1] = std::max(t[1], 0.42f);
+    }
+    if (sleet) {
+        const bool heavySleet = (c.code == 57 || c.code == 67 || c.precip >= 2.2);
+        t[9] = std::max(heavySleet ? 0.92f : 0.72f, 0.50f + 0.50f * clamp01((float)(c.precip / 2.2)));
+        t[0] = std::max(t[0], 0.78f);
+        t[5] = std::max(t[5], 0.14f * t[9]);
+    }
     if (snow) {
         const bool heavySnow = (c.code == 75 || c.code == 86 || c.precip >= 2.8);
-        const float baseSnow = heavySnow ? 0.92f : (c.code == 71 || c.code == 77) ? 0.52f : 0.74f;
+        const float baseSnow = heavySnow ? 0.92f : (c.code == 71 ? 0.52f : 0.74f);
         t[6] = std::max(baseSnow, 0.45f + 0.55f * clamp01((float)(c.precip / 2.2)));
         t[0] = std::max(t[0], 0.45f + 0.25f * t[6]);
         // Blizzard / harsh snowstorm: snow whipped by strong winds/gusts, heavy snow with brisk winds, or freezing thundersnow
@@ -72,21 +93,38 @@ void targets(const App& a, float t[8]) {
             t[5] = std::max(t[5], 0.24f * t[7]);
         }
     }
-    const bool rain = !snow && (rainCode(c.code) || c.precip >= 0.1);
+    if (drizzle) {
+        const float baseD = (c.code == 55) ? 0.95f : (c.code == 53 ? 0.78f : 0.60f);
+        t[8] = std::max(baseD, 0.48f + 0.52f * clamp01((float)(c.precip / 0.6)));
+        t[0] = std::max(t[0], 0.58f + 0.20f * t[8]);
+        t[5] = std::max(t[5], 0.20f * t[8]);
+    }
+    const bool rain = !hail && !sleet && !snow && !drizzle && (rainCode(c.code) || c.precip >= 0.45);
     if (rain) { t[2] = 0.45f + 0.55f * clamp01((float)(c.precip / 3.0)); t[0] = std::max(t[0], 0.50f + 0.25f * t[2]); }     // rain falls out of cloud: always a few of them, whatever the cover reported
     if (thunder) { t[4] = 1.f; t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.3f); }   // dark cloud and lightning, with rain only if rain is reported
-    if (!snow && (c.gust >= 70.0 || (thunder && c.gust >= 55.0))) {                           // a severe warm-sector storm: the tornado (never during freezing snow)
+    if (!snow && !sleet && (c.gust >= 70.0 || (thunder && c.gust >= 55.0))) {                 // a severe warm-sector storm: the tornado (never during freezing snow/sleet)
         t[3] = 1.f; t[4] = std::max(t[4], 0.7f); t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.7f);
+    } else if (t[7] < 0.25f && (c.wind >= 42.0 || c.gust >= 58.0)) {                          // Beaufort gale-force winds (when not already in a tornado or full blizzard)
+        const float gAmt = clamp01((float)std::max((c.wind - 42.0) / 24.0, (c.gust - 58.0) / 24.0));
+        t[11] = clamp01(0.45f + 0.55f * gAmt);
+        t[0] = std::max(t[0], 0.55f + 0.28f * t[11]);
+        t[1] *= 1.f - 0.72f * t[11];
     }
     // fog: reported as fog, or the air is saturated and still. Damp mountain mornings read as a soft mist.
     if (c.code == 45 || c.code == 48) t[5] = 0.95f;
-    else if (!rain && !snow && !thunder && c.humidity >= 96.0 && w < 10.0) t[5] = 0.25f + 0.45f * clamp01((float)(c.humidity - 96.0) / 4.f);
-    if (t[5] > 0.01f && t[7] < 0.05f) t[1] *= 1.f - 0.6f * t[5];                              // wind does not show through thick calm fog (a blizzard keeps its wind)
+    else if (!rain && !snow && !sleet && !hail && !thunder && c.humidity >= 96.0 && w < 10.0) t[5] = std::max(t[5], 0.25f + 0.45f * clamp01((float)(c.humidity - 96.0) / 4.f));
+    if (t[5] > 0.01f && t[7] < 0.05f && t[11] < 0.05f) t[1] *= 1.f - 0.6f * t[5];             // wind does not show through thick calm fog (a blizzard or gale keeps its wind)
 }
 
 // the way the wind blows across the screen: +1 to the right, -1 to the left
-// how dark and heavy the cloud is: storms and blizzards most, rain a little
-float heavyOf(const App& a) { return std::max(std::max(std::max(a.qfx[3], 0.85f * a.qfx[4]), 0.78f * a.qfx[7]), 0.30f * a.qfx[2]); }
+// how dark and heavy the cloud is: storms, hail and blizzards most, sleet/gale/rain moderate, drizzle light
+float heavyOf(const App& a) {
+    float h = std::max(a.qfx[3], 0.85f * a.qfx[4]);
+    h = std::max(h, std::max(0.84f * a.qfx[10], 0.78f * a.qfx[7]));
+    h = std::max(h, std::max(0.52f * a.qfx[9], 0.46f * a.qfx[11]));
+    h = std::max(h, std::max(0.30f * a.qfx[2], 0.16f * a.qfx[8]));
+    return clamp01(h);
+}
 
 float windSide(const App& a) {
     if (a.st.quietPreview != 0 || !a.wx.valid) return 1.f;
@@ -98,6 +136,10 @@ float windKmh(const App& a) {
     if (a.st.quietPreview == 2 || a.st.quietPreview == 3) return 32.f;
     if (a.st.quietPreview == 5) return 48.f;
     if (a.st.quietPreview == 11) return 58.f;
+    if (a.st.quietPreview == 12) return 10.f;
+    if (a.st.quietPreview == 13) return 34.f;
+    if (a.st.quietPreview == 14) return 44.f;
+    if (a.st.quietPreview == 15) return 66.f;
     return a.wx.valid ? (float)std::max(a.wx.cur.wind, 0.6 * a.wx.cur.gust) : 0.f;
 }
 
@@ -105,36 +147,233 @@ float windKmh(const App& a) {
 float gFx = 1.f;
 float al(float x) { return clamp01(x * gFx); }
 
-// cloud colours that read on any theme: a body between the page and the ink, a bright top, a darker belly
-struct Tones { Color body, hi, shade; };
+// ---------------------------------------------------------------- sculpted volumetric clouds & intentional fog palettes
+// Five directional cloud tones: crisp sunlit/moonlit crown rim, lit upper face, mid volume, cool shadow belly, deep flat base.
+struct Tones { Color rim, hi, body, shade, deep; };
+// Four atmospheric mist tones: upper diffused light bloom, luminous mist crests, cool valley mid-strata, deep grounding mist bed.
+struct FogTones { Color glow, light, mid, deep; };
+
 Tones cloudTones(const Palette& P, float heavy) {
     const Color white = {1.f, 1.f, 1.f, 1.f};
-    // on a light page the clouds are soft grey with a white top and a slate belly; on a dark one they are pale and glowing
-    // at night the cloud is a dim shape against a deep dark sky, not a pale glow: nothing is lit
-    const float nt = P.nightness;
-    Color body = lerp(P.bgBottom, P.ink, P.dark ? 0.50f - 0.14f * nt : 0.22f);
-    Color hi = P.dark ? lerp(body, white, 0.55f - 0.10f * nt) : lerp(body, white, 0.7f);
-    Color shade = P.dark ? lerp(body, P.bgTop, 0.55f) : lerp(body, P.ink, 0.38f);
-    body = lerp(body, P.dark ? P.bgTop : P.ink, 0.30f * heavy);
-    shade = lerp(shade, P.dark ? P.bgTop : P.ink, 0.30f * heavy);
-    return {tint(P, body), tint(P, hi), tint(P, shade)};
+    Color rim, hi, body, shade, deep;
+    if (P.nightness > 0.5f) {
+        // Galaxy / Midnight / Night: moonlit silver-indigo sculpted silhouettes (with a whisper of warm champagne moonlight on warm-gold accents like Midnight)
+        const float champ = smoothstep(0.76f, 0.90f, P.accent.r) * smoothstep(0.66f, 0.80f, P.accent.g) * (1.f - smoothstep(0.68f, 0.86f, P.accent.b));
+        deep  = lerp(P.bgTop, P.bgBottom, 0.42f);
+        shade = lerp(P.bgBottom, lerp(P.ink2, P.accent2, 0.28f), 0.24f - 0.05f * heavy);
+        body  = lerp(P.bgBottom, lerp(P.ink, P.accent2, 0.30f), 0.42f - 0.09f * heavy);
+        hi    = lerp(body, lerp(white, P.accent2, 0.28f), 0.48f - 0.14f * heavy);
+        rim   = lerp(lerp(hi, white, 0.56f - 0.16f * heavy), lerp(white, P.accent, 0.45f), 0.26f * champ * (1.f - 0.45f * heavy));
+    } else if (P.twilight > 0.4f) {
+        // Dawn / Dusk / Sunset: cool violet-plum underbellies crowned by warm rose-gold / apricot sunlit rims
+        const Color warm = lerp(P.accent, P.twiBottom, 0.34f);
+        deep  = lerp(lerp(P.bgTop, P.twiTop, 0.72f), rgb(0x110B22), 0.25f + 0.25f * heavy);
+        shade = lerp(lerp(P.bgTop, P.bgBottom, 0.32f), P.ink2, 0.20f - 0.06f * heavy);
+        body  = lerp(lerp(P.bgBottom, P.ink2, 0.40f), P.twiTop, 0.26f * heavy);
+        hi    = lerp(body, lerp(warm, P.ink, 0.40f), 0.62f - 0.22f * heavy);
+        rim   = lerp(warm, white, 0.46f - 0.16f * heavy);
+    } else if (!P.dark) {
+        // Day / Sunlit / Sunlit II: luminous alabaster-white sunlit crowns over sculpted cool periwinkle-slate bases
+        const float warmSun = smoothstep(0.18f, 0.65f, P.bgBottom.r - P.bgTop.r + 0.18f);
+        deep  = lerp(P.bgTop, rgb(0x46586C), 0.52f + 0.26f * heavy);
+        shade = lerp(P.bgTop, rgb(0x76899F), 0.52f + 0.22f * heavy);
+        body  = lerp(rgb(0xDBE4EE), white, 0.52f - 0.24f * heavy);
+        hi    = lerp(rgb(0xF3F7FB), white, 0.76f - 0.16f * heavy);
+        rim   = lerp(white, rgb(0xFFF7E8), 0.28f * warmSun * (1.f - 0.7f * heavy));
+    } else {
+        // Overcast dark-flipped Day / neutral dark / theme packs: crisp silver-white ridges over dramatic brooding slate undersides
+        deep  = lerp(P.bgTop, rgb(0x161F2B), 0.42f + 0.24f * heavy);
+        shade = lerp(P.bgBottom, rgb(0x344354), 0.42f + 0.20f * heavy);
+        body  = lerp(lerp(P.bgBottom, P.ink, 0.45f), rgb(0x95A6B8), 0.42f - 0.18f * heavy);
+        hi    = lerp(body, lerp(P.ink, white, 0.55f), 0.60f - 0.20f * heavy);
+        rim   = lerp(hi, white, 0.62f - 0.22f * heavy);
+    }
+    return {tint(P, rim), tint(P, hi), tint(P, body), tint(P, shade), tint(P, deep)};
 }
 
-// one cumulus: a row of lumpy puffs with a flat underside, lit from above
-void cloudShape(Gfx& g, float x, float y, float cw, float ht, int seed, const Tones& T, float aBody, float aHi, float aShade, int puffs) {
-    for (int j = 0; j < puffs; ++j) {
-        const float u = (j + 0.5f) / puffs;
-        const float bump = std::pow(std::sin(u * PI_F), 0.75f);
-        const float hr = hashf(seed * 31 + j, 5);
-        const float r = cw * (0.10f + 0.15f * bump) * (0.8f + 0.45f * hr) * ht;
-        const float px = x + (u - 0.5f) * cw * 0.92f + (hashf(seed * 31 + j, 6) - 0.5f) * cw * 0.03f;
-        const float py = y - r * 0.55f * bump + (hashf(seed * 31 + j, 7) - 0.5f) * r * 0.25f;
-        g.glow(px, py + r * 0.45f, r * 1.7f, T.shade, aShade);
-        g.glow(px, py, r * 1.55f, T.body, aBody);
-        g.glow(px - r * 0.18f, py - r * 0.42f, r * 0.85f, T.hi, aHi);
+FogTones fogTones(const Palette& T) {
+    const Color white = {1.f, 1.f, 1.f, 1.f};
+    Color glow, light, mid, deep;
+    if (T.nightness > 0.5f) {
+        // Midnight / Night: luminous cool moonlit silver-indigo valley mist over deep obsidian horizon
+        deep  = lerp(T.bgTop, T.bgBottom, 0.72f);
+        mid   = lerp(T.bgBottom, lerp(T.ink2, T.accent2, 0.36f), 0.30f);
+        light = lerp(T.bgBottom, lerp(T.ink, T.accent2, 0.38f), 0.45f);
+        glow  = lerp(T.bgBottom, lerp(white, T.accent2, 0.42f), 0.52f);
+    } else if (T.twilight > 0.4f) {
+        // Dawn / Dusk / Sunset: haunting rose-gold / amethyst twilight valley mist
+        const Color warm = lerp(T.accent, T.twiBottom, 0.30f);
+        deep  = lerp(T.bgTop, T.twiTop, 0.62f);
+        mid   = lerp(T.bgBottom, lerp(T.ink2, T.twiTop, 0.35f), 0.34f);
+        light = lerp(T.bgBottom, lerp(warm, T.ink, 0.48f), 0.54f);
+        glow  = lerp(warm, white, 0.48f);
+    } else if (!T.dark) {
+        // Day / Sunlit: sculpted Nordic morning mist — luminous pearl-white crests rolling over cool slate-blue mist troughs
+        deep  = lerp(T.bgTop, rgb(0x5B7086), 0.56f);
+        mid   = lerp(T.bgTop, rgb(0x889BB0), 0.48f);
+        light = lerp(rgb(0xF6F9FC), white, 0.80f);
+        glow  = white;
+    } else {
+        // Overcast dark / generic dark / Ember
+        deep  = lerp(T.bgTop, T.bgBottom, 0.55f);
+        mid   = lerp(T.bgBottom, T.ink2, 0.34f);
+        light = lerp(T.bgBottom, lerp(T.ink, T.accent2, 0.24f), 0.48f);
+        glow  = lerp(T.ink, white, 0.38f);
     }
-    g.glow(x - cw * 0.12f, y + cw * 0.03f, cw * 0.30f * ht, T.shade, aShade * 0.7f);
-    g.glow(x + cw * 0.14f, y + cw * 0.035f, cw * 0.28f * ht, T.shade, aShade * 0.6f);
+    return {tint(T, glow), tint(T, light), tint(T, mid), tint(T, deep)};
+}
+
+// Smooth volumetric plateau puff (no pinpoint star-glow polka dots!):
+// lush translucent body fading gracefully from an offset directional light core to feathered cloud edges.
+void volPuff(Gfx& g, float cx, float cy, float rx, float ry, float ox, float oy, const Color& core, const Color& edge, float op) {
+    if (op < 0.004f || rx < 1.f || ry < 1.f) return;
+    g.radialEllipse(cx, cy, rx, ry, ox, oy, {
+        {0.00f, withA(core, 1.00f)},
+        {0.34f, withA(lerp(core, edge, 0.26f), 0.88f)},
+        {0.64f, withA(edge, 0.48f)},
+        {0.85f, withA(edge, 0.14f)},
+        {1.00f, withA(edge, 0.00f)},
+    }, op);
+}
+
+// Soft atmospheric cloud-mist puff with gentler center slope for cirrus feathers, mist banks and shadow folds.
+void softPlume(Gfx& g, float cx, float cy, float rx, float ry, float ox, float oy, const Color& core, const Color& edge, float op) {
+    if (op < 0.004f || rx < 1.f || ry < 1.f) return;
+    g.radialEllipse(cx, cy, rx, ry, ox, oy, {
+        {0.00f, withA(core, 1.00f)},
+        {0.40f, withA(lerp(core, edge, 0.38f), 0.72f)},
+        {0.72f, withA(edge, 0.28f)},
+        {0.90f, withA(edge, 0.07f)},
+        {1.00f, withA(edge, 0.00f)},
+    }, op);
+}
+
+// Archetype 1: High-altitude silky cirrus / mare's-tail wisps (sweeping feathered wind-curled ribbons)
+void cirrusShape(Gfx& g, float cx, float cy, float cw, int seed, const Tones& T, float heavy) {
+    const float span = cw * 1.18f;
+    // Soft high-altitude veil under heavy weather so storms still build a unified canopy
+    if (heavy > 0.25f) {
+        const float ha = (heavy - 0.25f) / 0.75f;
+        softPlume(g, cx, cy + cw * 0.03f, cw * 0.56f, cw * 0.16f, -cw * 0.08f, -cw * 0.04f, T.body, T.shade, 0.34f * ha);
+    }
+    for (int st = 0; st < 3; ++st) {
+        const float yOff = (st - 1.f) * cw * (0.052f + 0.020f * hashf(seed * 19 + st, 501));
+        const float xOff = (hashf(seed * 19 + st, 502) - 0.5f) * cw * 0.24f + (st - 1.f) * cw * 0.06f;
+        const float sLen = span * (0.78f + 0.26f * hashf(seed * 19 + st, 503));
+        const float archScale = st == 0 ? 0.68f : (st == 1 ? 1.00f : 1.28f);
+        const float arch = (0.032f + 0.032f * hashf(seed * 19 + st, 504)) * cw * archScale;
+        const float curl = (0.048f + 0.036f * hashf(seed * 19 + st, 505)) * cw;
+        const int segs = 13;
+        for (int m = 0; m < segs; ++m) {
+            const float u = (m + 0.5f) / segs;
+            const float env = std::pow(std::sin(u * PI_F), 0.72f);
+            const float px = cx + xOff + (u - 0.5f) * sLen;
+            // Graceful wind-swept arc with delicate mare's-tail lift at the trailing tip
+            const float tailLift = std::pow(std::max(0.f, (u - 0.62f) / 0.38f), 1.8f) * curl;
+            const float py = cy + yOff + std::sin(u * PI_F * 1.15f + st * 0.7f) * arch - tailLift;
+            const float rx = cw * (0.095f + 0.085f * env) * (0.85f + 0.30f * hashf(seed * 41 + st * 17 + m, 506));
+            const float ry = cw * (0.018f + 0.024f * env) * (1.f + 0.45f * heavy);
+            softPlume(g, px, py + ry * 0.35f, rx * 1.15f, ry * 1.35f, 0.f, -ry * 0.25f, T.body, T.shade, (0.20f + 0.12f * heavy) * env);
+            softPlume(g, px - rx * 0.06f, py - ry * 0.12f, rx * 0.96f, ry * 0.85f, -rx * 0.14f, -ry * 0.30f, T.hi, T.body, 0.34f * env);
+            if (st != 2 && env > 0.55f) {
+                softPlume(g, px - rx * 0.10f, py - ry * 0.35f, rx * 0.68f, ry * 0.45f, -rx * 0.12f, -ry * 0.20f, T.rim, T.hi, 0.22f * env * (1.f - 0.45f * heavy));
+            }
+        }
+    }
+}
+
+// Archetype 2: Sculpted volumetric cauliflower cumulus bank — flat shadowed condensation base,
+// asymmetric rising domes, cohesive upper-left directional light and crisp sunlit/moonlit crown rims.
+void cumulusShape(Gfx& g, float cx, float cy, float cw, float ht, int seed, const Tones& T, float opScale = 1.f) {
+    struct Lobe { float dx, dy, rx, ry, crown; };
+    const float flip = (seed & 1) ? -1.f : 1.f;
+    // Hand-composed asymmetric silhouette (zero uniform sausage rows!)
+    static const Lobe baseLobes[7] = {
+        {-0.35f,  0.04f, 0.21f, 0.11f, 0.25f},   // tapered trailing flank
+        {-0.20f, -0.04f, 0.24f, 0.16f, 0.62f},   // left mid shoulder
+        {-0.05f, -0.13f, 0.27f, 0.22f, 1.00f},   // sovereign rising crown dome
+        { 0.13f, -0.08f, 0.24f, 0.18f, 0.82f},   // secondary east tower
+        { 0.28f,  0.00f, 0.20f, 0.13f, 0.45f},   // right shoulder
+        { 0.39f,  0.05f, 0.16f, 0.09f, 0.18f},   // feathered leading wisp
+        {-0.01f,  0.02f, 0.30f, 0.14f, 0.40f},   // plush center volume anchor
+    };
+    Lobe L[7];
+    for (int i = 0; i < 7; ++i) {
+        const float jx = (hashf(seed * 37 + i, 521) - 0.5f) * 0.045f;
+        const float jy = (hashf(seed * 37 + i, 522) - 0.5f) * 0.032f;
+        const float jr = 0.90f + 0.22f * hashf(seed * 37 + i, 523);
+        L[i] = {
+            cx + (baseLobes[i].dx * flip + jx) * cw,
+            cy + (baseLobes[i].dy + jy) * cw * ht,
+            baseLobes[i].rx * cw * jr,
+            baseLobes[i].ry * cw * ht * jr,
+            baseLobes[i].crown
+        };
+    }
+
+    // Pass 1: Grounded flat condensation shadow base (gives real meteorological weight)
+    const float yBase = cy + 0.075f * cw * ht;
+    softPlume(g, cx - 0.14f * cw * flip, yBase, 0.36f * cw, 0.115f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.54f * opScale);
+    softPlume(g, cx + 0.14f * cw * flip, yBase + 0.005f * cw * ht, 0.34f * cw, 0.110f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.48f * opScale);
+
+    // Pass 2: Cool shadowed lower-rear billow envelope
+    for (int i = 0; i < 6; ++i) {
+        softPlume(g, L[i].dx, L[i].dy + L[i].ry * 0.32f, L[i].rx * 1.12f, L[i].ry * 0.96f, 0.f, L[i].ry * 0.20f, T.shade, T.deep, 0.44f * opScale);
+    }
+
+    // Pass 3: Main sculpted volumetric body with cohesive upper-left directional lighting
+    for (int i = 0; i < 7; ++i) {
+        const Color cCore = lerp(T.body, T.hi, 0.48f * L[i].crown);
+        const Color cEdge = lerp(T.shade, T.body, 0.45f + 0.35f * L[i].crown);
+        volPuff(g, L[i].dx, L[i].dy, L[i].rx, L[i].ry, -0.22f * L[i].rx, -0.34f * L[i].ry, cCore, cEdge, (0.58f + 0.14f * L[i].crown) * opScale);
+    }
+
+    // Pass 4: Luminous sunlit / moonlit upper domes (cohesive wide highlight, never tiny polka dots!)
+    for (int i = 1; i <= 4; ++i) {
+        if (L[i].crown < 0.42f) continue;
+        volPuff(g, L[i].dx - 0.10f * L[i].rx, L[i].dy - 0.24f * L[i].ry, L[i].rx * 0.78f, L[i].ry * 0.64f,
+                -0.24f * L[i].rx, -0.30f * L[i].ry, T.hi, T.body, (0.46f * L[i].crown) * opScale);
+    }
+
+    // Pass 5: Crisp directional crown rim highlights hugging the topmost ridges of the sovereign towers
+    for (int i = 1; i <= 3; ++i) {
+        if (L[i].crown < 0.60f) continue;
+        softPlume(g, L[i].dx - 0.14f * L[i].rx, L[i].dy - 0.46f * L[i].ry, L[i].rx * 0.62f, L[i].ry * 0.34f,
+                  -0.18f * L[i].rx, -0.22f * L[i].ry, T.rim, T.hi, (0.44f * L[i].crown) * opScale);
+    }
+
+    // Pass 6: Gentle internal lower-belly occlusion fold so the bright domes pop in 3D relief above the flat base
+    softPlume(g, cx, yBase + 0.01f * cw * ht, 0.42f * cw, 0.085f * cw * ht, 0.f, 0.02f * cw * ht, T.shade, T.deep, 0.34f * opScale);
+}
+
+// Archetype 3: Sweeping coastal / twilight stratocumulus shelf — wide dramatic horizontal deck
+// with terraced undulating upper billows, backlit crown edge and feathery wind-drawn flanks.
+void stratusShape(Gfx& g, float cx, float cy, float cw, float ht, int seed, const Tones& T, float opScale = 1.f) {
+    const float flip = (seed & 1) ? -1.f : 1.f;
+    // Pass 1: Long sculpted shelf underside shadow
+    softPlume(g, cx, cy + 0.06f * cw * ht, 0.60f * cw, 0.115f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.56f * opScale);
+    softPlume(g, cx - 0.24f * cw * flip, cy + 0.055f * cw * ht, 0.36f * cw, 0.095f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.40f * opScale);
+
+    // Pass 2: Overlapping elongated horizontal ridge billows
+    const int n = 8;
+    for (int m = 0; m < n; ++m) {
+        const float u = (m + 0.5f) / n;
+        const float env = std::pow(std::sin(u * PI_F), 0.65f);
+        const float px = cx + ((u - 0.5f) * 0.96f * flip + (hashf(seed * 29 + m, 541) - 0.5f) * 0.04f) * cw;
+        const float bump = (0.04f + 0.075f * env * (0.75f + 0.5f * hashf(seed * 29 + m, 542))) * cw * ht;
+        const float py = cy - bump * 0.75f + 0.03f * cw * ht;
+        const float rx = cw * (0.14f + 0.11f * env) * (0.9f + 0.2f * hashf(seed * 29 + m, 543));
+        const float ry = cw * ht * (0.055f + 0.065f * env);
+        volPuff(g, px, py, rx, ry, -0.18f * rx, -0.34f * ry, lerp(T.body, T.hi, 0.36f * env), T.shade, (0.48f + 0.18f * env) * opScale);
+        if (env > 0.45f) {
+            softPlume(g, px - 0.08f * rx, py - 0.32f * ry, rx * 0.74f, ry * 0.46f, -0.15f * rx, -0.22f * ry, T.hi, T.body, 0.40f * env * opScale);
+            if (env > 0.70f) {
+                softPlume(g, px - 0.12f * rx, py - 0.50f * ry, rx * 0.54f, ry * 0.26f, -0.12f * rx, -0.15f * ry, T.rim, T.hi, 0.34f * env * opScale);
+            }
+        }
+    }
+    // Pass 3: Soft dark underside horizon line unifying the shelf
+    softPlume(g, cx + 0.05f * cw * flip, cy + 0.07f * cw * ht, 0.50f * cw, 0.075f * cw * ht, 0.f, 0.015f * cw * ht, T.deep, T.shade, 0.36f * opScale);
 }
 
 // ---------------------------------------------------------------- cached soft shapes
@@ -144,8 +383,9 @@ void cloudShape(Gfx& g, float x, float y, float cw, float ht, int seed, const To
 constexpr float SPR = 0.5f;           // images are kept at half size: the shapes are soft, and it quarters the memory
 
 struct Slot { Bitmap bmp; uint64_t key = 0, failed = 0; float nominal = 0; };       // nominal: the size (px) the image was drawn for, so a stale one can be scaled
-Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gSnowFlake, gBlizzStreak, gBlizzDrift;
+Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gFogGlow, gSnowFlake, gBlizzStreak, gBlizzDrift, gDrizzleStreak, gSleetStreak, gHailStone, gGaleGust;
 float gCeilH = 0, gMistH = 0, gFrontCw = 0, gFogH = 0, gSnowCell = 0, gBlizzS = 0, gBlizzSlant = 0, gBlizzDriftH = 0;
+float gDrizS = 0, gDrizSlant = 0, gSleetS = 0, gSleetSlant = 0, gHailS = 0, gHailSlant = 0, gGaleGustH = 0;
 bool gResizing = false;      // the window size changed a moment ago: keep drawing the images we have, rebuild once it settles
 int gBudget = 0; double gBudgetAt = -1e18;
 } // namespace
@@ -153,7 +393,12 @@ int gSpriteBuilds = 0;
 namespace {
 
 // what this frame draws with
-struct Frame { Tones T; Color mist, fog, wind, windHead, leaf, rain, snow, snowRim; int hq = 0; };
+struct Frame {
+    Tones T;
+    FogTones fog;
+    Color mist, wind, windHead, leaf, rain, drizzle, sleet, hailCore, hailIce, snow, snowRim, galeHaze;
+    int hq = 0;
+};
 
 uint64_t q3(const Color& c) { return ((uint64_t)(c.r * 7.f + 0.5f) << 6) | ((uint64_t)(c.g * 7.f + 0.5f) << 3) | (uint64_t)(c.b * 7.f + 0.5f); }
 uint64_t mixKey(uint64_t a, uint64_t b) { return (a ^ (b + 0x9E3779B97F4A7C15ull + (a << 6) + (a >> 2))) | 1ull; }
@@ -184,8 +429,8 @@ uint64_t qsz(float v) { return (uint64_t)std::lround(std::log2(std::max(8.f, v))
 
 void freeSlot(Gfx& g, Slot& s) { g.freeBitmap(s.bmp); s.key = s.failed = 0; }
 
-float frontWidth(float W, float H) { return W * (W < H * 1.15f ? 1.0f : 0.62f); }
-float frontHeightScale(float clockH, float cw) { return std::max(0.55f, std::min(1.35f, clockH / (0.50f * cw) * 0.62f)); }
+float frontWidth(float W, float H) { return W * (W < H * 1.15f ? 1.05f : 0.68f); }
+float frontHeightScale(float clockH, float cw) { return std::max(0.45f, std::min(1.05f, clockH / (0.52f * cw) * 0.48f)); }
 
 Frame makeFrame(Ctx& c, float heavy) {
     Frame F;
@@ -193,6 +438,7 @@ Frame makeFrame(Ctx& c, float heavy) {
     const float h = std::max(0.f, std::min(1.f, std::max(heavy, 0.55f * c.a.gloom)));
     F.hq = (int)std::lround(h * 4.f);                       // storm darkness in four steps, so the images are not rebuilt all the time
     F.T = cloudTones(T, F.hq / 4.f);
+    F.fog = fogTones(T);
     F.mist = tint(T, lerp(lerp(T.ink, T.accent2, 0.35f), T.bgBottom, 0.55f * T.nightness));
     const Color white = {1.f, 1.f, 1.f, 1.f};
     const Palette& P = c.P;                                 // live fading palette for uncached wind strokes and leaves
@@ -201,37 +447,74 @@ Frame makeFrame(Ctx& c, float heavy) {
     F.leaf = tint(P, lerp(P.ink2, P.accent, 0.44f));        // tumbling leaves catching the light
     // rain: pale blue-white on a dark page, slate blue on a light one, so the drops read on every theme
     F.rain = tint(T, T.dark ? lerp(lerp(T.ink, T.accent2, 0.35f), white, 0.30f) : lerp(T.ink2, T.accent2, 0.45f));
+    // drizzle: softer, mistier silver-blue filaments (deep enough to read cleanly on bright overcast Day too)
+    F.drizzle = tint(T, T.dark ? lerp(lerp(T.ink2, T.accent2, 0.34f), white, 0.38f) : lerp(T.ink, T.accent2, 0.38f));
+    // sleet: crisp icy glacier silver-cyan
+    F.sleet = tint(T, T.dark ? lerp(rgb(0xC9E8FF), white, 0.46f) : lerp(T.ink2, rgb(0x3F6F9E), 0.58f));
+    // hail: luminous faceted crystal ice core + sapphire-glacier refraction rim
+    F.hailCore = tint(T, T.dark ? rgb(0xF4FAFF) : white);
+    F.hailIce = tint(T, T.dark ? lerp(rgb(0x98D2FF), T.accent2, 0.30f) : lerp(T.ink2, rgb(0x436E9E), 0.55f));
     // snow: luminous ice-white on dark themes, crisp pearl-white with soft slate-blue rim on bright daylight themes
     F.snow = tint(T, T.dark ? lerp(lerp(T.ink, white, 0.72f), rgb(0xE8F4FF), 0.30f) : lerp(white, rgb(0xEEF5FC), 0.45f));
     F.snowRim = tint(T, T.dark ? lerp(T.accent2, white, 0.40f) : lerp(T.ink2, T.accent2, 0.42f));
-    F.fog = tint(T, lerp(lerp(T.bgTop, T.bgBottom, 0.5f), white, T.dark ? 0.42f - 0.31f * T.nightness : 0.50f));     // a night fog is a faint dark veil, not a milky one
+    // gale: sweeping aerodynamic spray / mist-shear veil
+    F.galeHaze = tint(T, T.dark ? lerp(T.bgBottom, lerp(T.ink, T.accent2, 0.35f), 0.32f) : lerp(T.bgBottom, rgb(0x70849B), 0.42f));
     return F;
 }
 
-// one image slot per cloud shape: slide it, never redraw it
+// One image slot per cloud archetype:
+//   0, 1: High sweeping silky cirrus / upper-sky filaments
+//   2, 3: Sculpted volumetric cauliflower cumulus banks
+//   4, 5: Wide dramatic coastal / twilight stratocumulus shelves
 bool cloudReady(Ctx& c, const Frame& F, int j) {
     const int sq = (int)std::lround(std::log2(std::max(0.05f, c.s)) * 5.f);          // the scale in ~15% steps
-    const float cw = (430.f + 75.f * j) * std::pow(2.f, sq / 5.f);
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.shade), (uint64_t)(sq + 300))), (uint64_t)j);
+    const float cw = (470.f + 72.f * j) * std::pow(2.f, sq / 5.f);
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.shade), q3(F.T.rim))),
+                          mixKey(mixKey(q3(F.T.deep), (uint64_t)(sq + 300)), (uint64_t)(j * 16 + F.hq)));
     return ensure(c.g, gCloud[j], key, cw, [&] {
-        const int sw = (int)(cw * 1.5f * SPR), sh = (int)(cw * 1.1f * SPR);
+        const float aspW = (j < 2) ? 1.80f : (j < 4 ? 1.68f : 1.78f);
+        const float aspH = (j < 2) ? 0.74f : (j < 4 ? 1.06f : 0.86f);
+        const int sw = std::max(32, (int)(cw * aspW * SPR));
+        const int sh = std::max(24, (int)(cw * aspH * SPR));
         if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        cloudShape(c.g, sw * 0.5f, sh * 0.52f, cw * SPR, 1.f, j + 3, F.T, 0.40f, 0.28f, 0.34f, 9);
+        const float cws = cw * SPR;
+        if (j < 2) {
+            cirrusShape(c.g, sw * 0.5f, sh * 0.50f, cws, j + 11, F.T, F.hq / 4.f);
+        } else if (j < 4) {
+            cumulusShape(c.g, sw * 0.5f, sh * 0.58f, cws, 0.96f, j + 23, F.T, 1.0f);
+        } else {
+            stratusShape(c.g, sw * 0.5f, sh * 0.54f, cws, 0.96f, j + 37, F.T, 1.0f);
+        }
         return c.g.endSprite();
     });
 }
 
+// Sculpted storm / heavy overcast ceiling canopy with undulating stratocumulus shelves & faint diffuse sky breaks
 bool ceilingReady(Ctx& c, const Frame& F) {
     const float W = c.W, H = c.H;
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.shade), q3(F.T.body)), qsz(W)), qsz(H));
-    gCeilH = 0.40f * H;
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.deep), q3(F.T.shade)), mixKey(q3(F.T.body), q3(F.T.hi))), mixKey(qsz(W), qsz(H)));
+    gCeilH = 0.44f * H;
     return ensure(c.g, gCeiling, key, 0.f, [&] {
-        const int sw = (int)(W * SPR), sh = (int)(gCeilH * SPR);
+        const int sw = std::max(32, (int)(W * SPR)), sh = std::max(24, (int)(gCeilH * SPR));
         if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        for (int j = 0; j < 7; ++j) {
-            const float px = sw * (j + 0.5f) / 7.f;
-            c.g.glow(px, (0.02f + hashf(j, 90) * 0.06f) * H * SPR, W * 0.26f * SPR, F.T.shade, 0.84f);
-            c.g.glow(px, 0.06f * H * SPR, W * 0.20f * SPR, F.T.body, 0.40f);
+        // Upper brooding deck
+        for (int j = 0; j < 6; ++j) {
+            const float u = (j + 0.5f) / 6.f;
+            const float px = sw * (0.04f + 0.92f * u) + (hashf(j, 90) - 0.5f) * sw * 0.06f;
+            const float py = sh * (0.08f + 0.14f * hashf(j, 91));
+            const float rx = sw * (0.24f + 0.09f * hashf(j, 92));
+            const float ry = sh * (0.42f + 0.18f * hashf(j, 93));
+            softPlume(c.g, px, py, rx, ry, 0.f, -ry * 0.2f, F.T.deep, F.T.shade, 0.72f);
+        }
+        // Sculpted lower shelf undulations with subtle lit upper breaks
+        for (int j = 0; j < 5; ++j) {
+            const float u = (j + 0.5f) / 5.f;
+            const float px = sw * (0.08f + 0.84f * u);
+            const float py = sh * (0.24f + 0.12f * hashf(j, 94));
+            const float rx = sw * (0.19f + 0.08f * hashf(j, 95));
+            const float ry = sh * (0.24f + 0.10f * hashf(j, 96));
+            volPuff(c.g, px, py, rx, ry, -rx * 0.18f, -ry * 0.30f, F.T.body, F.T.shade, 0.36f);
+            softPlume(c.g, px - rx * 0.12f, py - ry * 0.36f, rx * 0.56f, ry * 0.24f, 0.f, 0.f, F.T.hi, F.T.body, 0.18f);
         }
         return c.g.endSprite();
     });
@@ -242,7 +525,7 @@ bool mistReady(Ctx& c, const Frame& F) {
     uint64_t key = mixKey(mixKey(q3(F.mist), qsz(W)), qsz(H));
     gMistH = 0.26f * H;
     return ensure(c.g, gMist, key, 0.f, [&] {
-        const int sw = (int)(W * SPR), sh = (int)(gMistH * SPR);
+        const int sw = std::max(16, (int)(W * SPR)), sh = std::max(16, (int)(gMistH * SPR));
         if (!c.g.beginSprite(sw, sh)) return Bitmap{};
         const float R = sh * 0.98f; const int n = (int)std::ceil(sw / (R * 0.8f)) + 1;
         for (int j = 0; j < n; ++j) c.g.glow(sw * (j + 0.5f) / n, (float)sh, R, F.mist, 0.44f);
@@ -250,38 +533,96 @@ bool mistReady(Ctx& c, const Frame& F) {
     });
 }
 
-// the one cloud that passes in front of the time
+// The ethereal, feathered cloud wisp that glides softly in front of the Quiet clock
 bool frontReady(Ctx& c, const Frame& F, float clockH) {
     const float W = c.W, H = c.H;
     const float fcw = frontWidth(W, H), fht = frontHeightScale(clockH, fcw);
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.shade), qsz(W))), mixKey(qsz(H), (uint64_t)(fht * 8.f)));
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.rim), qsz(W))), mixKey(qsz(H), (uint64_t)(fht * 8.f)));
     gFrontCw = fcw;
     return ensure(c.g, gFront, key, 0.f, [&] {
-        const int sw = (int)(fcw * 1.5f * SPR), sh = (int)(fcw * 1.1f * fht * SPR);
+        const int sw = std::max(32, (int)(fcw * 1.72f * SPR));
+        const int sh = std::max(24, (int)(fcw * 0.88f * fht * SPR));
         if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        cloudShape(c.g, sw * 0.5f, sh * 0.52f, fcw * SPR, fht, 77, F.T, 0.48f, 0.38f, 0.34f, 15);
-        cloudShape(c.g, sw * 0.5f + fcw * 0.06f * SPR, sh * 0.52f - fcw * 0.03f * fht * SPR, fcw * 0.72f * SPR, fht * 0.9f, 78, F.T, 0.28f, 0.24f, 0.f, 11);
+        stratusShape(c.g, sw * 0.5f, sh * 0.56f, fcw * SPR, fht, 77, F.T, 0.88f);
+        cirrusShape(c.g, sw * 0.52f, sh * 0.44f, fcw * 0.78f * SPR, 79, F.T, 0.f);
         return c.g.endSprite();
     });
 }
 
-// a bank of fog: a long, low, soft shape
+// Three distinct sculpted multi-tone rolling mist banks (no flat oval rows, zero hard sprite edges!)
+//   j = 0: High gossamer valley mist veil (slender sweeping translucent ribbons)
+//   j = 1: Undulating rolling mist swells with soft rising plumes & luminous crests
+//   j = 2: Lush low ground mist shelf with rich cool-trough to pearl-crest depth separation
 bool fogReady(Ctx& c, const Frame& F, int j) {
     const float W = c.W, H = c.H;
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.fog), qsz(W)), qsz(H)), (uint64_t)j);
-    gFogH = 0.34f * H;
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.fog.light), q3(F.fog.mid)), mixKey(q3(F.fog.deep), q3(F.fog.glow))),
+                          mixKey(mixKey(qsz(W), qsz(H)), (uint64_t)(7300 + j)));
+    gFogH = 0.36f * H;
     return ensure(c.g, gFog[j], key, 0.f, [&] {
-        const int sw = (int)(W * 1.3f * SPR), sh = (int)(gFogH * SPR);
+        const int sw = std::max(48, (int)(W * 1.24f * SPR));
+        const int sh = std::max(32, (int)(gFogH * SPR));
         if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        const int n = 9;
-        for (int m = 0; m < n; ++m) {
-            const float rx = sw * (0.10f + 0.07f * hashf(j * 17 + m, 111));
-            const float ry = sh * (0.22f + 0.14f * hashf(j * 17 + m, 112));
-            const float cx = rx * 0.9f + (sw - 2.f * rx * 0.9f) * ((m + 0.15f + 0.7f * hashf(j * 17 + m, 113)) / n);
-            const float cyMin = ry * 0.95f, cyMax = sh - ry * 0.95f;
-            const float cy = cyMin + (cyMax - cyMin) * hashf(j * 17 + m, 114);
-            c.g.glowEllipse(cx, cy, rx * 1.5f, ry * 1.5f, F.fog, 0.40f);
-            c.g.glowEllipse(cx, cy, rx * 0.85f, ry * 0.85f, F.fog, 0.30f);
+        auto clampX = [&](float x, float rx) { return std::max(rx * 1.04f, std::min(sw - rx * 1.04f, x)); };
+        auto clampY = [&](float y, float ry) { return std::max(ry * 1.04f, std::min(sh - ry * 1.04f, y)); };
+
+        if (j == 0) {
+            // High gossamer mist veil: slender horizontal ribbons undulating gently
+            const int n = 11;
+            for (int m = 0; m < n; ++m) {
+                const float u = (m + 0.5f) / n;
+                const float env = std::pow(std::sin(u * PI_F), 0.72f);
+                const float rx = sw * (0.11f + 0.08f * env * (0.82f + 0.36f * hashf(m, 611)));
+                const float ry = sh * (0.12f + 0.11f * env * (0.80f + 0.40f * hashf(m, 612)));
+                const float cx = clampX(sw * (0.08f + 0.84f * u) + (hashf(m, 613) - 0.5f) * sw * 0.04f, rx);
+                const float wave = std::sin(u * PI_F * 2.4f + 0.6f) * sh * 0.11f;
+                const float cy = clampY(sh * 0.54f + wave + (hashf(m, 614) - 0.5f) * sh * 0.08f, ry);
+                // Cool misty shadow underside
+                softPlume(c.g, cx, clampY(cy + ry * 0.24f, ry), rx * 1.06f, ry * 0.96f, 0.f, ry * 0.18f, F.fog.mid, F.fog.deep, 0.34f * env);
+                // Luminous silky ribbon crest
+                softPlume(c.g, cx, clampY(cy - ry * 0.12f, ry * 0.75f), rx * 0.94f, ry * 0.72f, -rx * 0.12f, -ry * 0.26f, F.fog.light, F.fog.mid, 0.48f * env);
+                // Ultra-thin horizontal gossamer highlight filament
+                if (env > 0.45f) {
+                    const float fry = std::max(3.f, ry * 0.32f);
+                    softPlume(c.g, cx, clampY(cy - ry * 0.28f, fry), rx * 0.78f, fry, 0.f, 0.f, F.fog.glow, F.fog.light, 0.26f * env);
+                }
+            }
+        } else if (j == 1) {
+            // Rolling valley mist swells with rising wisps & sculpted light-over-shadow contours
+            const int n = 12;
+            for (int m = 0; m < n; ++m) {
+                const float u = (m + 0.5f) / n;
+                const float env = std::pow(std::sin(u * PI_F), 0.68f);
+                const float rx = sw * (0.10f + 0.085f * env * (0.85f + 0.35f * hashf(m, 621)));
+                const float ry = sh * (0.18f + 0.15f * env * (0.82f + 0.36f * hashf(m, 622)));
+                const float cx = clampX(sw * (0.07f + 0.86f * u) + (hashf(m, 623) - 0.5f) * sw * 0.045f, rx);
+                const float crest = std::sin(u * PI_F * 3.1f) * sh * 0.12f;
+                const float cy = clampY(sh * 0.56f + crest, ry);
+                // Cool valley hollow
+                softPlume(c.g, cx, clampY(cy + ry * 0.22f, ry), rx * 1.08f, ry * 0.96f, 0.f, ry * 0.20f, F.fog.deep, F.fog.mid, 0.44f * env);
+                // Billowing translucent mist swell
+                volPuff(c.g, cx, cy, rx * 0.94f, ry * 0.86f, -rx * 0.14f, -ry * 0.32f, F.fog.light, F.fog.mid, 0.46f * env);
+                // Delicate rising upper wisp plume
+                if ((m % 2 == 0) && env > 0.42f) {
+                    const float wrx = rx * 0.62f, wry = ry * 0.58f;
+                    const float wx = clampX(cx + (hashf(m, 624) - 0.35f) * rx * 0.5f, wrx);
+                    const float wy = clampY(cy - ry * 0.42f, wry);
+                    softPlume(c.g, wx, wy, wrx, wry, -wrx * 0.15f, -wry * 0.25f, F.fog.glow, F.fog.light, 0.32f * env);
+                }
+            }
+        } else {
+            // Lush low ground mist shelf: dense rolling strata anchoring the lower third
+            const int n = 13;
+            for (int m = 0; m < n; ++m) {
+                const float u = (m + 0.5f) / n;
+                const float env = std::pow(std::sin(u * PI_F), 0.62f);
+                const float rx = sw * (0.11f + 0.09f * env * (0.85f + 0.30f * hashf(m, 631)));
+                const float ry = sh * (0.20f + 0.16f * env * (0.84f + 0.32f * hashf(m, 632)));
+                const float cx = clampX(sw * (0.06f + 0.88f * u), rx);
+                const float cy = clampY(sh * (0.58f + 0.10f * std::sin(u * PI_F * 2.7f + 1.2f)), ry);
+                softPlume(c.g, cx, clampY(cy + ry * 0.18f, ry), rx * 1.10f, ry * 0.98f, 0.f, ry * 0.16f, F.fog.deep, F.fog.mid, 0.48f * env);
+                volPuff(c.g, cx, cy - ry * 0.06f, rx * 0.96f, ry * 0.82f, 0.f, -ry * 0.34f, F.fog.light, F.fog.mid, 0.54f * env);
+                softPlume(c.g, cx, clampY(cy - ry * 0.32f, ry * 0.42f), rx * 0.72f, ry * 0.38f, 0.f, -ry * 0.12f, F.fog.glow, F.fog.light, 0.30f * env);
+            }
         }
         return c.g.endSprite();
     });
@@ -292,19 +633,33 @@ bool fogReady(Ctx& c, const Frame& F, int j) {
 struct CloudAt { float x, y, cw, vis; int layer; };
 CloudAt cloudAt(const Ctx& c, int i, float heavy) {
     const App& a = c.a; const float s = c.s, W = c.W, H = c.H;
-    CloudAt r; r.layer = i % 3;                                          // 0 far, 1 middle, 2 near
-    const float depth = 0.55f + 0.22f * r.layer;
+    CloudAt r; r.layer = i % 3;                                          // 0 far/high cirrus, 1 mid cumulus, 2 near stratocumulus
+    const float depth = 0.50f + 0.25f * r.layer;
     // Positions are worked out in design units (a 1440-wide window) from the cloud clock, then stretched to the real window:
     // resizing only stretches the sky, it never makes a cloud jump. The wind speeds the clock up, never this number.
-    const float cwD = (260.f + 380.f * hashf(i, 3)) * (0.8f + 0.35f * r.layer);
+    const float baseW = (r.layer == 0) ? (380.f + 340.f * hashf(i, 3))
+                      : (r.layer == 1) ? (320.f + 360.f * hashf(i, 3))
+                                       : (420.f + 400.f * hashf(i, 3));
+    const float cwD = baseW * (0.84f + 0.26f * r.layer);
     r.cw = cwD * s;
     const double spanD = 1440.0 + 2.0 * cwD;
-    const double posD = loopPos(a.fxCloudT, 9.0 * depth * (0.7 + 0.6 * hashf(i, 4)), hashf(i, 1) * spanD, spanD);
+    const double posD = loopPos(a.fxCloudT, 8.6 * depth * (0.72 + 0.56 * hashf(i, 4)), hashf(i, 1) * spanD, spanD);
     r.x = (float)(posD / spanD) * (W + 2.f * r.cw) - r.cw;
-    const float yFrac = heavy > 0.5f ? 0.04f + 0.60f * hashf(i, 2) : 0.05f + 0.82f * hashf(i, 2);
-    r.y = H * yFrac + std::sin(ph(a.now, 0.11) + i) * 9.f * s;
-    const float edge = smoothstep(0.f, 0.12f * W, r.x + r.cw * 0.5f) * (1.f - smoothstep(W - 0.12f * W, W, r.x + r.cw * 0.5f));
-    r.vis = 0.30f + 0.70f * edge;
+    float yFrac;
+    if (r.layer == 0) {
+        // High-altitude cirrus / upper veil sits gracefully in the upper third
+        yFrac = 0.06f + 0.28f * hashf(i, 2);
+    } else if (r.layer == 1) {
+        // Mid-altitude sculpted cumulus decks across the upper/mid sky
+        yFrac = heavy > 0.5f ? (0.10f + 0.48f * hashf(i, 2)) : (0.13f + 0.62f * hashf(i, 2));
+    } else {
+        // Near coastal / storm stratocumulus framing upper and lower sky bands with breathing room
+        const float h2 = hashf(i, 2);
+        yFrac = heavy > 0.5f ? (0.08f + 0.58f * h2) : (h2 < 0.55f ? (0.10f + 0.28f * (h2 / 0.55f)) : (0.64f + 0.22f * ((h2 - 0.55f) / 0.45f)));
+    }
+    r.y = H * yFrac + std::sin(ph(a.now, 0.095) + i * 1.3f) * (6.f + 3.f * r.layer) * s;
+    const float edge = smoothstep(0.f, 0.14f * W, r.x + r.cw * 0.5f) * (1.f - smoothstep(W - 0.14f * W, W, r.x + r.cw * 0.5f));
+    r.vis = 0.28f + 0.72f * edge;
     return r;
 }
 
@@ -314,80 +669,44 @@ void drawClouds(Ctx& c, const Frame& F, float k, float heavy) {
     const double t = a.now;
     const float gs = std::min(gFx, 1.6f);
     const int n = (int)std::lround(5 + 7 * k + 2 * heavy);
+    // Subtle cohesive atmospheric sky-light veil near the upper sky so clouds feel seated in the air
+    {
+        const float va = clamp01(al((c.P.dark ? 0.08f : 0.10f) * k * (0.7f + 0.3f * heavy)));
+        g.vGradientRect(0.f, 0.f, W, H * 0.36f, withA(F.T.shade, va), withA(F.T.shade, 0.f));
+    }
     if (heavy > 0.01f && ceilingReady(c, F)) {
-        const float sway = std::sin(ph(t, 0.05)) * 24.f * s;
-        g.drawBitmapRect(gCeiling.bmp, sway - 40.f * s, -0.04f * H, W + 80.f * s, gCeilH, clamp01(0.31f * heavy * k * gs));
+        const float sway = std::sin(ph(t, 0.045)) * 28.f * s;
+        g.drawBitmapRect(gCeiling.bmp, sway - 46.f * s, -0.04f * H, W + 92.f * s, gCeilH, clamp01(0.42f * heavy * k * gs));
     }
-    for (int i = 0; i < n; ++i) {
-        const CloudAt ca = cloudAt(c, i, heavy);
-        const int layer = ca.layer; const float cw = ca.cw, x = ca.x, y = ca.y;
-        const float f = k * ca.vis * (1.f + 0.30f * heavy);
-        const int j = i % 6;
-        if (cloudReady(c, F, j)) {
-            const Bitmap& bm = gCloud[j].bmp;
-            const float sc = cw / std::max(1.f, gCloud[j].nominal);
-            const float bw = bm.w / SPR * sc, bh = bm.h / SPR * sc;      // back to full size
-            g.drawBitmapRect(bm, x + cw * 0.5f - bw * 0.5f, y - bh * 0.52f, bw, bh, clamp01((0.28f + 0.085f * layer) * f * gs * (1.f + 0.45f * c.a.palTarget.nightness)));   // a touch stronger at night, where a dim cloud needs it to be seen
-        } else if (i < 6 && !gCloud[j].bmp.bmp) {                        // no image yet (or none on this system): a few plain clouds
-            cloudShape(g, x + cw * 0.5f, y, cw, 1.f, i, F.T, al((0.12f + 0.04f * layer) * f), al((0.09f + 0.03f * layer) * f), al((0.11f + 0.03f * layer) * f), 6);
+    // Strictly back-to-front depth sorting: high cirrus (0) -> mid cumulus (1) -> near stratocumulus shelves (2)
+    for (int L = 0; L < 3; ++L) {
+        for (int i = L; i < n; i += 3) {
+            const CloudAt ca = cloudAt(c, i, heavy);
+            const float cw = ca.cw, x = ca.x, y = ca.y;
+            const float f = k * ca.vis * (1.f + 0.24f * heavy);
+            const int j = L * 2 + ((i / 3) & 1);
+            if (cloudReady(c, F, j)) {
+                const Bitmap& bm = gCloud[j].bmp;
+                const float sc = cw / std::max(1.f, gCloud[j].nominal);
+                const float bw = bm.w / SPR * sc, bh = bm.h / SPR * sc;      // back to full size
+                const float anchorY = (L == 0) ? 0.50f : (L == 1 ? 0.58f : 0.54f);
+                const float layerBase = (L == 0) ? 0.36f : (L == 1 ? 0.48f : 0.54f);
+                const float nightBoost = 1.f + 0.30f * c.a.palTarget.nightness;
+                const float lightTrim = c.a.palTarget.dark ? 1.f : 0.94f;
+                g.drawBitmapRect(bm, x + cw * 0.5f - bw * 0.5f, y - bh * anchorY, bw, bh,
+                                 clamp01(layerBase * f * gs * nightBoost * lightTrim));
+            } else if (i < 6 && !gCloud[j].bmp.bmp) {                        // fallback before first sprite finishes building
+                cumulusShape(g, x + cw * 0.5f, y, cw, 0.9f, i + 17, F.T, clamp01(0.42f * f));
+            }
         }
     }
 }
 
-// ---------------------------------------------------------------- fog
-// Low, slow banks of fog in layers (thicker and nearer toward the ground) and a veil that thickens downward. Nothing hard-edged.
-void drawFog(Ctx& c, const Frame& F, float k) {
-    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
-    const double t = a.now;
-    const float gs = std::min(gFx, 1.6f);
-    g.vGradientRect(0, H * 0.22f, W, H * 0.78f, withA(F.fog, 0.f), withA(F.fog, al(0.30f * k)));
-    for (int row = 0; row < 5; ++row) {
-        const int j = row % 3;
-        if (!fogReady(c, F, j)) continue;
-        const Bitmap& bm = gFog[j].bmp;
-        const float depth = 0.55f + 0.11f * row;
-        const float sc = 0.85f + 0.12f * row;
-        const float bw = bm.w / SPR * sc, bh = bm.h / SPR * sc;
-        const double spanD = 1440.0 + bw / s;                            // design units, as for the clouds
-        const double speedD = 3.5 * depth * (0.85 + 0.3 * hashf(row, 120));
-        const float yc = H * (0.30f + 0.15f * row) + std::sin(ph(t, 0.045 + 0.01 * row, row * 1.7)) * 0.012f * H;
-        const float breathe = 0.88f + 0.12f * std::sin(ph(t, 0.06 + 0.013 * row, row * 2.3));
-        const float op = clamp01((0.16f + 0.07f * row) * k * breathe * gs);
-        for (int cp = 0; cp < 2; ++cp) {                                 // two copies half a loop apart: there is always fog in view
-            const float x = (float)(loopPos(a.fxFogT, speedD, hashf(row, 121) * spanD + cp * spanD * 0.5, spanD) / spanD) * (W + bw) - bw;
-            g.drawBitmapRect(bm, x, yc - bh * 0.5f, bw, bh, op);
-        }
-    }
-}
-
-// ---------------------------------------------------------------- the art style of the rain and the wind
-// Rain is drawn from small cached images (sprites): every drop and splash is one image copied to the screen, so it stays light enough for 60 frames a
-// second (or whatever your screen refreshes at).
-//  - Three depths: far (small, faint, slow), middle, near (large, bright, fast). Near things are bigger, brighter and quicker.
-//  - Rain ends in a splash on a ground line. Images are placed on whole pixels, so thin lines stay sharp however they move.
-// The wind is drawn like a painter draws a breeze (see below): a few calm brush strokes, not a swarm of streaks.
-// Like the rest of this file it is a pure function of the time: a drop's place and the age of its splash come from the clock alone.
-// To change the look: the tables right below each heading (how many, how fast, how bright, how big).
-
-// ---------------------------------------------------------------- wind
-// A few long, thin brush strokes. Each one writes itself across the sky along a lazy wave, often ending in a small curl, then wipes itself away from
-// its tail and a new one starts somewhere else. A few leaves tumble along with it, and a little dust drifts by.
-// Cost: nothing is cached, so a theme or window change never allocates or rebuilds offscreen sprites. Far strokes use a single tapered polygon for
-// atmospheric depth; nearer strokes use two (sheath and bright spine), so a breeze is a handful of light polygons and even a gale stays under ~15
-// small polygons per frame. Scales down smoothly with fxQuality.
-// Everything comes from the wind clock a.fxWindT (it only counts up, faster in a stronger wind), so any frame can be drawn at any moment.
-// To change the look: the tables below, and the numbers marked "look" in drawWind.
-const float kWDepth[3] = {0.72f, 0.88f, 1.06f};                            // look: size of a stroke at each depth (far, middle, near)
-const float kWAlpha[3] = {0.40f, 0.60f, 0.82f};                            // look: brightness
-const float kWWidth[3] = {1.45f, 2.05f, 2.75f};                            // look: the thickest part of a stroke (design px)
+// Shared painterly ribbon path helpers (used by Fog tendrils, Wind, Blizzard spindrift and Gale)
 constexpr int WPTS = 34, WCURL = 15;                                       // points along a stroke's whole path, and how many of them make its curl
-
-float gWindFlip = 1.f;          // the wind's side (+1 right, -1 left), eased: a change of direction fades the strokes out and back in, never flips them
-
 float easeOut3(float x) { x = clamp01(x); const float r = 1.f - x; return 1.f - r * r * r; }
 float easeInOut(float x) { x = clamp01(x); return x * x * (3.f - 2.f * x); }
 
-// The whole path of one stroke, blowing to the right: a gentle wave that grows from its tail toward its head, then (perhaps) a curl that winds inward.
 struct WindPath { Pt p[WPTS]; float cl[WPTS]; int n = 0; };
 void windPath(WindPath& P, float x0, float y0, float len, float amp, float wl, float phase, float bow, float curlR, float turns, float curlDir) {
     const int nw = curlR > 0.f ? WPTS - WCURL : 22;
@@ -415,8 +734,6 @@ void windPath(WindPath& P, float x0, float y0, float len, float amp, float wl, f
     for (int j = 1; j < P.n; ++j) P.cl[j] = P.cl[j - 1] + std::hypot(P.p[j].x - P.p[j - 1].x, P.p[j].y - P.p[j - 1].y);
 }
 
-// the part of a path between fractions a and b of its length: the path's own points (so the curl stays round) plus the two cut ends.
-// v is where each point sits along the cut, 0 at the tail and 1 at the head. Returns how many points.
 int windSlice(const WindPath& P, float a, float b, Pt* out, float* v) {
     if (P.n < 2) return 0;
     const float L = P.cl[P.n - 1];
@@ -434,7 +751,6 @@ int windSlice(const WindPath& P, float a, float b, Pt* out, float* v) {
     return m;
 }
 
-// a tapered ribbon along the points: sharp at both ends, w wide at its fullest, a little past the middle (a brush stroke swells toward its head)
 void windRibbon(Gfx& g, const Pt* p, const float* v, int n, float w, const Color& col, std::vector<Pt>& poly) {
     if (n < 2 || col.a < 0.004f) return;
     if (n == 2) { g.line(p[0].x, p[0].y, p[1].x, p[1].y, withA(col, col.a * 0.55f), std::max(0.8f, w * 0.35f), true); return; }
@@ -451,6 +767,168 @@ void windRibbon(Gfx& g, const Pt* p, const float* v, int n, float w, const Color
     }
     g.fillPolygon(poly, col);
 }
+
+bool fogGlowReady(Ctx& c, const Frame& F) {
+    const float W = c.W, H = c.H;
+    uint64_t key = mixKey(mixKey(q3(F.fog.glow), qsz(W)), mixKey(qsz(H), 7390u));
+    return ensure(c.g, gFogGlow, key, 0.f, [&] {
+        // Quarter-resolution soft atmospheric light diffusion sprite (eliminates expensive per-frame giant radial gradient)
+        constexpr float QS = 0.25f;
+        const int sw = std::max(32, (int)(W * QS)), sh = std::max(24, (int)(H * 0.68f * QS));
+        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
+        c.g.glowEllipse(sw * 0.46f, sh * 0.32f, sw * 0.62f, sh * 0.62f, F.fog.glow, 1.0f);
+        return c.g.endSprite();
+    });
+}
+
+// ---------------------------------------------------------------- fog
+// Intentional cinematic valley mist:
+//   1. Cached diffused upper-sky atmospheric light bloom + subtle horizon-to-valley depth veil
+//   2. Four parallax strata of sculpted 4-tone rolling mist banks (cool troughs beneath luminous crests) with gentle counter-drift
+//   3. Slow velvety gossamer mist tendrils rising quietly across the mid-lower fog floor
+//   4. Delicate hovering dew-light micro-motes catching the diffused light
+void drawFog(Ctx& c, const Frame& F, float k, float q = 1.f) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double t = a.now;
+    const float gs = std::min(gFx, 1.6f);
+    const bool dark = c.P.dark;
+
+    // 1. Diffused atmospheric light bloom scattering softly through the upper fog + valley depth gradient
+    {
+        if (k >= 0.35f && fogGlowReady(c, F)) {
+            const float glowBreathe = 0.88f + 0.12f * std::sin(ph(t, 0.08));
+            g.drawBitmapRect(gFogGlow.bmp, 0.f, 0.f, W, H * 0.68f, clamp01(al((dark ? 0.24f : 0.28f) * k * glowBreathe)));
+        }
+        g.vGradientRect(0.f, 0.f, W, H * 0.32f, withA(F.fog.deep, al((dark ? 0.18f : 0.14f) * k)), withA(F.fog.deep, 0.f));
+        g.vGradientRect(0.f, H * 0.28f, W, H * 0.72f, withA(F.fog.mid, 0.f), withA(F.fog.mid, al((dark ? 0.24f : 0.22f) * k)));
+        g.vGradientRect(0.f, H * 0.68f, W, H * 0.32f, withA(F.fog.light, 0.f), withA(F.fog.light, al((dark ? 0.22f : 0.26f) * k)));
+    }
+
+    // Light ambient mist (e.g. Drizzle/Sleet background haze): lightweight single low mist bank without heavy multi-stratum overdraw
+    if (k < 0.35f) {
+        if (fogReady(c, F, 2)) {
+            const Bitmap& bm = gFog[2].bmp;
+            const float bw = bm.w / SPR * 1.05f, bh = bm.h / SPR * 0.92f;
+            const double spanD = 1440.0 + bw / std::max(0.1f, s);
+            const float yc = H * 0.86f + std::sin(ph(t, 0.05)) * 0.012f * H;
+            const float op = clamp01(0.46f * k * gs);
+            for (int cp = 0; cp < 2; ++cp) {
+                const float x = (float)(loopPos(a.fxFogT, 5.2, 0.15 * spanD + cp * spanD * 0.5, spanD) / spanD) * (W + bw) - bw;
+                if (x + bw >= 0.f && x <= W) g.drawBitmapRect(bm, x, yc - bh * 0.5f, bw, bh, op);
+            }
+        }
+        return;
+    }
+
+    // 2. Four sculpted parallax mist strata with subtle counter-drift & thermal vertical breathing
+    static const int rowSlot[4] = {0, 1, 1, 2};
+    static const float rowY[4] = {0.28f, 0.48f, 0.69f, 0.89f};
+    static const float rowDir[4] = {1.0f, -0.38f, 0.92f, 1.34f};          // subtle thermal counter-eddy on stratum 1
+    static const float rowOp[4] = {0.30f, 0.38f, 0.48f, 0.60f};
+    for (int row = 0; row < 4; ++row) {
+        const int j = rowSlot[row];
+        if (!fogReady(c, F, j)) continue;
+        const Bitmap& bm = gFog[j].bmp;
+        const float scX = 0.94f + 0.10f * row;
+        const float scY = 0.92f + 0.12f * row;
+        const float bw = bm.w / SPR * scX, bh = bm.h / SPR * scY;
+        const double spanD = 1440.0 + bw / std::max(0.1f, s);
+        const double speedD = 4.2 * rowDir[row] * (0.85 + 0.30 * hashf(row, 120));
+        const float yc = H * rowY[row] + std::sin(ph(t, 0.042 + 0.010 * row, row * 1.9)) * 0.016f * H;
+        const float breathe = 0.86f + 0.14f * std::sin(ph(t, 0.055 + 0.012 * row, row * 2.4));
+        const float op = clamp01(rowOp[row] * k * breathe * gs * (dark ? 0.96f : 0.92f));
+        for (int cp = 0; cp < 2; ++cp) {
+            const float x = (float)(loopPos(a.fxFogT, speedD, hashf(row, 121) * spanD + cp * spanD * 0.5, spanD) / spanD) * (W + bw) - bw;
+            if (x + bw < 0.f || x > W) continue;
+            g.drawBitmapRect(bm, x, yc - bh * 0.5f, bw, bh, op);
+        }
+    }
+
+    // 3. Slow curling gossamer mist tendrils drifting gracefully through the mid-lower fog
+    {
+        const double ft = std::fabs(a.fxFogT) + t * 0.15;
+        const bool left = a.fxFogT < 0.0;
+        auto mx = [&](float x) { return left ? W - x : x; };
+        Pt pts[36]; float vv[36];
+        WindPath P;
+        static std::vector<Pt> fPoly;
+        if (fPoly.capacity() < 72) fPoly.reserve(72);
+        const int nt = std::max(2, (int)std::lround((3.f + 3.f * k) * q));
+        for (int i = 0; i < nt; ++i) {
+            const double per = 12.0 + 7.5 * hashf(i, 641);
+            const double tt = ft / per + hashf(i, 642);
+            const double cyc = std::floor(tt);
+            const float u = (float)(tt - cyc);
+            const int sd = i * 5413 + (int)std::fmod(cyc, 65521.0);
+            const float len = W * (0.28f + 0.24f * hashf(sd, 643));
+            const float x0 = W * (-0.04f + 0.82f * hashf(sd, 644)) - 0.35f * len + u * 0.09f * W;
+            const float y0 = H * (0.44f + 0.46f * hashf(sd, 645));
+            const float amp = (12.f + 22.f * hashf(sd, 646)) * s;
+            const float wl = (340.f + 280.f * hashf(sd, 647)) * s;
+            const float phase = hashf(sd, 648) * 6.2832f - 0.9f * u;
+            const float bow = -(0.025f + 0.042f * hashf(sd, 649)) * H;                 // drifts gently upward like rising valley mist
+            const float curlR = (30.f + 22.f * hashf(sd, 650)) * s;
+            const float turns = 0.44f + 0.22f * hashf(sd, 651);
+            windPath(P, x0, y0, len, amp, wl, phase, bow, curlR, turns, -1.f);
+            const float head = easeOut3(u / 0.66f), tail = easeInOut((u - 0.26f) / 0.74f);
+            const int m = windSlice(P, tail, head, pts, vv);
+            if (m < 2) continue;
+            for (int j = 0; j < m; ++j) pts[j].x = mx(pts[j].x);
+            const float life = smoothstep(0.f, 0.16f, u) * (1.f - smoothstep(0.78f, 1.f, u));
+            const float wa = (dark ? 0.095f : 0.115f) * k * life * (0.75f + 0.25f * hashf(sd, 652));
+            if (wa < 0.004f) continue;
+            const float w = (24.f + 20.f * hashf(sd, 653)) * s;
+            // Broad, velvety, feathered vapor layers (soft steam-curl feel, zero crisp needle edge)
+            windRibbon(g, pts, vv, m, w * 2.10f, withA(F.fog.mid, al(wa * 0.36f)), fPoly);
+            windRibbon(g, pts, vv, m, w * 1.25f, withA(F.fog.light, al(wa * 0.56f)), fPoly);
+            windRibbon(g, pts, vv, m, w * 0.62f, withA(F.fog.glow, al(wa * 0.44f)), fPoly);
+        }
+    }
+
+    // 4. Delicate floating dew-light micro-motes suspended lazily in the illuminated mist
+    {
+        const int nm = std::max(6, (int)std::lround((10.f + 12.f * k) * q));
+        for (int i = 0; i < nm; ++i) {
+            const float h1 = hashf(i, 661), h2 = hashf(i, 662), h3 = hashf(i, 663), h4 = hashf(i, 664);
+            const double spanX = 1440.0 + 160.0;
+            const double posX = loopPos(a.fxFogT + t * 0.35, 10.0 + 14.0 * h1, h2 * spanX, spanX);
+            const float px = (float)(posX / spanX) * (W + 140.f * s) - 70.f * s;
+            const float py = H * (0.16f + 0.74f * h3) + std::sin(ph(t, 0.22 + 0.18 * h4, h1 * 6.28)) * 18.f * s;
+            const float vis = smoothstep(0.f, 0.08f * W, px) * (1.f - smoothstep(0.92f * W, W, px));
+            if (vis < 0.02f) continue;
+            const float tw = 0.50f + 0.50f * std::sin(ph(t, 0.55 + 0.65 * h4, h2 * 6.28));
+            const float ma = al((dark ? 0.24f : 0.28f) * k * vis * tw * (0.55f + 0.45f * h1));
+            if (ma < 0.006f) continue;
+            const float r = std::max(0.9f, (1.1f + 1.2f * h4) * s);
+            g.glow(px, py, r * 4.2f, F.fog.glow, ma * 0.42f);
+            g.fillCircle(px, py, r, withA(F.fog.glow, ma));
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the art style of the rain and the wind
+// Rain is drawn from small cached images (sprites): every drop and splash is one image copied to the screen, so it stays light enough for 60 frames a
+// second (or whatever your screen refreshes at).
+//  - Three depths: far (small, faint, slow), middle, near (large, bright, fast). Near things are bigger, brighter and quicker.
+//  - Rain ends in a splash on a ground line. Images are placed on whole pixels, so thin lines stay sharp however they move.
+// The wind is drawn like a painter draws a breeze (see below): a few calm brush strokes, not a swarm of streaks.
+// Like the rest of this file it is a pure function of the time: a drop's place and the age of its splash come from the clock alone.
+// To change the look: the tables right below each heading (how many, how fast, how bright, how big).
+
+// ---------------------------------------------------------------- wind
+// A few long, thin brush strokes. Each one writes itself across the sky along a lazy wave, often ending in a small curl, then wipes itself away from
+// its tail and a new one starts somewhere else. A few leaves tumble along with it, and a little dust drifts by.
+// Cost: nothing is cached, so a theme or window change never allocates or rebuilds offscreen sprites. Far strokes use a single tapered polygon for
+// atmospheric depth; nearer strokes use two (sheath and bright spine), so a breeze is a handful of light polygons and even a gale stays under ~15
+// small polygons per frame. Scales down smoothly with fxQuality.
+// Everything comes from the wind clock a.fxWindT (it only counts up, faster in a stronger wind), so any frame can be drawn at any moment.
+// To change the look: the tables below, and the numbers marked "look" in drawWind.
+const float kWDepth[3] = {0.72f, 0.88f, 1.06f};                            // look: size of a stroke at each depth (far, middle, near)
+const float kWAlpha[3] = {0.40f, 0.60f, 0.82f};                            // look: brightness
+const float kWWidth[3] = {1.45f, 2.05f, 2.75f};                            // look: the thickest part of a stroke (design px)
+
+float gWindFlip = 1.f;          // the wind's side (+1 right, -1 left), eased: a change of direction fades the strokes out and back in, never flips them
 
 void drawWind(Ctx& c, const Frame& F, float k, float q) {
     Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
@@ -1198,6 +1676,668 @@ void drawFrontBlizzard(Ctx& c, const Frame& F, float k, float side, float q) {
     }
 }
 
+// ---------------------------------------------------------------- drizzle (silky ultra-fine misty rain)
+// Poetic, feather-light micro-rain: much thinner, shorter and slower than rain, drifting softly on the air
+// with delicate whisper-thin concentric ground ripples (no heavy vertical rain spouts) and a damp low mist.
+const float kDrizDepth[3] = {0.66f, 0.88f, 1.12f};
+const float kDrizAlpha[3] = {0.36f, 0.54f, 0.72f};
+const float kDrizWidth[3] = {0.85f, 1.15f, 1.48f};
+const float kDrizLen[3]   = {14.f, 21.f, 30.f};
+
+void drizGeo(float s, float slant, StrkGeo out[3], float& atlasW, float& atlasH) {
+    float y = 0.f; atlasW = 0.f;
+    for (int L = 0; L < 3; ++L) {
+        StrkGeo& G = out[L]; const float d = kDrizDepth[L];
+        G.wd = std::max(0.85f, kDrizWidth[L] * s);
+        for (int v = 0; v < 3; ++v) G.len[v] = std::max(5.f, std::floor(kDrizLen[v] * s * d));
+        G.padX = std::ceil(G.wd) + 3.f; G.padY = std::ceil(G.wd) + 3.f;
+        G.cw = std::ceil(2.f * G.padX + std::fabs(slant) * G.len[2]);
+        G.ch = std::ceil(G.len[2] + 2.f * G.padY);
+        G.rowY = y; y += G.ch; atlasW = std::max(atlasW, G.cw * 3.f);
+    }
+    atlasH = y;
+}
+
+Bitmap buildDrizzleStreaks(Gfx& g, const Frame& F, float s, float slant) {
+    StrkGeo DG[3]; float aw = 0.f, ah = 0.f;
+    drizGeo(s, slant, DG, aw, ah);
+    if (aw < 4 || ah < 4 || aw > 4096 || ah > 4096 || !g.beginSprite((int)aw, (int)ah)) return Bitmap{};
+    const Color C = F.drizzle;
+    for (int L = 0; L < 3; ++L) {
+        const StrkGeo& G = DG[L];
+        for (int v = 0; v < 3; ++v) {
+            g.setOffset(v * G.cw, G.rowY);
+            const float len = G.len[v], dx = slant * len, w2 = G.wd * 0.5f;
+            const float hy = G.ch - G.padY, hx = dx >= 0 ? G.padX + dx : G.padX, ty = hy - len, tx = hx - dx;
+            g.fillPolyVGradient({{tx - w2, ty}, {tx + w2, ty}, {hx + w2, hy}, {hx - w2, hy}}, ty, hy, withA(C, 0.f), withA(C, 0.62f));
+            g.fillCircle(hx, hy - G.wd * 0.15f, G.wd * 0.68f, withA(C, 0.84f));
+        }
+    }
+    g.setOffset(0, 0);
+    return g.endSprite();
+}
+
+void drawDrizzle(Ctx& c, const Frame& F, float k, float side, float q, bool skyBg = false) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double t = a.now;
+    const float slant = std::round(0.11f * side * (0.45f + std::min(1.f, windKmh(a) / 45.f)) * 100.f) / 100.f;
+    const int sq = (int)std::lround(std::log2(std::max(0.05f, s)) * 5.f);
+    const uint64_t key = mixKey(mixKey(q3(F.drizzle), (uint64_t)(sq + 128)), mixKey(6100, (uint64_t)(std::lround(slant * 100.f) + 64)));
+    const bool ok = ensure(g, gDrizzleStreak, key, s, [&] {
+        Bitmap b = buildDrizzleStreaks(g, F, s, slant);
+        if (b.bmp) { gDrizS = s; gDrizSlant = slant; }
+        return b;
+    });
+    if (!ok || gDrizS <= 0.f) return;
+    const bool mistOk = !skyBg && mistReady(c, F);
+    if (!skyBg) {
+        g.vGradientRect(0.f, H * 0.72f, W, H * 0.28f, withA(F.drizzle, 0.f), withA(F.drizzle, al(0.11f * k)));
+    }
+    StrkGeo DG[3]; float aw = 0.f, ah = 0.f;
+    drizGeo(gDrizS, gDrizSlant, DG, aw, ah);
+    const float bs = gDrizSlant;
+    const float density = (skyBg ? 0.62f : 1.0f) * q;
+    const int n = (int)std::lround((115 + 215 * k) * density);
+    constexpr float RIPPLE_DUR = 0.44f;
+    for (int L = 0; L < 3; ++L) {
+        const StrkGeo& G = DG[L];
+        const float d = kDrizDepth[L], yg = H * kGround[L];
+        for (int i = L; i < n; i += 3) {
+            const float h1 = hashf(i, 671), h2 = hashf(i, 672), h3 = hashf(i, 673), h4 = hashf(i, 674);
+            const float sp = (265.f + 175.f * h1) * s * d;
+            const float span = yg + sp * (RIPPLE_DUR + 0.14f);
+            const float pos = loopPos(t, sp, h2 * span, span);
+            const float sway = std::sin(ph(t, 0.85 + 0.55 * h4, h3 * 6.2831)) * 7.f * s * d;
+            const float x0 = h3 * (W + H * 0.40f) - H * 0.20f + sway;
+            const float a0 = kDrizAlpha[L] * (0.70f + 0.45f * h4) * k;
+            if (pos < yg + G.len[2]) {
+                const int v = std::min(2, (int)(h4 * 3.f));
+                const float xh = x0 + bs * pos;
+                if (xh >= -30.f * s && xh <= W + 30.f * s) {
+                    float rows = G.ch;
+                    const float hy = G.ch - G.padY, cut = pos - yg;
+                    if (cut > 0.f) rows = std::min(G.ch, std::floor(hy - cut) + 1.f);
+                    if (rows >= 2.f) {
+                        const float hx = bs * G.len[v] >= 0.f ? G.padX + bs * G.len[v] : G.padX;
+                        g.drawBitmapSub(gDrizzleStreak.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, rows, clamp01(al(a0)));
+                    }
+                }
+            }
+            // Delicate whisper-thin surface micro-ripple (only a subset so the ground reads calm & quiet)
+            if (pos >= yg && (i % 2 == 0)) {
+                const float u = (pos - yg) / (sp * RIPPLE_DUR);
+                if (u < 1.f) {
+                    const float xi = x0 + bs * yg;
+                    if (xi >= -30.f * s && xi <= W + 30.f * s) {
+                        const float fade = (1.f - u) * (1.f - u);
+                        const float rr = (2.f + 16.f * std::pow(u, 0.65f)) * s * d;
+                        g.strokeEllipse(xi, yg, rr, rr * 0.28f, withA(F.drizzle, al(0.42f * kDrizAlpha[L] * fade * k)), std::max(0.85f, 1.0f * s * d));
+                        if (u < 0.24f) {
+                            g.fillCircle(xi, yg, (1.0f + 0.9f * (1.f - u / 0.24f)) * s * d, withA(F.drizzle, al(0.50f * (1.f - u / 0.24f) * k)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (mistOk) g.drawBitmapRect(gMist.bmp, 0.f, H - gMistH, W, gMistH, clamp01(0.42f * k * std::min(gFx, 1.6f)));
+}
+
+void drawFrontDrizzle(Ctx& c, float k, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (!gDrizzleStreak.bmp.bmp || gDrizS <= 0.f) return;
+    StrkGeo DG[3]; float aw = 0.f, ah = 0.f;
+    drizGeo(gDrizS, gDrizSlant, DG, aw, ah);
+    const StrkGeo& G = DG[2]; const float bs = gDrizSlant;
+    const int m = (int)std::lround((6 + 8 * k) * q);
+    for (int i = 0; i < m; ++i) {
+        const float sp = (380.f + 160.f * hashf(i, 681)) * s;
+        const float span = H + G.len[2] + 60.f * s;
+        const float pos = loopPos(a.now, sp, hashf(i, 682) * span, span);
+        const float x0 = hashf(i, 683) * (W + H * 0.40f) - H * 0.20f;
+        const float xh = x0 + bs * pos;
+        if (xh < -30.f * s || xh > W + 30.f * s) continue;
+        const int v = hashf(i, 684) > 0.5f ? 2 : 1;
+        const float hx = bs * G.len[v] >= 0.f ? G.padX + bs * G.len[v] : G.padX, hy = G.ch - G.padY;
+        g.drawBitmapSub(gDrizzleStreak.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, G.ch, clamp01(al(0.38f * k)));
+    }
+}
+
+// ---------------------------------------------------------------- sleet (icy freezing streaks interwoven with wet snow)
+// Unmistakable dual-phase winter precipitation: brisk slanted translucent ice-beaded needles plunging alongside
+// heavy tumbling wet snowflakes, leaving crisp icy slush flecks along the frosted bottom plane.
+const float kSleetDepth[3] = {0.64f, 0.86f, 1.12f};
+const float kSleetAlpha[3] = {0.42f, 0.64f, 0.86f};
+const float kSleetWidth[3] = {1.15f, 1.65f, 2.25f};
+const float kSleetLen[3]   = {14.f, 22.f, 31.f};
+
+void sleetGeo(float s, float slant, StrkGeo out[3], float& atlasW, float& atlasH) {
+    float y = 0.f; atlasW = 0.f;
+    for (int L = 0; L < 3; ++L) {
+        StrkGeo& G = out[L]; const float d = kSleetDepth[L];
+        G.wd = std::max(1.05f, kSleetWidth[L] * s);
+        for (int v = 0; v < 3; ++v) G.len[v] = std::max(6.f, std::floor(kSleetLen[v] * s * d));
+        G.padX = std::ceil(G.wd * 2.2f) + 4.f; G.padY = std::ceil(G.wd * 2.2f) + 4.f;
+        G.cw = std::ceil(2.f * G.padX + std::fabs(slant) * G.len[2]);
+        G.ch = std::ceil(G.len[2] + 2.f * G.padY);
+        G.rowY = y; y += G.ch; atlasW = std::max(atlasW, G.cw * 3.f);
+    }
+    atlasH = y;
+}
+
+Bitmap buildSleetStreaks(Gfx& g, const Frame& F, float s, float slant, bool dark) {
+    StrkGeo SG[3]; float aw = 0.f, ah = 0.f;
+    sleetGeo(s, slant, SG, aw, ah);
+    if (aw < 4 || ah < 4 || aw > 4096 || ah > 4096 || !g.beginSprite((int)aw, (int)ah)) return Bitmap{};
+    const Color C = F.sleet, Ice = F.snow;
+    for (int L = 0; L < 3; ++L) {
+        const StrkGeo& G = SG[L];
+        for (int v = 0; v < 3; ++v) {
+            g.setOffset(v * G.cw, G.rowY);
+            const float len = G.len[v], dx = slant * len, w2 = G.wd * 0.52f;
+            const float hy = G.ch - G.padY, hx = dx >= 0 ? G.padX + dx : G.padX, ty = hy - len, tx = hx - dx;
+            g.fillPolyVGradient({{tx - w2, ty}, {tx + w2, ty}, {hx + w2, hy}, {hx - w2, hy}}, ty, hy, withA(C, 0.f), withA(C, dark ? 0.72f : 0.78f));
+            // Frozen crystalline bead head (distinguishes freezing sleet cleanly from soft liquid rain)
+            if (!dark) g.glow(hx, hy - G.wd * 0.1f, G.wd * 1.9f, C, 0.42f);
+            g.glow(hx, hy - G.wd * 0.1f, G.wd * 1.65f, Ice, 0.56f);
+            g.fillCircle(hx, hy - G.wd * 0.1f, G.wd * 0.88f, withA(Ice, 0.96f));
+        }
+    }
+    g.setOffset(0, 0);
+    return g.endSprite();
+}
+
+void drawSleet(Ctx& c, const Frame& F, float k, float side, float q, bool skyBg = false) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double t = a.now;
+    const bool dark = c.P.dark;
+    const float slant = std::round(side * (0.38f + 0.16f * clamp01(windKmh(a) / 50.f)) * 20.f) / 20.f;
+    const int sq = (int)std::lround(std::log2(std::max(0.05f, s)) * 5.f);
+    const uint64_t key = mixKey(mixKey(q3(F.sleet), mixKey(q3(F.snow), (uint64_t)(sq + 160) * 2 + (dark ? 1u : 0u))),
+                                mixKey(6300, (uint64_t)(std::lround(slant * 20.f) + 64)));
+    const bool ok = ensure(g, gSleetStreak, key, s, [&] {
+        Bitmap b = buildSleetStreaks(g, F, s, slant, dark);
+        if (b.bmp) { gSleetS = s; gSleetSlant = slant; }
+        return b;
+    });
+    const bool flakeOk = snowReady(c, F) && gSnowCell > 0.f;
+    if (!skyBg) {
+        g.vGradientRect(0.f, H * 0.78f, W, H * 0.22f, withA(F.sleet, 0.f), withA(F.sleet, al((dark ? 0.16f : 0.18f) * k)));
+    }
+    const float density = (skyBg ? 0.58f : 1.0f) * q;
+
+    // Phase A: Brisk slanted icy sleet streaks + tiny frosty slush flecks on ground impact
+    if (ok && gSleetS > 0.f) {
+        StrkGeo SG[3]; float aw = 0.f, ah = 0.f;
+        sleetGeo(gSleetS, gSleetSlant, SG, aw, ah);
+        const float bs = gSleetSlant;
+        const int n = (int)std::lround((72 + 160 * k) * density);
+        constexpr float FLECK_DUR = 0.30f;
+        for (int L = 0; L < 3; ++L) {
+            const StrkGeo& G = SG[L];
+            const float d = kSleetDepth[L], yg = H * kGround[L];
+            for (int i = L; i < n; i += 3) {
+                const float h1 = hashf(i, 701), h2 = hashf(i, 702), h3 = hashf(i, 703), h4 = hashf(i, 704);
+                const float sp = (460.f + 300.f * h1) * s * d;
+                const float span = yg + sp * (FLECK_DUR + 0.12f);
+                const float pos = loopPos(t, sp, h2 * span, span);
+                const float x0 = h3 * (W + H * 0.75f) - H * 0.35f;
+                const float a0 = kSleetAlpha[L] * (0.72f + 0.38f * h4) * k;
+                if (pos < yg + G.len[2]) {
+                    const int v = std::min(2, (int)(h4 * 3.f));
+                    const float xh = x0 + bs * pos;
+                    if (xh >= -40.f * s && xh <= W + 40.f * s) {
+                        float rows = G.ch;
+                        const float hy = G.ch - G.padY, cut = pos - yg;
+                        if (cut > 0.f) rows = std::min(G.ch, std::floor(hy - cut) + 1.f);
+                        if (rows >= 2.f) {
+                            const float hx = bs * G.len[v] >= 0.f ? G.padX + bs * G.len[v] : G.padX;
+                            g.drawBitmapSub(gSleetStreak.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, rows, clamp01(al(a0)));
+                        }
+                    }
+                }
+                if (pos >= yg && (i % 2 == 0)) {
+                    const float et = (pos - yg) / sp, u = et / FLECK_DUR;
+                    if (u < 1.f) {
+                        const float xi = x0 + bs * yg;
+                        if (xi >= -40.f * s && xi <= W + 40.f * s) {
+                            const float fade = 1.f - u;
+                            const float rr = (2.f + 14.f * std::pow(u, 0.55f)) * s * d;
+                            g.strokeEllipse(xi, yg, rr, rr * 0.28f, withA(F.sleet, al(0.42f * fade * k)), std::max(0.9f, 1.1f * s * d));
+                            // Two tiny icy rebound flecks
+                            for (int b = 0; b < 2; ++b) {
+                                const float dir = b == 0 ? -1.f : 1.f;
+                                const float vx = dir * (28.f + 36.f * hashf(i * 3 + b, 706)) * s * d + side * 14.f * s;
+                                const float vy = (115.f + 75.f * hashf(i * 3 + b, 707)) * s * d, gr = 980.f * s * d;
+                                const float py = yg - vy * et + 0.5f * gr * et * et;
+                                if (py <= yg) g.fillCircle(xi + vx * et, py, std::max(1.0f, 1.35f * s * d), withA(F.snow, al(0.75f * fade * k)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase B: Interwoven heavy wet snowflakes tumbling briskly on the wintry breeze
+    if (flakeOk) {
+        const float cell = gSnowCell;
+        const int nf = std::max(14, (int)std::lround((42 + 54 * k) * density));
+        const float pad = cell + 20.f * s;
+        const float wrapW = W + 2.f * pad, wrapH = H + 2.f * pad;
+        for (int i = 0; i < nf; ++i) {
+            const float h1 = hashf(i, 711), h2 = hashf(i, 712), h3 = hashf(i, 713), h4 = hashf(i, 714);
+            const float vy = (145.f + 115.f * h1) * s;
+            const float vx = side * (0.48f + 0.25f * h4) * vy;
+            const float px = loopPos(t, vx, h2 * wrapW, wrapW) - pad + std::sin(ph(t, 1.9 + 1.2 * h3, h1 * 6.28)) * 12.f * s;
+            const float py = loopPos(t, vy, h3 * wrapH, wrapH) - pad;
+            if (px < -cell || px > W + cell || py < -cell || py > H + cell) continue;
+            const float edge = smoothstep(-pad * 0.4f, H * 0.06f, py) * (1.f - smoothstep(H * 0.88f, H, py));
+            const float op = clamp01(al((0.46f + 0.26f * h4) * k * edge));
+            if (op < 0.01f) continue;
+            const int var = h4 > 0.42f ? 1 : 0;
+            g.drawBitmapSub(gSnowFlake.bmp, std::round(px - cell * 0.5f), std::round(py - cell * 0.5f), var * cell, 0.f, cell, cell, op);
+        }
+    }
+}
+
+void drawFrontSleet(Ctx& c, const Frame& F, float k, float side, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    const double t = a.now;
+    if (gSleetStreak.bmp.bmp && gSleetS > 0.f) {
+        StrkGeo SG[3]; float aw = 0.f, ah = 0.f;
+        sleetGeo(gSleetS, gSleetSlant, SG, aw, ah);
+        const StrkGeo& G = SG[2]; const float bs = gSleetSlant;
+        const int m = (int)std::lround((5 + 7 * k) * q);
+        for (int i = 0; i < m; ++i) {
+            const float sp = (640.f + 220.f * hashf(i, 721)) * s;
+            const float span = H + G.len[2] + 60.f * s;
+            const float pos = loopPos(t, sp, hashf(i, 722) * span, span);
+            const float x0 = hashf(i, 723) * (W + H * 0.70f) - H * 0.35f;
+            const float xh = x0 + bs * pos;
+            if (xh < -40.f * s || xh > W + 40.f * s) continue;
+            const int v = hashf(i, 724) > 0.5f ? 2 : 1;
+            const float hx = bs * G.len[v] >= 0.f ? G.padX + bs * G.len[v] : G.padX, hy = G.ch - G.padY;
+            g.drawBitmapSub(gSleetStreak.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, G.ch, clamp01(al(0.46f * k)));
+        }
+    }
+    // A few wet tumbling flakes crossing in front
+    const int nf = std::max(2, (int)std::lround((3 + 3 * k) * q));
+    const float spanY = H + 70.f * s, wrapW = W + 160.f * s;
+    for (int i = 0; i < nf; ++i) {
+        const float h1 = hashf(i, 726), h2 = hashf(i, 727), h3 = hashf(i, 728);
+        const float vy = (185.f + 75.f * h1) * s;
+        const float px = loopPos(t, side * 0.55f * vy, h2 * wrapW, wrapW) - 80.f * s;
+        const float py = loopPos(t, vy, h3 * spanY, spanY) - 35.f * s;
+        const float r = (4.5f + 3.0f * h1) * s;
+        g.glow(px, py, r * 1.4f, F.snow, al(0.26f * k));
+        g.fillCircle(px, py, r * 0.52f, withA(F.snow, al(0.32f * k)));
+    }
+}
+
+// ---------------------------------------------------------------- hail (faceted plunging ice stones & kinetic two-hop bounces)
+// Dramatic storm of luminous faceted hailstones plunging steeply from dark storm clouds, smashing into
+// each depth's ground plane with crystalline shard sparks and kinetic two-hop parabolic rebounds!
+const float kHailDepth[3] = {0.62f, 0.88f, 1.22f};
+const float kHailRad[3]   = {2.15f, 3.25f, 4.65f};
+const float kHailTrail[3] = {18.f, 28.f, 40.f};
+const float kHailAlpha[3] = {0.58f, 0.80f, 0.96f};
+
+struct HailGeo { float r, trail[3], padX, padY, cw, ch, rowY; };
+void hailGeo(float s, float slant, HailGeo out[3], float& atlasW, float& atlasH) {
+    float y = 0.f; atlasW = 0.f;
+    for (int L = 0; L < 3; ++L) {
+        HailGeo& G = out[L]; const float d = kHailDepth[L];
+        G.r = std::max(1.8f, kHailRad[L] * s);
+        for (int v = 0; v < 3; ++v) G.trail[v] = std::max(8.f, std::floor(kHailTrail[v] * s * d));
+        G.padX = std::ceil(G.r * 2.2f) + 4.f; G.padY = std::ceil(G.r * 2.2f) + 4.f;
+        G.cw = std::ceil(2.f * G.padX + std::fabs(slant) * G.trail[2]);
+        G.ch = std::ceil(G.trail[2] + 2.f * G.padY);
+        G.rowY = y; y += G.ch; atlasW = std::max(atlasW, G.cw * 3.f);
+    }
+    atlasH = y;
+}
+
+void drawFacetedStone(Gfx& g, float cx, float cy, float r, float spin, const Color& core, const Color& ice, float op, bool dark) {
+    if (op < 0.01f || r < 0.8f) return;
+    // Slight cool refraction halo
+    g.glow(cx, cy, r * 2.1f, ice, op * (dark ? 0.42f : 0.48f));
+    // Faceted irregular 6-sided ice crystal silhouette
+    static thread_local std::vector<Pt> poly(6);
+    for (int j = 0; j < 6; ++j) {
+        const float ang = spin + j * (PI_F / 3.f);
+        const float rr = r * (0.86f + 0.20f * ((j & 1) ? 1.f : 0.35f));
+        poly[j] = {cx + rr * std::cos(ang), cy + rr * std::sin(ang)};
+    }
+    g.fillPolygon(poly, withA(ice, op * (dark ? 0.85f : 0.92f)));
+    // Bright icy core shifted subtly toward top-left light source
+    g.fillCircle(cx - r * 0.14f, cy - r * 0.16f, r * 0.68f, withA(core, op * 0.96f));
+    // Specular diamond catchlight
+    if (r >= 2.2f) g.fillCircle(cx - r * 0.28f, cy - r * 0.28f, r * 0.28f, withA(Color{1.f, 1.f, 1.f, 1.f}, op));
+}
+
+Bitmap buildHailAtlas(Gfx& g, const Frame& F, float s, float slant, bool dark) {
+    HailGeo HG[3]; float aw = 0.f, ah = 0.f;
+    hailGeo(s, slant, HG, aw, ah);
+    if (aw < 4 || ah < 4 || aw > 4096 || ah > 4096 || !g.beginSprite((int)aw, (int)ah)) return Bitmap{};
+    for (int L = 0; L < 3; ++L) {
+        const HailGeo& G = HG[L];
+        for (int v = 0; v < 3; ++v) {
+            g.setOffset(v * G.cw, G.rowY);
+            const float len = G.trail[v], dx = slant * len;
+            const float hy = G.ch - G.padY, hx = dx >= 0 ? G.padX + dx : G.padX, ty = hy - len, tx = hx - dx;
+            const float wTail = G.r * 0.24f, wHead = G.r * 0.72f;
+            // Fast icy motion trail behind the plunging hailstone
+            g.fillPolyVGradient({{tx - wTail, ty}, {tx + wTail, ty}, {hx + wHead, hy}, {hx - wHead, hy}}, ty, hy,
+                                withA(F.hailIce, 0.f), withA(F.hailIce, dark ? 0.42f : 0.48f));
+            const float stoneR = G.r * (0.82f + 0.18f * v);
+            drawFacetedStone(g, hx, hy, stoneR, v * 0.9f + L * 0.4f, F.hailCore, F.hailIce, 1.0f, dark);
+        }
+    }
+    g.setOffset(0, 0);
+    return g.endSprite();
+}
+
+void drawHail(Ctx& c, const Frame& F, float k, float side, float q, bool skyBg = false) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double t = a.now;
+    const bool dark = c.P.dark;
+    const float slant = std::round(side * (0.28f + 0.14f * clamp01(windKmh(a) / 50.f)) * 20.f) / 20.f;
+    const int sq = (int)std::lround(std::log2(std::max(0.05f, s)) * 5.f);
+    const uint64_t key = mixKey(mixKey(q3(F.hailCore), mixKey(q3(F.hailIce), (uint64_t)(sq + 192) * 2 + (dark ? 1u : 0u))),
+                                mixKey(6500, (uint64_t)(std::lround(slant * 20.f) + 64)));
+    const bool ok = ensure(g, gHailStone, key, s, [&] {
+        Bitmap b = buildHailAtlas(g, F, s, slant, dark);
+        if (b.bmp) { gHailS = s; gHailSlant = slant; }
+        return b;
+    });
+    if (!ok || gHailS <= 0.f) return;
+    if (!skyBg) {
+        g.vGradientRect(0.f, H * 0.78f, W, H * 0.22f, withA(F.hailIce, 0.f), withA(F.hailIce, al((dark ? 0.15f : 0.18f) * k)));
+    }
+    HailGeo HG[3]; float aw = 0.f, ah = 0.f;
+    hailGeo(gHailS, gHailSlant, HG, aw, ah);
+    const float bs = gHailSlant;
+    const float density = (skyBg ? 0.56f : 1.0f) * q;
+    const int n = (int)std::lround((74 + 136 * k) * density);
+    constexpr float BOUNCE1 = 0.36f, BOUNCE2 = 0.20f, BOUNCE_TOT = BOUNCE1 + BOUNCE2;
+
+    for (int L = 0; L < 3; ++L) {
+        const HailGeo& G = HG[L];
+        const float d = kHailDepth[L], yg = H * kGround[L];
+        for (int i = L; i < n; i += 3) {
+            const float h1 = hashf(i, 741), h2 = hashf(i, 742), h3 = hashf(i, 743), h4 = hashf(i, 744);
+            const float sp = (700.f + 420.f * h1) * s * d;
+            const float span = yg + sp * (BOUNCE_TOT + 0.18f);
+            const float pos = loopPos(t, sp, h2 * span, span);
+            const float x0 = h3 * (W + H * 0.65f) - H * 0.30f;
+            const int v = std::min(2, (int)(h4 * 3.f));
+            const float a0 = kHailAlpha[L] * (0.74f + 0.32f * h4) * k;
+
+            if (pos < yg) {
+                const float xh = x0 + bs * pos;
+                if (xh < -50.f * s || xh > W + 50.f * s) continue;
+                const float hx = bs * G.trail[v] >= 0.f ? G.padX + bs * G.trail[v] : G.padX;
+                const float hy = G.ch - G.padY;
+                g.drawBitmapSub(gHailStone.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, G.ch, clamp01(al(a0)));
+            } else {
+                const float et = (pos - yg) / sp;
+                if (et >= BOUNCE_TOT) continue;
+                const float xi = x0 + bs * yg;
+                if (xi < -80.f * s || xi > W + 80.f * s) continue;
+                const float stoneR = G.r * (0.78f + 0.18f * v);
+
+                // Impact shock-ring & icy crystalline shard burst right at touchdown (0 .. 0.15 s)
+                if (et < 0.15f) {
+                    const float u = et / 0.15f, fl = 1.f - u;
+                    g.glow(xi, yg, stoneR * (2.5f + 2.5f * u), F.hailCore, al(0.65f * fl * k));
+                    const float rr = (3.f + 22.f * std::pow(u, 0.55f)) * s * d;
+                    g.strokeEllipse(xi, yg, rr, rr * 0.28f, withA(F.hailIce, al(0.55f * fl * k)), std::max(1.0f, 1.35f * s * d));
+                    const int ns = L == 0 ? 2 : 4;
+                    for (int m = 0; m < ns; ++m) {
+                        const float dir = (m & 1) ? 1.f : -1.f;
+                        const float svx = dir * (60.f + 115.f * hashf(i * 11 + m, 745)) * s * d + side * 25.f * s;
+                        const float svy = (160.f + 160.f * hashf(i * 11 + m, 746)) * s * d, sgr = 1450.f * s * d;
+                        const float spx = xi + svx * et, spy = yg - svy * et + 0.5f * sgr * et * et;
+                        if (spy <= yg) g.fillCircle(spx, spy, std::max(1.0f, (1.1f + 0.9f * hashf(i * 11 + m, 747)) * s * d), withA(F.hailCore, al(0.85f * fl * k)));
+                    }
+                }
+
+                // Energetic two-hop parabolic hailstone bounce!
+                const float bDir = (hashf(i, 748) < 0.72f) ? side : -side;
+                const float vxB = bDir * (75.f + 110.f * hashf(i, 749)) * s * d;
+                const float vy1 = (280.f + 165.f * hashf(i, 750)) * s * d;
+                const float gr = (2.f * vy1) / BOUNCE1;
+                float bx = xi, by = yg, bop = a0;
+                if (et < BOUNCE1) {
+                    bx = xi + vxB * et;
+                    by = yg - vy1 * et + 0.5f * gr * et * et;
+                    bop = a0 * (1.f - 0.18f * (et / BOUNCE1));
+                } else {
+                    const float e2 = et - BOUNCE1;
+                    const float vy2 = vy1 * 0.46f;
+                    const float gr2 = (2.f * vy2) / BOUNCE2;
+                    bx = xi + vxB * BOUNCE1 + vxB * 0.65f * e2;
+                    by = yg - vy2 * e2 + 0.5f * gr2 * e2 * e2;
+                    bop = a0 * 0.82f * (1.f - e2 / BOUNCE2);
+                }
+                const float spin = et * (14.f + 10.f * h1) * bDir;
+                drawFacetedStone(g, bx, std::min(yg, by), stoneR * 0.92f, spin, F.hailCore, F.hailIce, al(bop), dark);
+            }
+        }
+    }
+}
+
+void drawFrontHail(Ctx& c, float k, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (!gHailStone.bmp.bmp || gHailS <= 0.f) return;
+    HailGeo HG[3]; float aw = 0.f, ah = 0.f;
+    hailGeo(gHailS, gHailSlant, HG, aw, ah);
+    const HailGeo& G = HG[2]; const float bs = gHailSlant;
+    const int m = (int)std::lround((4 + 6 * k) * q);
+    for (int i = 0; i < m; ++i) {
+        const float sp = (920.f + 340.f * hashf(i, 755)) * s;
+        const float span = H + G.trail[2] + 80.f * s;
+        const float pos = loopPos(a.now, sp, hashf(i, 756) * span, span);
+        const float x0 = hashf(i, 757) * (W + H * 0.65f) - H * 0.30f;
+        const float xh = x0 + bs * pos;
+        if (xh < -50.f * s || xh > W + 50.f * s) continue;
+        const int v = hashf(i, 758) > 0.5f ? 2 : 1;
+        const float hx = bs * G.trail[v] >= 0.f ? G.padX + bs * G.trail[v] : G.padX, hy = G.ch - G.padY;
+        g.drawBitmapSub(gHailStone.bmp, std::round(xh - hx), std::round(pos - hy), v * G.cw, G.rowY, G.cw, G.ch, clamp01(al(0.55f * k)));
+    }
+}
+
+// ---------------------------------------------------------------- gale (roaring artistic coastal windstorm)
+// Elevates Meridian's signature painterly wind language into an exhilarating, dramatic storm gale:
+//   - Cached aerodynamic gust-shear mist plumes racing across the sky during peak wind surges
+//   - 12..17 sweeping double-layered howling gale ribbons with tight swirling vortex curls
+//   - Swirling clusters of tumbling leaves caught in roaring eddies
+//   - Swift motion-streaked spray & wind-dust filaments giving unmistakable kinetic velocity
+bool galeGustReady(Ctx& c, const Frame& F) {
+    const float W = c.W, H = c.H;
+    uint64_t key = mixKey(mixKey(q3(F.galeHaze), q3(F.windHead)), mixKey(qsz(W), qsz(H)));
+    gGaleGustH = 0.16f * H;
+    return ensure(c.g, gGaleGust, key, 0.f, [&] {
+        const int sw = std::max(48, (int)(W * 0.80f * SPR));
+        const int sh = std::max(18, (int)(gGaleGustH * SPR));
+        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
+        for (int m = 0; m < 7; ++m) {
+            const float u = (m + 0.5f) / 7.f;
+            const float env = std::sin(u * PI_F);
+            const float rx = sw * (0.18f + 0.14f * env);
+            const float ry = sh * (0.14f + 0.12f * env);
+            const float cx = std::max(rx * 1.04f, std::min(sw - rx * 1.04f, sw * (0.10f + 0.80f * u)));
+            const float cy = std::max(ry * 1.04f, std::min(sh - ry * 1.04f, sh * 0.5f + (hashf(m, 771) - 0.5f) * sh * 0.28f));
+            softPlume(c.g, cx, cy, rx, ry, 0.f, 0.f, F.galeHaze, F.galeHaze, 0.26f * env);
+            softPlume(c.g, cx, cy - ry * 0.15f, rx * 0.72f, ry * 0.36f, 0.f, 0.f, F.windHead, F.galeHaze, 0.16f * env);
+        }
+        return c.g.endSprite();
+    });
+}
+
+void drawGale(Ctx& c, const Frame& F, float k, float side, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    if (W < 4.f || H < 4.f) return;
+    const double T = std::max(0.0, a.fxGaleT), t = a.now;
+    const bool left = side < 0.f;
+    auto mx = [&](float x) { return left ? W - x : x; };
+    const float gust = 0.5f + 0.5f * std::sin(ph(t, 0.68) + 0.9f * std::sin(ph(t, 0.27)));
+    const float surge = 0.68f + 0.52f * gust * gust;
+    const float gs = std::min(gFx, 1.6f);
+
+    // A. Racing aerodynamic gust-shear veils surging across the sky (cached half-res sprite -> ultra fast!)
+    if (galeGustReady(c, F)) {
+        const Bitmap& bm = gGaleGust.bmp;
+        const int ng = std::max(3, (int)std::lround(5.f * q));
+        for (int i = 0; i < ng; ++i) {
+            const float h1 = hashf(i, 781), h2 = hashf(i, 782), h3 = hashf(i, 783);
+            const float bw = (bm.w / SPR) * (0.95f + 0.55f * h1);
+            const float bh = (bm.h / SPR) * (0.72f + 0.45f * h2);
+            const float spanX = W + bw;
+            const float spX = (360.f + 260.f * h3) * s;
+            const float px = loopPos(T, side * spX, h2 * spanX, spanX) - bw;
+            const float py = H * (0.10f + 0.80f * h1) + std::sin(ph(T, 0.75 + 0.4 * h2, h3 * 6.28)) * 18.f * s;
+            const float op = clamp01((c.P.dark ? 0.26f : 0.24f) * k * (0.65f + 0.45f * surge) * (0.7f + 0.3f * h3) * gs);
+            g.drawBitmapRect(bm, px, py - bh * 0.5f, bw, bh, op);
+        }
+    }
+
+    // B. Sweeping multi-depth howling gale ribbons (taut, dramatic arcs + tight spiraling gale eddies)
+    Pt pts[WPTS + 2]; float vv[WPTS + 2];
+    WindPath P;
+    static std::vector<Pt> gPoly;
+    if (gPoly.capacity() < (size_t)(WPTS * 2)) gPoly.reserve((size_t)(WPTS * 2));
+    const int n = std::max(5, (int)std::lround((10.f + 8.f * k) * q));
+    for (int i = 0; i < n; ++i) {
+        const int L = i % 3; const float d = kWDepth[L] * 1.08f;
+        const double per = 1.45 + 0.95 * hashf(i, 791);
+        const double tt = T / per + hashf(i, 792);
+        const double cyc = std::floor(tt);
+        const float u = (float)(tt - cyc);
+        const int sd = i * 8831 + (int)std::fmod(cyc, 65521.0);
+        const float len = W * (0.30f + 0.28f * hashf(sd, 793)) * d;
+        const float x0 = W * (-0.12f + 0.82f * hashf(sd, 794)) - 0.35f * len + u * 0.22f * W * d;
+        const float y0 = H * (0.06f + 0.88f * hashf(sd, 795));
+        const float amp = (9.f + 22.f * hashf(sd, 796)) * s * d;
+        const float wl = (340.f + 360.f * hashf(sd, 797)) * s;
+        const float phase = hashf(sd, 798) * 6.2832f - 3.2f * u;
+        const float bow = (hashf(sd, 799) - 0.42f) * 0.14f * H;
+        const bool curl = hashf(sd, 800) < 0.64f;
+        const float curlR = curl ? (16.f + 22.f * hashf(sd, 801)) * s * d : 0.f;
+        const float turns = 0.88f + 0.42f * hashf(sd, 802);
+        const float curlDir = hashf(sd, 803) < 0.72f ? -1.f : 1.f;
+        windPath(P, x0, y0, len, amp, wl, phase, bow, curlR, turns, curlDir);
+        const float head = easeOut3(u / 0.54f), tail = easeInOut((u - 0.24f) / 0.76f);
+        const int m = windSlice(P, tail, head, pts, vv);
+        if (m < 2) continue;
+        for (int j = 0; j < m; ++j) pts[j].x = mx(pts[j].x);
+        const float life = smoothstep(0.f, 0.08f, u) * (1.f - smoothstep(0.84f, 1.f, u));
+        const float al0 = kWAlpha[L] * k * life * (0.72f + 0.38f * surge) * (0.76f + 0.24f * hashf(sd, 804));
+        if (al0 < 0.008f) continue;
+        const float w = std::max(1.3f, (kWWidth[L] * 1.25f) * s * (0.90f + 0.28f * surge));
+        // Wide translucent gale wake sheath + taut luminous core
+        windRibbon(g, pts, vv, m, w * 2.35f, withA(F.wind, al(0.26f * al0)), gPoly);
+        windRibbon(g, pts, vv, m, w * 0.92f, withA(F.wind, al(0.62f * al0)), gPoly);
+        if (L >= 1) windRibbon(g, pts, vv, m, w * 0.40f, withA(F.windHead, al(0.95f * al0)), gPoly);
+        const float tip = 1.f - smoothstep(0.42f, 0.56f, u);
+        if (tip > 0.01f) {
+            const float ta = al(0.82f * al0 * tip);
+            if (L == 2) g.glow(pts[m - 1].x, pts[m - 1].y, w * 3.4f, F.windHead, ta * 0.26f);
+            g.fillCircle(pts[m - 1].x, pts[m - 1].y, w * 0.48f, withA(F.windHead, ta));
+        }
+    }
+
+    // C. Swirling leaf whirlwinds whipped across the gale (suppressed during freezing snow/sleet/blizzard)
+    const float leafMask = 1.f - clamp01(std::max(std::max(a.qfx[6], a.qfx[7]), a.qfx[9]) * 2.f);
+    const int nl = std::max(0, (int)std::lround((8.f + 7.f * k) * q * leafMask));
+    static std::vector<Pt> leaf(8);
+    for (int i = 0; i < nl; ++i) {
+        const double per = 3.2 + 2.4 * hashf(i, 821);
+        const double tt = T / per + hashf(i, 822);
+        const double cyc = std::floor(tt);
+        const float u = (float)(tt - cyc);
+        const int sd = i * 9187 + (int)std::fmod(cyc, 65521.0);
+        const float d = 0.72f + 0.52f * hashf(sd, 823);
+        const float mg = 55.f * s;
+        const float e = hashf(sd, 824) * 6.2832f;
+        // Sweeping gust path with energetic spiral vortex loops
+        float x = -mg + u * (W + 2.f * mg) + 28.f * s * d * std::sin(2.f * PI_F * 2.6f * u + e);
+        float y = H * (0.10f + 0.78f * hashf(sd, 825)) + (hashf(sd, 826) - 0.5f) * 0.16f * H * u
+                + (34.f + 56.f * hashf(sd, 827)) * s * d * std::sin(2.f * PI_F * (1.5f + 1.0f * hashf(sd, 828)) * u + e)
+                + 24.f * s * d * std::cos(2.f * PI_F * 2.6f * u + e);
+        const float vis = smoothstep(-mg, 0.04f * W, x) * (1.f - smoothstep(0.96f * W, W + mg, x));
+        if (vis < 0.02f) continue;
+        const float la = al((0.40f + 0.30f * d) * k * vis);
+        if (la < 0.008f) continue;
+        x = mx(x);
+        const float flip = std::cos(ph(t, 4.5 + 3.2 * hashf(sd, 829), e));
+        const float spin = (u * (420.f + 520.f * hashf(sd, 830)) * (hashf(sd, 831) < 0.5f ? 1.f : -1.f)) * (PI_F / 180.f) * (left ? -1.f : 1.f);
+        const float ln = (7.5f + 6.0f * hashf(sd, 832)) * s * d;
+        const float wd = ln * 0.40f * (0.16f + 0.84f * std::fabs(flip));
+        const float cs = std::cos(spin), sn = std::sin(spin);
+        for (int j = 0; j < 8; ++j) {
+            const int jj = j < 5 ? j : 8 - j;
+            const float lx = (jj / 4.f - 0.5f) * ln;
+            const float ly = (j < 5 ? -1.f : 1.f) * wd * std::pow(std::max(0.f, std::sin(PI_F * jj / 4.f)), 0.9f);
+            leaf[j] = {x + lx * cs - ly * sn, y + lx * sn + ly * cs};
+        }
+        const Color lc = lerp(F.leaf, F.windHead, 0.34f * smoothstep(-0.25f, 0.25f, flip));
+        g.fillPolygon(leaf, withA(lc, la));
+    }
+
+    // D. Fast motion-streaked spray & wind-dust filaments zipping across the gust
+    const int ns = std::max(10, (int)std::lround((18.f + 16.f * k) * q));
+    for (int i = 0; i < ns; ++i) {
+        const float h1 = hashf(i, 841), h2 = hashf(i, 842), h3 = hashf(i, 843), h4 = hashf(i, 844);
+        const double spanD = 1440.0 + 180.0;
+        const double posD = loopPos(T, 340.0 * (0.65 + 0.75 * h1), h2 * spanD, spanD);
+        const float x = mx((float)(posD / spanD) * (W + 160.f * s) - 80.f * s);
+        const float y = H * (0.05f + 0.90f * h3) + std::sin(ph(T, 1.4 + 0.9 * h4, h2 * 6.28)) * 20.f * s;
+        const float vis = smoothstep(-0.02f * W, 0.06f * W, x) * (1.f - smoothstep(0.94f * W, 1.02f * W, x));
+        if (vis < 0.02f) continue;
+        const float ma = al((0.20f + 0.28f * h4) * k * vis * (0.7f + 0.35f * surge));
+        if (ma < 0.006f) continue;
+        const float slen = (12.f + 18.f * h1) * s * (0.8f + 0.35f * surge);
+        const float dy = (h4 - 0.45f) * 3.5f * s;
+        g.line(x - side * slen, y - dy, x, y, withA(F.windHead, ma), std::max(0.9f, (0.9f + 0.7f * h4) * s), true);
+    }
+}
+
+void drawFrontGale(Ctx& c, const Frame& F, float k, float side, float q) {
+    Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
+    const double T = std::max(0.0, a.fxGaleT);
+    const bool left = side < 0.f;
+    auto mx = [&](float x) { return left ? W - x : x; };
+    Pt pts[WPTS + 2]; float vv[WPTS + 2];
+    WindPath P;
+    static std::vector<Pt> fgPoly;
+    if (fgPoly.capacity() < (size_t)(WPTS * 2)) fgPoly.reserve((size_t)(WPTS * 2));
+    const int n = std::max(1, (int)std::lround((2.f + 1.f * k) * q));
+    for (int i = 0; i < n; ++i) {
+        const double per = 2.0 + 1.1 * hashf(i, 851);
+        const double tt = T / per + hashf(i, 852);
+        const double cyc = std::floor(tt);
+        const float u = (float)(tt - cyc);
+        const int sd = i * 6131 + (int)std::fmod(cyc, 65521.0);
+        const float len = W * (0.34f + 0.22f * hashf(sd, 853));
+        const float x0 = W * (-0.08f + 0.72f * hashf(sd, 854)) - 0.3f * len + u * 0.22f * W;
+        const float y0 = H * (0.24f + 0.56f * hashf(sd, 855));
+        windPath(P, x0, y0, len, 14.f * s, 420.f * s, hashf(sd, 856) * 6.28f - 3.f * u, (hashf(sd, 857) - 0.5f) * 0.10f * H, 18.f * s, 0.85f, -1.f);
+        const int m = windSlice(P, easeInOut((u - 0.25f) / 0.75f), easeOut3(u / 0.55f), pts, vv);
+        if (m < 2) continue;
+        for (int j = 0; j < m; ++j) pts[j].x = mx(pts[j].x);
+        const float life = smoothstep(0.f, 0.10f, u) * (1.f - smoothstep(0.84f, 1.f, u));
+        const float wa = 0.26f * k * life;
+        if (wa < 0.006f) continue;
+        windRibbon(g, pts, vv, m, 3.2f * s, withA(F.wind, al(wa * 0.60f)), fgPoly);
+        windRibbon(g, pts, vv, m, 1.3f * s, withA(F.windHead, al(wa * 0.90f)), fgPoly);
+    }
+}
+
 // ---------------------------------------------------------------- lightning
 // A forked bolt every few seconds and a soft flash inside the cloud in between. Gentle: no full-screen flash.
 // The bolts leave from the clouds: a cloud flashes from inside (sheet lightning), now and then a forked bolt comes down out of one, and the clouds
@@ -1337,7 +2477,7 @@ void drawTornado(Ctx& c, float k, float side, float q) {
 
 } // namespace
 
-// ---------------------------------------------------------------- the one cloud in front of the clock
+// ---------------------------------------------------------------- foreground weather veil in front of the Quiet clock
 void drawQuietFront(Ctx& c, float midY, float clockH) {
     Gfx& g = c.g; App& a = c.a; const float s = c.s, W = c.W, H = c.H;
     const float k = a.qfx[0];
@@ -1346,37 +2486,53 @@ void drawQuietFront(Ctx& c, float midY, float clockH) {
     budgetTick(a); trackSize(c);
     const float q = std::max(0.3f, std::min(1.f, a.fxQuality));
     const float side = windSide(a);
-    if (a.qfx[2] > 0.02f) drawFrontDrops(c, a.qfx[2], side, q);     // a few drops in front of the time
-    const float calmFrontSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
-    if (calmFrontSnow > 0.02f || a.qfx[7] > 0.02f) {
-        const Frame F = makeFrame(c, heavyOf(a));
-        if (calmFrontSnow > 0.02f) drawFrontSnow(c, F, calmFrontSnow, side, q);
-        if (a.qfx[7] > 0.02f) drawFrontBlizzard(c, F, a.qfx[7], side, q);
-    }
-    if (k < 0.02f) return;
     const float heavy = heavyOf(a);
-    const Frame F = makeFrame(c, heavy);
+    const float calmFrontSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
+    const float fogFront = a.qfx[5] * (1.f - 0.85f * a.qfx[7]);
+    const bool needFrame = (calmFrontSnow > 0.02f || a.qfx[7] > 0.02f || a.qfx[9] > 0.02f || a.qfx[11] > 0.02f || fogFront > 0.06f || k >= 0.02f);
+    Frame F;
+    if (needFrame) F = makeFrame(c, heavy);
+
+    if (a.qfx[2] > 0.02f) drawFrontDrops(c, a.qfx[2], side, q);         // a few raindrops in front of the time
+    if (a.qfx[8] > 0.02f) drawFrontDrizzle(c, a.qfx[8], q);             // whisper-fine drizzle filaments
+    if (a.qfx[9] > 0.02f) drawFrontSleet(c, F, a.qfx[9], side, q);      // icy sleet needles & wet flakes
+    if (a.qfx[10] > 0.02f) drawFrontHail(c, a.qfx[10], q);              // bold plunging hailstones
+    if (calmFrontSnow > 0.02f) drawFrontSnow(c, F, calmFrontSnow, side, q);
+    if (a.qfx[7] > 0.02f) drawFrontBlizzard(c, F, a.qfx[7], side, q);
+    if (a.qfx[11] > 0.02f) drawFrontGale(c, F, a.qfx[11], side, q);
+
+    // Whisper-soft low foreground mist veil gliding gently along the bottom of Quiet during fog (digits stay 100% crisp)
+    if (fogFront > 0.30f && fogReady(c, F, 2)) {
+        const Bitmap& bm = gFog[2].bmp;
+        const float bw = bm.w / SPR * 1.18f, bh = bm.h / SPR * 0.72f;
+        const double spanD = 1440.0 + bw / std::max(0.1f, s);
+        const float bx = (float)(loopPos(a.fxFogT, 6.2, 0.25 * spanD, spanD) / spanD) * (W + bw) - bw;
+        const float by = H * 0.90f + std::sin(ph(a.now, 0.055)) * 0.014f * H;
+        g.drawBitmapRect(bm, bx, by - bh * 0.5f, bw, bh, clamp01(0.24f * fogFront * std::min(1.4f, gFx)));
+    }
+
+    if (k < 0.02f) return;
     if (!frontReady(c, F, clockH)) return;
     const double t = a.now;
     const float bw = gFront.bmp.w / SPR, bh = gFront.bmp.h / SPR;
     const double spanD = 1440.0 + bw / std::max(0.1f, s);
     // starts completely off-screen left (-bw) and exits completely off-screen right (+W) so wrap never teleports mid-screen
-    const float bx = (float)(loopPos(a.fxFrontT, 30.0, 0.35 * spanD, spanD) / spanD) * (W + bw) - bw;
+    const float bx = (float)(loopPos(a.fxFrontT, 28.0, 0.35 * spanD, spanD) / spanD) * (W + bw) - bw;
     const float y = midY + std::sin(ph(t, 0.075)) * 0.04f * H + 0.015f * H;
-    // a soft veil, never a wall: the time stays easy to read through it
-    g.drawBitmapRect(gFront.bmp, bx, y - bh * 0.52f, bw, bh, clamp01(0.25f * k * std::min(1.4f, gFx)));
+    // an ethereal feathered veil, never a wall: the time stays crisp through it
+    g.drawBitmapRect(gFront.bmp, bx, y - bh * 0.52f, bw, bh, clamp01(0.22f * k * std::min(1.4f, gFx)));
 }
 
 // ---------------------------------------------------------------- state
 void quietFxStep(App& a) {
-    float t[8]; targets(a, t);
-    for (int i = 0; i < 8; ++i) a.qfxT[i] = t[i];
+    float t[App::QFX_COUNT]; targets(a, t);
+    for (int i = 0; i < App::QFX_COUNT; ++i) a.qfxT[i] = t[i];
     const float kk = 1.f - std::exp(-(float)std::min(a.dt, 1.0) * 1.4f);
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < App::QFX_COUNT; ++i) {
         a.qfx[i] += (t[i] - a.qfx[i]) * kk;
         if (std::fabs(a.qfx[i] - t[i]) < 0.004f) a.qfx[i] = t[i];
     }
-    // the clocks the clouds, fog, wind, snow and blizzard move by (see app.h): they only ever add up, so nothing jumps when the forecast or the window changes
+    // the clocks the weather moves by (see app.h): they only ever add up, so nothing jumps when the forecast or the window changes
     {
         const double dtc = std::min(std::max(a.dt, 0.0), 0.25);
         const float side = windSide(a);
@@ -1385,7 +2541,7 @@ void quietFxStep(App& a) {
         a.fxFrontT += dtc * side * (1.0 + 0.03 * a.fxWk);
         a.fxFogT += dtc * side * (1.0 + 0.10 * a.fxWk);
         a.fxSnowT += dtc;
-        if (a.qfx[1] < 0.01f) gWindFlip = side;
+        if (a.qfx[1] < 0.01f && a.qfx[11] < 0.01f) gWindFlip = side;
         else if (gWindFlip != side) {
             const float step = (float)(dtc / 0.65);
             gWindFlip = gWindFlip < side ? std::min(side, gWindFlip + step) : std::max(side, gWindFlip - step);
@@ -1397,14 +2553,18 @@ void quietFxStep(App& a) {
         const float bGust = 0.5f + 0.5f * std::sin(ph(gustT, 0.55) + 0.85f * std::sin(ph(gustT, 0.21)));
         const float bBoost = 0.45f * clamp01((a.fxWk - 32.f) / 36.f);
         a.fxBlizzT += dtc * (0.95 + 0.65 * bGust * bGust + bBoost);
+        const float gGust = 0.5f + 0.5f * std::sin(ph(gustT, 0.68) + 0.90f * std::sin(ph(gustT, 0.27)));
+        a.fxGaleT += dtc * (1.15 + 0.85 * gGust * gGust + 0.50f * clamp01((a.fxWk - 36.f) / 36.f));
     }
-    // the light: heavy cloud and storms darken and cool it, fog flattens and mutes it, snow brings a gentle cool wintry overcast, blizzard brings deep stormy chill + blowing haze.
+    // the light: heavy cloud, storms, hail and blizzards darken and cool it; fog and drizzle add soft atmospheric haze; sleet brings wintry chill.
     {
         const float cl = clamp01((a.qfx[0] - 0.3f) / 0.7f);                // 0 at a third of the sky, 1 under a solid lid
-        float gl = 0.90f * std::pow(cl, 1.4f) + 0.15f * a.qfx[2] + 0.12f * a.qfx[6];
-        gl = std::max(gl, std::max(std::max(0.97f * a.qfx[4], a.qfx[3]), 0.82f * a.qfx[7]));
-        const float hz = std::max(std::max(a.qfx[5], 0.16f * a.qfx[6]), 0.34f * a.qfx[7]);
-        gl *= 1.f - 0.55f * a.qfx[5] * (1.f - 0.65f * a.qfx[7]);          // calm fog is milky; a blizzard stays dramatic and stormy
+        float gl = 0.90f * std::pow(cl, 1.4f) + 0.15f * a.qfx[2] + 0.12f * a.qfx[6] + 0.14f * a.qfx[8] + 0.22f * a.qfx[9];
+        gl = std::max(gl, std::max(std::max(0.97f * a.qfx[4], a.qfx[3]), std::max(0.82f * a.qfx[7], 0.88f * a.qfx[10])));
+        gl = std::max(gl, std::max(0.55f * a.qfx[9], 0.44f * a.qfx[11]));
+        float hz = std::max(std::max(a.qfx[5], 0.16f * a.qfx[6]), 0.34f * a.qfx[7]);
+        hz = std::max(hz, std::max(0.26f * a.qfx[8], 0.18f * a.qfx[9]));
+        gl *= 1.f - 0.55f * a.qfx[5] * (1.f - 0.65f * std::max(a.qfx[7], a.qfx[10]));
         const float m = a.st.weatherMood && !a.packHoldsColours() ? a.st.moodStrength : 0.f;     // a theme pack (GTA VI, Halloween ...) always keeps its own colours
         a.gloom = clamp01(gl * m); a.haze = clamp01(hz * m);
     }
@@ -1417,22 +2577,35 @@ void quietFxStep(App& a) {
     }
 }
 
-void quietFxRelease(gfx::Gfx& g) { freeSlot(g, gRainStreak); for (auto& s : gRainSplash) freeSlot(g, s); for (auto& s : gCloud) freeSlot(g, s); for (auto& s : gFog) freeSlot(g, s); freeSlot(g, gCeiling); freeSlot(g, gMist); freeSlot(g, gFront); freeSlot(g, gSnowFlake); freeSlot(g, gBlizzStreak); freeSlot(g, gBlizzDrift); }
+void quietFxRelease(gfx::Gfx& g) {
+    freeSlot(g, gRainStreak);
+    for (auto& s : gRainSplash) freeSlot(g, s);
+    for (auto& s : gCloud) freeSlot(g, s);
+    for (auto& s : gFog) freeSlot(g, s);
+    freeSlot(g, gFogGlow);
+    freeSlot(g, gCeiling); freeSlot(g, gMist); freeSlot(g, gFront);
+    freeSlot(g, gSnowFlake); freeSlot(g, gBlizzStreak); freeSlot(g, gBlizzDrift);
+    freeSlot(g, gDrizzleStreak); freeSlot(g, gSleetStreak); freeSlot(g, gHailStone); freeSlot(g, gGaleGust);
+}
 
 std::string quietFxDescribe(const App& a) {
     if (!a.st.quietFx) return "Switched off. No weather is drawn behind the clock.";
-    float t[8]; targets(a, t);
+    float t[App::QFX_COUNT]; targets(a, t);
     if (a.st.quietPreview != 0) {
-        static const char* n[12] = {"", "clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "fog", "the sun flare", "snowfall", "a harsh snowstorm (blizzard)"};
-        return std::string("Previewing ") + n[std::max(1, std::min(11, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
+        static const char* n[16] = {"", "sculpted clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "cinematic fog", "the sun flare", "snowfall", "a harsh snowstorm (blizzard)", "silky drizzle", "freezing sleet", "a bouncing hailstorm", "a howling coastal gale"};
+        return std::string("Previewing ") + n[std::max(1, std::min(15, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
     }
     if (!a.wx.valid) return "No weather yet, so nothing is drawn.";
     std::string parts; int cnt = 0;
     auto add = [&](const char* p) { parts += std::string(cnt++ ? ", " : "") + p; };
     if (t[3] > 0) return "A severe storm: a tornado twists up behind the clock, with lightning.";
+    if (t[10] > 0.20f) return t[4] > 0 ? "A hailstorm with thunder: faceted ice stones and lightning." : "Hail: faceted ice stones bouncing across the clock.";
     if (t[7] > 0.20f) return t[4] > 0 ? "A thundersnow blizzard: driving snow, howling wind and lightning." : "A harsh snowstorm: wind-driven snow and swirling spindrift across the clock.";
+    if (t[9] > 0.20f) return "Sleet: icy freezing streaks mixed with wet snow.";
     if (t[4] > 0) return t[2] > 0 ? "A thunderstorm: heavy cloud, lightning and rain." : "Thunder with cloud and no rain: heavy cloud and lightning.";
-    if (t[5] > 0.6f) return "Fog: soft banks drift low behind the clock.";
+    if (t[11] > 0.25f) return "A coastal gale: sweeping wind ribbons and swirling leaves across the sky.";
+    if (t[5] > 0.6f) return "Fog: layered valley mist drifting softly behind the clock.";
+    if (t[8] > 0.20f) return "Drizzle: ultra-fine misty rain and gentle surface ripples.";
     if (t[5] > 0) add("mist");
     if (t[0] > 0) add("clouds");
     if (t[1] > 0) add("wind");
@@ -1457,7 +2630,7 @@ void drawSunFlare(Ctx& c) {
     const bool preview = a.st.quietPreview == 9;
     // The Sunlit theme is made for the flare: there the Sun glows ALL DAY, walking across the top of the screen from the left edge (east) to the right
     // edge (west) as it does across the sky map, gentle at noon and warmest when it is low. In every other theme only the low morning and evening Sun shows.
-    if (a.st.theme == THEME_MIDNIGHT) return;                                         // a deep night sky has no flare
+    if (a.st.theme == THEME_GALAXY || a.st.theme == THEME_MIDNIGHT) return;           // deep nocturnal themes have no daytime sun flare
     const bool sunlit = a.st.theme == THEME_SUNLIT || a.st.theme == THEME_SUNLIT2;
     float alt = (float)a.sun.hor.alt, az = (float)a.sun.hor.az;
     bool morning = az < 180.f;
@@ -1466,7 +2639,8 @@ void drawSunFlare(Ctx& c) {
     if (sunlit) k = smoothstep(-3.5f, 0.5f, alt) * (0.58f + 0.42f * (1.f - smoothstep(6.f, 30.f, alt)));
     if (preview) k = std::max(k, 0.9f);
     if (k < 0.01f) return;
-    const float covered = std::max(std::max(a.qfx[0], a.qfx[5]), std::max(std::max(a.qfx[2], std::max(a.qfx[6], a.qfx[7])), a.qfx[4]));      // clouds, fog, rain, snow, blizzard, thunder (eased)
+    float covered = std::max(std::max(a.qfx[0], a.qfx[5]), std::max(std::max(a.qfx[2], std::max(a.qfx[6], a.qfx[7])), a.qfx[4]));
+    covered = std::max(covered, std::max(a.qfx[8], std::max(a.qfx[9], a.qfx[10])));
     k *= 1.f - 0.92f * clamp01(covered);
     k *= P.dark ? 1.f : (sunlit ? 0.95f : 0.6f);                                       // on a bright page a warm glow needs less, a sunny one a little less than none
     k *= 0.7f + 0.3f * std::max(0.4f, std::min(2.f, a.st.quietStrength));
@@ -1505,17 +2679,20 @@ void drawSunFlare(Ctx& c) {
     }
 }
 
-// Rain, snow & blizzard on the Sky face: drawn behind the sky dome and labels so every label stays legible.
+// Precipitation on the Sky face (rain, drizzle, sleet, hail, snow & blizzard): drawn behind the sky dome and labels so every label stays legible.
 void drawSkyRain(Ctx& c) {
     App& a = c.a;
     if (!a.st.quietFx || !a.st.skyRain) return;
-    if (a.qfx[2] < 0.01f && a.qfx[6] < 0.01f && a.qfx[7] < 0.01f) return;
+    if (a.qfx[2] < 0.01f && a.qfx[6] < 0.01f && a.qfx[7] < 0.01f && a.qfx[8] < 0.01f && a.qfx[9] < 0.01f && a.qfx[10] < 0.01f) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float side = windSide(a), q = std::max(0.3f, std::min(1.f, a.fxQuality));
     const Frame F = makeFrame(c, heavyOf(a));
     const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
     if (a.qfx[2] > 0.01f) drawRain(c, F, a.qfx[2] * 0.7f, side, q * 0.7f, true);
+    if (a.qfx[8] > 0.01f) drawDrizzle(c, F, a.qfx[8] * 0.78f, side, q * 0.72f, true);
+    if (a.qfx[9] > 0.01f) drawSleet(c, F, a.qfx[9] * 0.76f, side, q * 0.72f, true);
+    if (a.qfx[10] > 0.01f) drawHail(c, F, a.qfx[10] * 0.75f, side, q * 0.72f, true);
     if (calmSnow > 0.01f) drawSnow(c, F, calmSnow * 0.85f, side, q * 0.75f, true);
     if (a.qfx[7] > 0.01f) drawBlizzard(c, F, a.qfx[7] * 0.78f, side, q * 0.72f, true);
 }
@@ -1523,43 +2700,61 @@ void drawSkyRain(Ctx& c) {
 void drawQuietFx(Ctx& c) {
     App& a = c.a;
     drawScenery(c);                                                           // behind the weather: a cloud drifts over it
-    if (!a.st.quietFx) return;
-    if (a.qfx[0] + a.qfx[1] + a.qfx[2] + a.qfx[3] + a.qfx[4] + a.qfx[5] + a.qfx[6] + a.qfx[7] < 0.01f) return;
+    if (!a.st.quietFx || !a.qfxAnyActive()) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float side = windSide(a), q = std::max(0.3f, std::min(1.f, a.fxQuality));
     const float heavy = heavyOf(a);
     const Frame F = makeFrame(c, heavy);
     const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
-    const float windVis = a.qfx[1] * (1.f - 0.78f * a.qfx[7]);
+    const float windVis = a.qfx[1] * (1.f - 0.78f * std::max(a.qfx[7], a.qfx[11]));
     const float fogVis = a.qfx[5] * (1.f - 0.85f * a.qfx[7]);      // blizzard renders its own billowing whiteout drift curtains
     if (a.qfx[0] > 0.01f) drawClouds(c, F, a.qfx[0], heavy);
-    if (fogVis > 0.01f) drawFog(c, F, fogVis);
+    if (fogVis > 0.01f) drawFog(c, F, fogVis, q);
     if (a.qfx[4] > 0.01f) drawLightning(c, a.qfx[4], a.qfx[3] > 0.01f, a.qfx[0], heavy);
     if (a.qfx[3] > 0.01f) drawTornado(c, a.qfx[3], side, q);
+    if (a.qfx[8] > 0.01f) drawDrizzle(c, F, a.qfx[8], side, q);
     if (a.qfx[2] > 0.01f) drawRain(c, F, a.qfx[2], side, q);
+    if (a.qfx[9] > 0.01f) drawSleet(c, F, a.qfx[9], side, q);
+    if (a.qfx[10] > 0.01f) drawHail(c, F, a.qfx[10], side, q);
     if (calmSnow > 0.01f) drawSnow(c, F, calmSnow, side, q);
     if (a.qfx[7] > 0.01f) drawBlizzard(c, F, a.qfx[7], side, q);
+    if (a.qfx[11] > 0.01f) drawGale(c, F, a.qfx[11], side, q);
     if (windVis > 0.01f) drawWind(c, F, windVis, q);
 }
 
-// Focus tab ambient backdrop: lets users pair their focus session with soothing rain, snow, blizzard, clouds, fog, storm, stars or live weather.
+// Focus tab ambient backdrop: 14 curated studio atmospheres (Off, Live, Rain, Snow, Clouds, Fog, Storm, Stars, Blizzard, Drizzle, Sleet, Hail, Gale, Midnight).
 void drawFocusBackdrop(Ctx& c) {
     App& a = c.a;
     const int mode = a.st.focusFx;
-    if (mode <= 0) return;
+    if (mode <= 0) {                                          // OFF: still honour the Midnight & Galaxy themes' own signature sky backdrops
+        if (!a.packTheme()) {
+            if (a.st.theme == THEME_MIDNIGHT) drawMidnightBackdropOnly(c, 0.f, false);
+            else if (a.st.theme == THEME_GALAXY && a.st.spaceFx) drawSpaceBackdropOnly(c);
+        }
+        return;
+    }
     gFx = std::max(0.55f, std::min(1.6f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float q = std::max(0.35f, std::min(1.f, a.fxQuality));
-    if (mode == 1) {                                          // LIVE: outdoor weather + theme scenery
+    if (mode == 1) {                                          // LIVE: outdoor weather + theme scenery (Midnight / Galaxy / Sunlit II)
         drawQuietFx(c);
         return;
     }
-    if (mode == 7) {                                          // STARS: deep starry cosmos + occasional serene meteor
+    if (mode == 7) {                                          // STARS: Galaxy deep starry cosmos + occasional serene meteor
         drawSpaceBackdropOnly(c);
         return;
     }
-    const float heavy = (mode == 6) ? 0.85f : (mode == 8 ? 0.80f : (mode == 2 ? 0.30f : 0.15f));
+    if (mode == 13) {                                         // MIDNIGHT: artistic Prussian-velvet & moonlit champagne nocturne
+        drawMidnightBackdropOnly(c, 0.f, true);
+        return;
+    }
+    const float heavy = (mode == 6 || mode == 11) ? 0.85f
+                      : (mode == 8 ? 0.80f : (mode == 10 || mode == 12 ? 0.50f : (mode == 2 ? 0.30f : 0.14f)));
+    if (a.st.theme == THEME_MIDNIGHT && !a.packTheme()) {     // Midnight theme's lunar airglow & zenith stars breathe softly behind Focus weather
+        const float dim = (mode == 4 || mode == 3 || mode == 9 || mode == 12) ? 0.36f : 0.62f;
+        drawMidnightBackdropOnly(c, dim, false);
+    }
     const Frame F = makeFrame(c, heavy);
     switch (mode) {
         case 2:                                               // RAIN: cozy lo-fi rain window
@@ -1570,12 +2765,12 @@ void drawFocusBackdrop(Ctx& c) {
             drawClouds(c, F, 0.55f, 0.12f);
             drawSnow(c, F, 0.90f, 1.f, q);
             break;
-        case 4:                                               // CLOUDS: slow drifting clouds
-            drawClouds(c, F, 0.88f, 0.12f);
+        case 4:                                               // CLOUDS: sculpted volumetric sky
+            drawClouds(c, F, 0.90f, 0.12f);
             break;
-        case 5:                                               // FOG: calm mountain mist
-            drawClouds(c, F, 0.35f, 0.10f);
-            drawFog(c, F, 0.92f);
+        case 5:                                               // FOG: cinematic mountain valley mist
+            drawClouds(c, F, 0.32f, 0.10f);
+            drawFog(c, F, 0.95f, q);
             break;
         case 6:                                               // STORM: moody rain + distant sheet lightning
             drawClouds(c, F, 0.92f, 0.85f);
@@ -1585,6 +2780,24 @@ void drawFocusBackdrop(Ctx& c) {
         case 8:                                               // BLIZZARD: fierce driving snowstorm
             drawClouds(c, F, 0.94f, 0.80f);
             drawBlizzard(c, F, 1.0f, 1.f, q);
+            break;
+        case 9:                                               // DRIZZLE: silky poetic mist-rain
+            drawClouds(c, F, 0.68f, 0.14f);
+            drawFog(c, F, 0.24f, q * 0.7f);
+            drawDrizzle(c, F, 0.96f, 1.f, q);
+            break;
+        case 10:                                              // SLEET: wintry freezing rain & wet snow
+            drawClouds(c, F, 0.84f, 0.50f);
+            drawSleet(c, F, 0.96f, 1.f, q);
+            break;
+        case 11:                                              // HAIL: dramatic bouncing ice storm
+            drawClouds(c, F, 0.94f, 0.85f);
+            drawLightning(c, 0.45f, false, 0.94f, 0.85f);
+            drawHail(c, F, 0.96f, 1.f, q);
+            break;
+        case 12:                                              // GALE: sweeping coastal windstorm
+            drawClouds(c, F, 0.78f, 0.48f);
+            drawGale(c, F, 0.96f, 1.f, q);
             break;
         default: break;
     }

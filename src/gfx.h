@@ -54,7 +54,7 @@ struct Palette {
     float skyOwn = 0;
     bool dark = true;
 };
-extern const Palette PAL_DAY, PAL_SUNLIT, PAL_SUNLIT2, PAL_DAWN, PAL_SUNSET, PAL_DUSK, PAL_NIGHT, PAL_MIDNIGHT, PAL_EMBER;
+extern const Palette PAL_DAY, PAL_SUNLIT, PAL_SUNLIT2, PAL_DAWN, PAL_SUNSET, PAL_DUSK, PAL_NIGHT, PAL_MIDNIGHT, PAL_GALAXY, PAL_EMBER;
 Palette lerpPalette(const Palette& a, const Palette& b, float t);
 // The light of the day under weather: gloom (0..1) is heavy cloud or storm, haze (0..1) is fog. Darkens, cools and flattens a palette.
 Palette moodPalette(const Palette& in, float gloom, float haze);
@@ -110,6 +110,7 @@ public:
     void arc(float cx, float cy, float r, float startDeg, float sweepDeg, const Color& c, float width, bool round = true); // 0 deg = up, clockwise
     void radialFill(float cx, float cy, float r, const std::vector<Stop>& stops, float opacity = 1.f);
     void radialFillOffset(float cx, float cy, float r, float ox, float oy, const std::vector<Stop>& stops);
+    void radialEllipse(float cx, float cy, float rx, float ry, float ox, float oy, const std::vector<Stop>& stops, float opacity = 1.f);
     void glow(float cx, float cy, float r, const Color& c, float intensity = 1.f);
     void glowEllipse(float cx, float cy, float rx, float ry, const Color& c, float intensity = 1.f);
     void fillCircleVGradient(float cx, float cy, float r, const Color& top, const Color& bottom);   // top of the circle to its bottom

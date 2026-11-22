@@ -1,22 +1,22 @@
-MERIDIAN 2.9.8 "Glass"  -  Sonnet Edition  -  an always-on clock for Windows
+MERIDIAN 2.9.9 "Nimbus"  -  Sonnet Edition  -  an always-on clock for Windows
 =============================================================================
 
 Source code. Build with build.bat (Windows, MinGW-w64) or build.sh (Linux cross-compile). The result is one
 Meridian.exe; put the "themes" folder next to it to use theme packs.
-The setup wizard (Meridian-Setup-2.9.8.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
+The setup wizard (Meridian-Setup-2.9.9.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
 
 Faces (Left/Right arrows, or 1-6; theme packs add more after Focus)
   Sky      big clock, a rotating left panel (what is special today, sky events, holidays,
            world clocks), a live sky map with the Sun, Moon, planets and constellations in their real
            positions, day/night band, hourly weather and air quality badge
-  Quiet    just the time and date, with the weather drifting behind them (clouds, wind, rain, snow, blizzard, fog, a tornado)
+  Quiet    just the time and date, with artistic weather drifting behind them (clouds, fog, wind, gale, drizzle, rain, sleet, hail, snow, blizzard, thunder, tornado)
   Timer    countdown, stopwatch with laps, alarm
   Almanac  Moon close-up and phase dates, full sun table with Golden & Blue Hour, planets, 7-day forecast, what is special today
   Widgets  pages of tiles that take turns, like the rotating panel on the Sky face (see below)
   Focus    lo-fi focus sanctuary with an independent focus timer (25m default), smaller live clock, live weather card and ambient backdrops
 
 Themes (T)
-  Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight, Ember. Dawn is the pre-sunrise counterpart of Dusk: deep blue at the top,
+  Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight, Galaxy, Ember. Dawn is the pre-sunrise counterpart of Dusk: deep blue at the top,
   rose and peach toward the horizon. Sunset is the orange one: wine red at the top burning to bright orange at
   the bottom, with cream text. Auto uses Dawn before sunrise and Dusk after sunset (pick Sunset yourself).
   The sky map on the Sky face wears the theme too (new in 2.9.1): Sunset is orange at the rim going up into plum, Dusk soft violet, Dawn
@@ -302,8 +302,8 @@ Away: Meridian on, then sleep (new in 2.8.0)
   Not tried on a real PC by the author: the sleep itself (Windows' SetSuspendState) was only checked with a test hook, so tell me if a PC does
   not go to sleep.
 
-Setup file (Meridian-Setup-2.9.8.exe, a separate download next to this zip)
-  If you would rather have a real installer than a folder, run Meridian-Setup-2.9.8.exe. It is a 64-bit graphical wizard drawn by Meridian's own
+Setup file (Meridian-Setup-2.9.9.exe, a separate download next to this zip)
+  If you would rather have a real installer than a folder, run Meridian-Setup-2.9.9.exe. It is a 64-bit graphical wizard drawn by Meridian's own
   code (same fonts, same Moon), one file with nothing unpacked beside it, and it needs NO administrator rights: it installs for you alone into
   %LOCALAPPDATA%\Programs\Meridian (or a folder you pick). The pages:
     Welcome        greets you by name, with tonight's real Moon (phase and all) drawn from the same astronomy code as the app
@@ -325,13 +325,35 @@ Setup file (Meridian-Setup-2.9.8.exe, a separate download next to this zip)
   Not code-signed: Windows may say "Windows protected your PC": click "More info", then "Run anyway". Windows 11's Smart App Control, if it is
   on, can refuse any unsigned program with no "Run anyway" button; then use the plain Meridian.exe from the zip, turn Smart App Control off
   (Windows Security > App & browser control), or sign the setup with a code-signing certificate (see setup\BUILD.txt).
-  For scripts: Meridian-Setup-2.9.8.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
+  For scripts: Meridian-Setup-2.9.9.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
   4 = it is already running);  /D=C:\Tools\Meridian picks the folder;  /ScreenSaver=5 also sets the screen saver
   (5 minutes, 1-60);  /SleepAfter=60 also puts the PC to sleep after Meridian has been on 60 more minutes (20-120; it turns the screen saver on
   too, 10 minutes unless /ScreenSaver says otherwise);  /NoSleep takes the sleep step away;  /StartWithWindows opens it at sign-in;
   /NoDesktop  /NoStartMenu  /NoGTA  /NoHalloween leave those out.
   Uninstall from a script: "<folder>\uninstall.exe" /uninstall /S  (add /DeleteSettings to remove settings too).
   Building the setup yourself: see setup\BUILD.txt in the source.
+
+New in 2.9.9 "Nimbus"  (22 November 2026)
+  Completely remade volumetric Clouds and cinematic atmospheric Fog, four new artistic weather systems (Drizzle, Sleet, Hail & Gale), Galaxy theme rename, and a brand-new artistic Midnight theme:
+  - Galaxy & Brand-New Artistic Midnight Theme: the deep-space cosmos theme (Milky Way, nebulae, Andromeda, Saturn, meteors,
+    comet & U-key UFO visitor) is now named Galaxy, while a brand-new Midnight theme brings a gallery-grade Prussian-velvet
+    to moonlit cerulean horizon palette, moon-pearl typography, champagne-gold & cerulean accents, frosted sapphire-crystal
+    surfaces, subtle lunar airglow and crisp zenith stars crafted to flatter every face and every weather mode.
+  - Remade Sculpted Volumetric Clouds: replaces uniform circle puffs with three sky-altitude archetypes painted with smooth
+    directional elliptical gradients — feathery wind-swept cirrus wisps, asymmetric cauliflower cumulus towers with flat
+    shadowed bases and crisp sunlit/moonlit crown rims, and sweeping stratocumulus shelves sorted cleanly back-to-front
+    across all 10 themes, paired with a layered storm canopy and an ethereal feathered foreground cloud veil.
+  - Remade Cinematic Atmospheric Fog: four-tone layered valley mist with luminous contrast on both dark and light themes —
+    diffused upper-sky atmospheric light bloom, three sculpted rolling mist-bank sprites with cool troughs beneath bright
+    crests, counter-drifting thermal depth strata, slow curling gossamer mist tendrils, floating dew-light micro-motes, and
+    a whisper-soft low foreground mist veil on Quiet.
+  - Four New Artistic Weather Systems: Drizzle (ultra-fine misty micro-rain veil with delicate ground ripples & damp haze),
+    Sleet (brisk ice-beaded freezing streaks interwoven with tumbling wet snowflakes & icy ground flecks), Hail (faceted
+    glacier-lit ice stones plunging into kinetic two-hop parabolic ground bounces with crystalline shard sparks), and Gale
+    (sweeping double-curled painterly storm ribbons, aerodynamic gust-shear mist plumes, motion-streaked spray & swirling
+    leaf whirlwinds).
+  - Full Integration: auto-triggers from live WMO weather codes & wind gusts, falls behind the Sky map (precipitation),
+    adds dedicated preview chips in Settings > Quiet, and expands Focus Studio's Ambience Orb to 14 studio backdrops (including Midnight alongside Stars).
 
 New in 2.9.8 "Glass"  (22 November 2026)
   Tactile Liquid Glass physics across every button, sliding segmented pills, and touch-reactive Focus Studio cards:

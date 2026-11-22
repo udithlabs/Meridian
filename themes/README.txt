@@ -2,8 +2,8 @@ MERIDIAN THEME PACKS
 ====================
 
 A theme pack is a FOLDER. Drop it in this "themes" folder and Meridian finds it by itself (within about 4 seconds, no
-restart). Delete the folder and it is gone again. The built-in themes (Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight, Ember) and the
-built-in tabs (Sky, Quiet, Timer, Almanac, Widgets) are part of the program, so a pack can never change or break them.
+restart). Delete the folder and it is gone again. The built-in themes (Auto, Day, Sunlit, Sunlit II, Dawn, Sunset, Dusk, Night, Midnight, Galaxy, Ember) and the
+built-in tabs (Sky, Quiet, Timer, Almanac, Widgets, Focus) are part of the program, so a pack can never change or break them.
 
 Where Meridian looks (first one wins if two packs have the same id):
     1.  the "themes" folder next to Meridian.exe            (this folder)
@@ -50,7 +50,7 @@ must be a real one (0.5, not .5 or 05), and in text only these escapes exist:  \
       "starts":  "2026-11-01",      optional: hidden before this date
       "expires": "2026-12-20",      optional: hidden from this date on (YYYY-MM-DD)
       "yearly": false,              true: the starts/expires window repeats every year, and the dates are written without a year (MM-DD)
-      "base": "night",              start colours from a built-in theme: day sunlit sunlit2 dawn sunset dusk night midnight ember
+      "base": "night",              start colours from a built-in theme: day sunlit sunlit2 dawn sunset dusk night midnight galaxy ember
       "palette": { ... },           colours you want to change
       "fonts": { ... },             your own fonts
       "countdowns": { ... },        dates to count to

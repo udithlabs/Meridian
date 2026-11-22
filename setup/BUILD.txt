@@ -17,7 +17,7 @@ To build:
   2. Windows (MinGW-w64 with g++ and windres on PATH, and Python 3):   build-setup.bat
      Linux (mingw-w64 cross compiler, python3):                      ./build.sh
   The result is Meridian-Setup-<version>.exe in this folder. Change the version in four places: here and in setup_main.cpp, install.cpp,
-  setup.rc / setup.manifest / the two build scripts (search for "2.9.8").
+  setup.rc / setup.manifest / the two build scripts (search for "2.9.9").
 
 What the finished setup does
   - installs for the current user only (no administrator needed) into %LOCALAPPDATA%\Programs\Meridian, or a folder you pick
@@ -30,8 +30,8 @@ What the finished setup does
     because a running program cannot delete itself
 
 Command line
-  Meridian-Setup-2.9.8.exe /S                      silent install, default choices (exit code 0 = fine, 2 = failed, 3 = Meridian would not close, 4 = already running)
-  Meridian-Setup-2.9.8.exe /S /D=C:\Tools\Meridian other folder (supports quotes or unquoted paths)
+  Meridian-Setup-2.9.9.exe /S                      silent install, default choices (exit code 0 = fine, 2 = failed, 3 = Meridian would not close, 4 = already running)
+  Meridian-Setup-2.9.9.exe /S /D=C:\Tools\Meridian other folder (supports quotes or unquoted paths)
   /ScreenSaver=5   also make it the screen saver after 5 minutes (1-60)     /StartWithWindows   also open it when you sign in
   /SleepAfter=60   also put the PC to sleep after Meridian has been on 60 more minutes (20-120; turns the screen saver on too)
   /NoSleep         no sleep step (removes an earlier one)
@@ -41,4 +41,4 @@ Command line
 Not code-signed
   The setup (like Meridian.exe) has no publisher signature. Windows SmartScreen may say "Windows protected your PC" (More info > Run anyway),
   and Windows 11's Smart App Control can refuse unsigned programs outright: turn it off in Windows Security > App & browser control,
-  or sign the exe with a code-signing certificate:  signtool sign /fd sha256 /a Meridian-Setup-2.9.8.exe
+  or sign the exe with a code-signing certificate:  signtool sign /fd sha256 /a Meridian-Setup-2.9.9.exe

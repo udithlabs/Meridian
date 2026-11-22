@@ -40,7 +40,7 @@ void App::skySpinChanged() {
 }
 
 const char* App::themeName() const {
-    static const char* n[THEME_COUNT] = {"Auto", "Day", "Dusk", "Night", "Ember", "Dawn", "Sunset", "Sunlit", "Sunlit II", "Midnight"};
+    static const char* n[THEME_COUNT] = {"Auto", "Day", "Dusk", "Night", "Ember", "Dawn", "Sunset", "Sunlit", "Sunlit II", "Galaxy", "Midnight"};
     if (themes::Pack* p = packTheme()) return p->name.c_str();                      // a theme pack is in use: its name
     return n[st.theme % THEME_COUNT];
 }
@@ -69,6 +69,7 @@ gfx::Palette App::basePalette() const {
         case THEME_SUNSET: return PAL_SUNSET;
         case THEME_SUNLIT: return PAL_SUNLIT;
         case THEME_SUNLIT2: return PAL_SUNLIT2;
+        case THEME_GALAXY: return PAL_GALAXY;
         case THEME_MIDNIGHT: return PAL_MIDNIGHT;
         case THEME_NIGHT: return bed ? PAL_EMBER : PAL_NIGHT;
         case THEME_EMBER: return PAL_EMBER;

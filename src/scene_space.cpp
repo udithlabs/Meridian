@@ -32,7 +32,7 @@ float smoother(float x) { x = clamp01(x); return x * x * x * (x * (x * 6.f - 15.
 
 // ---------------------------------------------------------------- cached images
 struct Slot { Bitmap bmp; uint64_t key = 0, failed = 0; };
-Slot gBg, gNebulaPulse, gTail[4], gShip, gRays, gCirrus;  // tails: white, warm, green, ion (cyan)
+Slot gBg, gNebulaPulse, gMidnightBg, gTail[4], gShip, gRays, gCirrus;  // tails: white, warm, green, ion (cyan)
 int gBudget = 0; double gBudgetAt = -1e18;
 
 // (Re)draws an image when its key changed, a couple per frame at most. True when there is an image to use.
@@ -85,7 +85,8 @@ double nextStart(const Kind& K, double t) {
     for (long long k = k0; k < k0 + 6; ++k) { double st; if (slotEvent(K, k, st) && st > t) return st; }
     return 1e18;
 }
-bool spaceOn(const App& a) { return a.st.theme == THEME_MIDNIGHT && a.st.spaceFx && (a.st.face == FACE_QUIET || a.st.face == FACE_SKY) && !a.packTheme(); }
+bool spaceOn(const App& a) { return a.st.theme == THEME_GALAXY && a.st.spaceFx && (a.st.face == FACE_QUIET || a.st.face == FACE_SKY) && !a.packTheme(); }
+bool midnightOn(const App& a) { return a.st.theme == THEME_MIDNIGHT && (a.st.face == FACE_QUIET || a.st.face == FACE_SKY || a.st.face == FACE_FOCUS) && !a.packTheme(); }
 bool shipOn(const App& a, double t, float& u, long long& k, uint64_t& flightId) {       // the saucer: today's flight, U key, or aliensarenuts (2x/min)
     if (!a.st.aliensEnabled) return false;
     if (a.alienAt > 0 && t >= a.alienAt && t <= a.alienAt + kShipDur) {
@@ -114,8 +115,14 @@ bool shipOn(const App& a, double t, float& u, long long& k, uint64_t& flightId) 
     return true;
 }
 
-// how much the weather hides the sky: cloud, fog, rain, snow, blizzard and storms put the stars out
-float skyCover(const App& a) { return clamp01(std::max(std::max(0.9f * a.qfx[0], a.qfx[5]), std::max(std::max(0.8f * a.qfx[2], std::max(0.72f * a.qfx[6], 0.95f * a.qfx[7])), a.qfx[4]))); }
+// how much the weather hides the sky: cloud, fog, drizzle, rain, sleet, hail, snow, blizzard and storms put the stars out
+float skyCover(const App& a) {
+    float c = std::max(0.9f * a.qfx[0], a.qfx[5]);
+    c = std::max(c, std::max(0.8f * a.qfx[2], std::max(0.72f * a.qfx[6], 0.95f * a.qfx[7])));
+    c = std::max(c, std::max(0.65f * a.qfx[8], std::max(0.85f * a.qfx[9], 0.95f * a.qfx[10])));
+    c = std::max(c, std::max(a.qfx[4], 0.35f * a.qfx[11]));
+    return clamp01(c);
+}
 
 // ---------------------------------------------------------------- Midnight & Stars: deep-space cosmos
 // Authentic O-B-A-F-G-K-M stellar spectral palette
@@ -901,10 +908,121 @@ void drawSunRays(Ctx& c) {
     g.glow(sx, sy, 0.30f * c.H, rgb(0xFFF3CE), 0.30f * vis);                               // the glare around the Sun itself
 }
 
-// ---------------------------------------------------------------- Midnight
+// ---------------------------------------------------------------- Midnight: artistic Prussian-velvet & moonlit champagne nocturne
+// Quiet, aristocratic nocturnal airglow engineered to flatter every weather mode and every face without competing with typography:
+//   - Soft Prussian-indigo & cerulean horizon airglow washing gently across the lower sky
+//   - Subtle upper-right moonlit silver-champagne atmospheric crown glow
+//   - Whisper-thin nocturnal mist-veil bands for atmospheric depth
+//   - ~160 crisp sparse zenith stars (diamond pearl, pale champagne, cerulean ice) fading cleanly toward the horizon & behind weather
+Bitmap buildMidnightNocturne(Ctx& c) {
+    Gfx& g = c.g; const float W = c.W, H = c.H, s = c.s;
+    const int wi = (int)W, hi = (int)H;
+    if (wi < 4 || hi < 4 || !g.beginSprite(wi, hi)) return Bitmap{};
+
+    // 1. Subtle luminous Prussian-cerulean horizon airglow along the bottom sky
+    g.radialEllipse(W * 0.50f, H * 1.04f, W * 0.78f, H * 0.42f, 0.f, -H * 0.06f, {
+        {0.00f, withA(rgb(0x1E3D6E), 0.36f)},
+        {0.42f, withA(rgb(0x152B52), 0.22f)},
+        {0.78f, withA(rgb(0x0D1B38), 0.08f)},
+        {1.00f, withA(rgb(0x081024), 0.00f)},
+    }, 1.f);
+    g.radialEllipse(W * 0.26f, H * 0.96f, W * 0.48f, H * 0.26f, 0.f, 0.f, {
+        {0.00f, withA(rgb(0x234A78), 0.20f)},
+        {0.55f, withA(rgb(0x152F58), 0.08f)},
+        {1.00f, withA(rgb(0x0A152C), 0.00f)},
+    }, 1.f);
+
+    // 2. Quiet upper-right moonlit atmospheric crown (silver-cerulean + whisper of champagne moonlight)
+    g.radialEllipse(W * 0.80f, H * 0.14f, W * 0.46f, H * 0.36f, 0.f, 0.f, {
+        {0.00f, withA(rgb(0x88C8EC), 0.13f)},
+        {0.38f, withA(rgb(0x4672A8), 0.08f)},
+        {0.72f, withA(rgb(0x1C3460), 0.03f)},
+        {1.00f, withA(rgb(0x0A1428), 0.00f)},
+    }, 1.f);
+    g.radialEllipse(W * 0.83f, H * 0.11f, W * 0.24f, H * 0.20f, 0.f, 0.f, {
+        {0.00f, withA(rgb(0xF0D9A0), 0.085f)},
+        {0.52f, withA(rgb(0xB8C8E4), 0.035f)},
+        {1.00f, withA(rgb(0x1E3258), 0.00f)},
+    }, 1.f);
+
+    // 3. Whisper-soft high nocturnal airglow veil ribbons (adds quiet horizon depth without clutter)
+    for (int b = 0; b < 3; ++b) {
+        const float bx = W * (0.24f + 0.28f * b);
+        const float by = H * (0.76f + 0.07f * b);
+        const float rx = W * (0.36f + 0.10f * hashf(b, 871));
+        const float ry = H * (0.045f + 0.020f * hashf(b, 872));
+        g.radialEllipse(bx, by, rx, ry, 0.f, 0.f, {
+            {0.00f, withA(rgb(0x6C98C8), 0.07f)},
+            {0.50f, withA(rgb(0x3B5E8E), 0.035f)},
+            {1.00f, withA(rgb(0x182A4A), 0.00f)},
+        }, 1.f);
+    }
+
+    // 4. Crisp, serene zenith diamond stars (fading naturally toward the luminous horizon)
+    const int nStars = 165;
+    for (int i = 0; i < nStars; ++i) {
+        const float hx = hashf(i, 881), hy = hashf(i, 882), hm = hashf(i, 883), hc = hashf(i, 884);
+        const float px = W * (0.02f + 0.96f * hx);
+        const float py = H * (0.02f + 0.68f * std::pow(hy, 1.25f));
+        const float horFade = 1.f - smoothstep(H * 0.42f, H * 0.72f, py);
+        if (horFade < 0.04f) continue;
+        const Color col = hc < 0.28f ? rgb(0xA6D6F8) : (hc < 0.68f ? rgb(0xEFF4FF) : rgb(0xF6E5BE));
+        const float br = std::pow(hm, 2.4f);
+        const float r = std::max(0.55f, (0.55f + 1.45f * br) * s);
+        const float a0 = (0.18f + 0.64f * br) * horFade;
+        if (br > 0.55f) g.glow(px, py, r * 4.5f, col, a0 * 0.34f);
+        g.fillCircle(px, py, r, withA(col, a0));
+        if (br > 0.84f) {
+            const float sp = r * 5.2f;
+            g.line(px - sp, py, px + sp, py, withA(col, a0 * 0.36f), std::max(0.65f, 0.75f * s), true);
+            g.line(px, py - sp, px, py + sp, withA(col, a0 * 0.36f), std::max(0.65f, 0.75f * s), true);
+        }
+    }
+    return g.endSprite();
+}
+
+void drawMidnightBackdropOnly(Ctx& c, float weatherDim, bool explicitMode) {
+    App& a = c.a; Gfx& g = c.g;
+    const float sc = clamp01(weatherDim);
+    const float cover = explicitMode ? 1.f : (1.f - 0.72f * sc);
+    const float em = c.P.ember > 0.001f ? 1.f - 0.65f * c.P.ember : 1.f;
+    const float themeMul = (explicitMode && !c.P.dark) ? 0.62f : 1.f;
+    const float vis = clamp01(cover * em * themeMul);
+    if (vis < 0.02f) return;
+    if (explicitMode && a.st.theme != THEME_MIDNIGHT && c.P.dark) {
+        g.vGradientRect(0.f, 0.f, c.W, c.H, withA(rgb(0x050A18), 0.56f * em), withA(rgb(0x111E38), 0.56f * em));
+    }
+    const uint64_t key = mixKey(mixKey(3400, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
+    if (ensure(c, gMidnightBg, key, [&] { return buildMidnightNocturne(c); })) {
+        g.drawBitmapRect(gMidnightBg.bmp, 0.f, 0.f, (float)gMidnightBg.bmp.w, (float)gMidnightBg.bmp.h, vis);
+    }
+    // Whisper-slow twinkling zenith glints (vanish cleanly behind overcast/fog)
+    const float starVis = clamp01((explicitMode ? 1.f : (1.f - 0.92f * sc)) * em * themeMul);
+    if (starVis > 0.05f) {
+        const double t = a.now;
+        for (int i = 0; i < 14; ++i) {
+            const float px = c.W * (0.06f + 0.88f * hashf(i, 891));
+            const float py = c.H * (0.04f + 0.42f * hashf(i, 892));
+            const float tw = 0.5f + 0.5f * std::sin(ph(t, 0.45 + 0.55 * hashf(i, 893), hashf(i, 894) * 6.2831));
+            const float pulse = tw * tw;
+            const Color col = (i % 3 == 0) ? rgb(0xF4DFB0) : ((i % 3 == 1) ? rgb(0xA6D8FA) : rgb(0xF2F6FF));
+            const float r = std::max(0.8f, (1.0f + 0.8f * hashf(i, 895)) * c.s);
+            const float aa = (0.18f + 0.48f * pulse) * starVis;
+            g.glow(px, py, r * 4.0f, col, aa * 0.42f);
+            g.fillCircle(px, py, r, withA(col, aa));
+        }
+    }
+}
+
+void drawMidnightNocturne(Ctx& c) {
+    if (!midnightOn(c.a)) return;
+    drawMidnightBackdropOnly(c, skyCover(c.a), false);
+}
+
+// ---------------------------------------------------------------- Galaxy (deep-space cosmos)
 void drawSpace(Ctx& c) {
     App& a = c.a; Gfx& g = c.g;
-    if (!spaceOn(a)) return;
+    if (!spaceOn(a) && !(a.st.theme == THEME_GALAXY && a.st.spaceFx && a.st.face == FACE_FOCUS && !a.packTheme())) return;
     const float cover = 1.f - 0.88f * skyCover(a), em = c.P.ember > 0.001f ? 1.f - 0.65f * c.P.ember : 1.f;
     const float vis = clamp01(cover * em);
     const double t = a.now;
@@ -981,9 +1099,10 @@ double spaceNextStart(const App& a, double now) {
     return ns;
 }
 
-// everything behind the faces that the theme brings: the Midnight sky or the Sunlit II rays, then the sun flare
+// everything behind the faces that the theme brings: Galaxy cosmos, Midnight nocturne, Sunlit II rays, then the sun flare
 void drawScenery(Ctx& c) {
     drawSpace(c);
+    drawMidnightNocturne(c);
     drawSunRays(c);
     drawSunFlare(c);
 }
@@ -991,6 +1110,7 @@ void drawScenery(Ctx& c) {
 void spaceRelease(Gfx& g) {
     g.freeBitmap(gBg.bmp); gBg.key = gBg.failed = 0;
     g.freeBitmap(gNebulaPulse.bmp); gNebulaPulse.key = gNebulaPulse.failed = 0;
+    g.freeBitmap(gMidnightBg.bmp); gMidnightBg.key = gMidnightBg.failed = 0;
     for (auto& s : gTail) { g.freeBitmap(s.bmp); s.key = s.failed = 0; }
     g.freeBitmap(gShip.bmp); gShip.key = gShip.failed = 0;
     g.freeBitmap(gRays.bmp); gRays.key = gRays.failed = 0;
