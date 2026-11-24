@@ -88,54 +88,57 @@ gfx::Palette App::basePalette() const {
 
 // ---------------------------------------------------------------- caches
 void App::refreshDay() {
-    util::LocalTime L = util::toLocal(now, tzOff);
-    double d0 = util::localMidnight(now, tzOff);
+    const double t = now;
+    util::LocalTime L = util::toLocal(t, tzOff);
+    double d0 = util::localMidnight(t, tzOff);
     dayIndex = L.dayIndex;
     dayCacheTzOff = tzOff;
     dayCacheGeoLat = st.geo.lat; dayCacheGeoLon = st.geo.lon;
     dayEv = dayEvents(d0, st.geo);
     dayEvPrev = dayEvents(d0 - 86400.0, st.geo);
-    today::Input in; in.now = now; in.tzOff = tzOff; in.tzAt = tzAt; in.geo = st.geo; in.h24 = st.h24; in.poya = st.poya; in.omitMoonFill = true; in.custom = st.events; in.storms = stormLines();
+    today::Input in; in.now = t; in.tzOff = tzOff; in.tzAt = tzAt; in.geo = st.geo; in.h24 = st.h24; in.poya = st.poya; in.omitMoonFill = true; in.custom = st.events; in.storms = stormLines();
     todayItems = today::buildToday(in);
     dayLenText = today::dayLengthText(in);
     bandSunAlt.assign(288, -90.f);
     bandMoonUp.assign(288, 0);
     for (int i = 0; i < 288; ++i) {
-        double t = d0 + i * 300.0 + 150.0;
-        bandSunAlt[i] = (float)sunInfo(t, st.geo).hor.alt;
-        bandMoonUp[i] = moonInfo(t, st.geo).hor.alt > -0.8 ? 1 : 0;
+        double ti = d0 + i * 300.0 + 150.0;
+        bandSunAlt[i] = (float)sunInfo(ti, st.geo).hor.alt;
+        bandMoonUp[i] = moonInfo(ti, st.geo).hor.alt > -0.8 ? 1 : 0;
     }
 }
 
 void App::refreshMinute() {
-    minuteCacheAt = now;
-    double d0 = util::localMidnight(now, tzOff);
+    const double t = now;
+    minuteCacheAt = t;
     sunTrack.clear(); moonTrack.clear();
-    for (double t = d0; t <= d0 + 86400.0; t += 600.0) {
-        SunInfo s = sunInfo(t, st.geo);
-        sunTrack.push_back({t, (float)s.appAlt, (float)s.hor.az});
+    // Span [-18h, +26h] around now so both the active passage (even 17h high-latitude summer days) and the
+    // full next upcoming rise->set passage ALWAYS stretch cleanly from 0-deg horizon rise to 0-deg horizon set.
+    for (double ti = t - 18 * 3600.0; ti <= t + 26 * 3600.0; ti += 600.0) {
+        SunInfo s = sunInfo(ti, st.geo);
+        sunTrack.push_back({ti, (float)s.appAlt, (float)s.hor.az});
     }
-    for (double t = now - 6 * 3600.0; t <= now + 20 * 3600.0; t += 600.0) {
-        MoonInfo m = moonInfo(t, st.geo);
-        moonTrack.push_back({t, (float)m.appAlt, (float)m.hor.az});
+    for (double ti = t - 18 * 3600.0; ti <= t + 26 * 3600.0; ti += 600.0) {
+        MoonInfo m = moonInfo(ti, st.geo);
+        moonTrack.push_back({ti, (float)m.appAlt, (float)m.hor.az});
     }
-    sunNext = sunRiseSet(now, now + 26 * 3600.0, st.geo);
-    const bool moonPast = (moonDetail.rs.hasRise && moonDetail.rs.rise <= now) || (moonDetail.rs.hasSet && moonDetail.rs.set <= now);
-    if (now - moonDetail.builtAt > 300.0 || now < moonDetail.builtAt || moonPast) {
+    sunNext = sunRiseSet(t, t + 26 * 3600.0, st.geo);
+    const bool moonPast = (moonDetail.rs.hasRise && moonDetail.rs.rise <= t) || (moonDetail.rs.hasSet && moonDetail.rs.set <= t);
+    if (std::fabs(t - moonDetail.builtAt) > 300.0 || moonPast) {
         MoonDetail& d = moonDetail;
-        d.builtAt = now;
-        d.prevNew = prevPhaseTime(now, 0); d.prevFull = prevPhaseTime(now, 2);
-        d.nextNew = nextPhaseTime(now, 0); d.nextFQ = nextPhaseTime(now, 1);
-        d.nextFull = nextPhaseTime(now, 2); d.nextLQ = nextPhaseTime(now, 3);
-        d.ageDays = (now - d.prevNew) / 86400.0;
-        d.rs = moonRiseSet(now, now + 30 * 3600.0, st.geo);
+        d.builtAt = t;
+        d.prevNew = prevPhaseTime(t, 0); d.prevFull = prevPhaseTime(t, 2);
+        d.nextNew = nextPhaseTime(t, 0); d.nextFQ = nextPhaseTime(t, 1);
+        d.nextFull = nextPhaseTime(t, 2); d.nextLQ = nextPhaseTime(t, 3);
+        d.ageDays = (t - d.prevNew) / 86400.0;
+        d.rs = moonRiseSet(t, t + 30 * 3600.0, st.geo);
         d.riseAz = d.rs.hasRise ? moonInfo(d.rs.rise, st.geo).hor.az : 0.0;
     }
-    eqTimeMin = equationOfTimeMinutes(now);
+    eqTimeMin = equationOfTimeMinutes(t);
     // keep today's list fresh through the day (conjunctions and "tomorrow" items change)
-    if (now - lastItemsAt > 1800.0 || now < lastItemsAt) {
-        lastItemsAt = now;
-        today::Input in; in.now = now; in.tzOff = tzOff; in.tzAt = tzAt; in.geo = st.geo; in.h24 = st.h24; in.poya = st.poya; in.omitMoonFill = true; in.custom = st.events; in.storms = stormLines();
+    if (std::fabs(t - lastItemsAt) > 1800.0) {
+        lastItemsAt = t;
+        today::Input in; in.now = t; in.tzOff = tzOff; in.tzAt = tzAt; in.geo = st.geo; in.h24 = st.h24; in.poya = st.poya; in.omitMoonFill = true; in.custom = st.events; in.storms = stormLines();
         todayItems = today::buildToday(in);
     }
 }
@@ -176,15 +179,16 @@ void App::stormsChanged() {
 }
 
 void App::refreshPlanets() {
-    planetCacheAt = now;
+    const double t = now;
+    planetCacheAt = t;
     planets.clear();
     for (int p = 0; p < PLANET_COUNT; ++p) {
         PlanetRow r;
-        r.info = planetInfo(p, now, st.geo);
+        r.info = planetInfo(p, t, st.geo);
         std::vector<double> ris, set;
-        findCrossings([&](double t) { return planetInfo(p, t, st.geo).hor.alt + 0.5667; }, now - 3600.0, now + 24 * 3600.0, 600.0, ris, set);
-        for (double t : ris) if (t > now) { r.rs.hasRise = true; r.rs.rise = t; break; }
-        for (double t : set) if (t > now) { r.rs.hasSet = true; r.rs.set = t; break; }
+        findCrossings([&](double ti) { return planetInfo(p, ti, st.geo).hor.alt + 0.5667; }, t - 3600.0, t + 24 * 3600.0, 600.0, ris, set);
+        for (double ti : ris) if (ti > t) { r.rs.hasRise = true; r.rs.rise = ti; break; }
+        for (double ti : set) if (ti > t) { r.rs.hasSet = true; r.rs.set = ti; break; }
         planets.push_back(r);
     }
 }
@@ -261,6 +265,7 @@ void App::refreshMoonSprites(gfx::Gfx& g) {
 void App::releaseDeviceResources(gfx::Gfx& g) {
     quietFxRelease(g);
     spaceRelease(g);
+    orreryRelease(g);
     themes::release(g);
     g.freeBitmap(moonSmall); g.freeBitmap(moonLarge);
     moonSmallKey = moonLargeKey = -1;
@@ -269,17 +274,18 @@ void App::releaseDeviceResources(gfx::Gfx& g) {
 }
 
 void App::refreshEvents(bool force) {
+    const double t = now;
     const int key = (st.evMeteors ? 1 : 0) | (st.evPlanets ? 2 : 0) | (st.evEclipses ? 4 : 0) | (st.evDays << 3);
-    if (!force && key == eventsKey && now >= eventsAt && now - eventsAt < 600.0 &&
+    if (!force && key == eventsKey && std::fabs(t - eventsAt) < 600.0 &&
         std::fabs(st.geo.lat - eventsLat) < 1e-9 && std::fabs(st.geo.lon - eventsLon) < 1e-9) return;
-    eventsAt = now; eventsKey = key; eventsLat = st.geo.lat; eventsLon = st.geo.lon;
+    eventsAt = t; eventsKey = key; eventsLat = st.geo.lat; eventsLon = st.geo.lon;
     skyev::Options o; o.meteors = st.evMeteors; o.planets = st.evPlanets; o.eclipses = st.evEclipses; o.windowDays = std::max(1, std::min(30, st.evDays));
-    events = skyev::find(now, st.geo, o);
+    events = skyev::find(t, st.geo, o);
     hoverEvent = -1;
     hasNextEvent = false;
     if (events.empty() && st.elEvents) {                         // for the empty state of the Sky events panel: what comes next
         skyev::Options o2 = o; o2.windowDays = 365;
-        for (const auto& e : skyev::find(now, st.geo, o2)) if (e.tPeak > now) { nextEvent = e; hasNextEvent = true; break; }
+        for (const auto& e : skyev::find(t, st.geo, o2)) if (e.tPeak > t) { nextEvent = e; hasNextEvent = true; break; }
     }
 }
 
@@ -345,7 +351,7 @@ void App::update(gfx::Gfx& g) {
     sun = sunInfo(now, st.geo);
     moon = moonInfo(now, st.geo);
     refreshEvents();
-    // geometry of an eclipse that is happening right now (drives the Moon sprite and the Sun inset)
+    // geometry of an eclipse happening right now (the Moon sprite draws Earth's shadow; the Sun draws the Moon across it)
     lunarShadow = skyev::LunarShadow(); solarCover = skyev::SolarCover();
     for (const auto& e : events) {
         if (!e.active(now)) continue;
@@ -360,9 +366,11 @@ void App::update(gfx::Gfx& g) {
         palMoving = d(pal.bgTop, palTarget.bgTop) + d(pal.bgBottom, palTarget.bgBottom) + d(pal.ink, palTarget.ink) + d(pal.accent, palTarget.accent) + std::fabs(pal.neon - palTarget.neon) >= 0.006f;
     }
     util::LocalTime L = util::toLocal(now, tzOff);
-    if (L.dayIndex != dayIndex || tzOff != dayCacheTzOff || std::fabs(st.geo.lat - dayCacheGeoLat) > 1e-9 || std::fabs(st.geo.lon - dayCacheGeoLon) > 1e-9) { refreshDay(); minuteCacheAt = -1e9; planetCacheAt = -1e9; moonDetail.builtAt = -1e9; }
-    if (now - minuteCacheAt >= 20.0 || now < minuteCacheAt) refreshMinute();
-    if (now - planetCacheAt >= 60.0 || now < planetCacheAt) refreshPlanets();
+    if (L.dayIndex != dayIndex || tzOff != dayCacheTzOff || std::fabs(st.geo.lat - dayCacheGeoLat) > 1e-9 || std::fabs(st.geo.lon - dayCacheGeoLon) > 1e-9) {
+        refreshDay(); minuteCacheAt = -1e9; planetCacheAt = -1e9; moonDetail.builtAt = -1e9;
+    }
+    if (std::fabs(now - minuteCacheAt) >= 20.0) refreshMinute();
+    if (std::fabs(now - planetCacheAt) >= 60.0) refreshPlanets();
     refreshMoonSprites(g);
 }
 
@@ -371,7 +379,7 @@ double App::timerRemaining() const {
     if (timer.running) return std::max(0.0, timer.endAt - now);
     return timer.pausedRemaining;
 }
-double App::stopwatchElapsed() const { return timer.swElapsed + (timer.swRunning ? now - timer.swStart : 0.0); }
+double App::stopwatchElapsed() const { return timer.swElapsed + (timer.swRunning ? std::max(0.0, now - timer.swStart) : 0.0); }
 
 // The alarm is a time on the PC's own wall clock ("07:00"), so it always uses the system timezone's real daylight-saving rules
 // (even when viewing a saved place in another timezone with placeLocalTime enabled).
@@ -382,11 +390,14 @@ static void armAlarm(App& a) {
 }
 
 void App::timerTick() {
+    bool persistNow = false;
     if (timer.running && now >= timer.endAt) {
-        timer.running = false; timer.finished = true; timer.finishedAt = now; timer.pausedRemaining = 0;
+        timer.running = false; timer.finished = true; timer.downtimeExpired = false; timer.finishedAt = now; timer.pausedRemaining = 0;
+        persistNow = true;
     }
     if (focus.running && now >= focus.endAt) {
-        focus.running = false; focus.finished = true; focus.finishedAt = now; focus.pausedRemaining = 0;
+        focus.running = false; focus.finished = true; focus.downtimeExpired = false; focus.finishedAt = now; focus.pausedRemaining = 0;
+        persistNow = true;
     }
     if (!isSaver) {
         const int curAlarmTz = sysTzAt ? sysTzAt(now) : (tzAt ? tzAt(now) : tzOff);
@@ -394,18 +405,21 @@ void App::timerTick() {
         else if (timer.alarmOn && now < timer.alarmAt && timer.alarmTz != curAlarmTz) armAlarm(*this);   // the zone or daylight saving changed: same wall-clock time
         if (timer.alarmOn && now >= timer.alarmAt) {
             timer.alarmOn = false; timer.ringing = true; timer.ringStart = now;
+            persistNow = true;
         }
     }
+    // Persist fired one-shot alarm / finished session immediately so an abnormal exit never re-arms the alarm.
+    if (persistNow) cmd(CMD_SAVE_NOW);
 }
 
 void App::timerStartPause() {
     TimerState& t = timer;
     if (t.mode == 0) {
-        if (t.finished) { t.finished = false; t.pausedRemaining = t.durationSec; return; }
+        if (t.finished) { t.finished = false; t.downtimeExpired = false; t.pausedRemaining = t.durationSec; return; }
         if (t.running) { t.pausedRemaining = std::max(0.0, t.endAt - now); t.running = false; }
-        else { if (t.pausedRemaining <= 0) t.pausedRemaining = t.durationSec; t.endAt = now + t.pausedRemaining; t.running = true; t.entry.clear(); }
+        else { if (t.pausedRemaining <= 0) t.pausedRemaining = t.durationSec; t.endAt = now + t.pausedRemaining; t.running = true; t.downtimeExpired = false; t.entry.clear(); }
     } else if (t.mode == 1) {
-        if (t.swRunning) { t.swElapsed += now - t.swStart; t.swRunning = false; }
+        if (t.swRunning) { t.swElapsed += std::max(0.0, now - t.swStart); t.swRunning = false; }
         else { t.swStart = now; t.swRunning = true; }
     } else {
         if (t.ringing) { t.ringing = false; return; }
@@ -416,7 +430,7 @@ void App::timerStartPause() {
 
 void App::timerReset() {
     TimerState& t = timer;
-    if (t.mode == 0) { t.running = false; t.finished = false; t.pausedRemaining = t.durationSec; t.entry.clear(); }
+    if (t.mode == 0) { t.running = false; t.finished = false; t.downtimeExpired = false; t.pausedRemaining = t.durationSec; t.entry.clear(); }
     else if (t.mode == 1) { t.swRunning = false; t.swElapsed = 0; t.laps.clear(); }
     else { t.alarmOn = false; t.ringing = false; t.entry.clear(); }
 }
@@ -424,7 +438,7 @@ void App::timerReset() {
 void App::timerSetDuration(double sec) {
     TimerState& t = timer;
     t.durationSec = std::max(TIMER_MIN_SEC, std::min(sec, TIMER_MAX_SEC));
-    t.finished = false;
+    t.finished = false; t.downtimeExpired = false;
     if (t.running) t.endAt = now + t.durationSec; else t.pausedRemaining = t.durationSec;
 }
 
@@ -433,7 +447,7 @@ void App::timerAdjust(double delta) {
     if (t.mode == 0) {
         double nd = std::max(TIMER_MIN_SEC, std::min(t.durationSec + delta, TIMER_MAX_SEC));
         double diff = nd - t.durationSec;
-        t.durationSec = nd; t.finished = false;
+        t.durationSec = nd; t.finished = false; t.downtimeExpired = false;
         if (t.running) t.endAt = std::max(now + TIMER_MIN_SEC, std::min(now + TIMER_MAX_SEC, t.endAt + diff));
         else t.pausedRemaining = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, t.pausedRemaining + diff));
         t.entry.clear();
@@ -464,7 +478,7 @@ void App::timerDigit(int d) {
         double sec = std::atoi(e.substr(0, 2).c_str()) * 3600.0 + std::atoi(e.substr(2, 2).c_str()) * 60.0 + std::atoi(e.substr(4, 2).c_str());
         if (sec < TIMER_MIN_SEC) sec = TIMER_MIN_SEC;
         t.durationSec = std::min(sec, TIMER_MAX_SEC);
-        t.finished = false; t.running = false; t.pausedRemaining = t.durationSec;
+        t.finished = false; t.downtimeExpired = false; t.running = false; t.pausedRemaining = t.durationSec;
     } else alarmApplyEntry();
 }
 
@@ -475,12 +489,14 @@ void App::timerBackspace() {
     if (t.mode == 0) {
         std::string e = t.entry; while (e.size() < 6) e = "0" + e;
         double sec = std::atoi(e.substr(0, 2).c_str()) * 3600.0 + std::atoi(e.substr(2, 2).c_str()) * 60.0 + std::atoi(e.substr(4, 2).c_str());
-        if (sec < TIMER_MIN_SEC) sec = TIMER_MIN_SEC;
-        t.durationSec = sec; t.running = false; t.pausedRemaining = sec;
+        sec = std::max(TIMER_MIN_SEC, std::min(sec, TIMER_MAX_SEC));
+        t.durationSec = sec; t.finished = false; t.downtimeExpired = false; t.running = false; t.pausedRemaining = sec;
     } else alarmApplyEntry();
 }
 
-void App::stopwatchLap() { if (timer.swRunning) timer.laps.push_back(stopwatchElapsed()); }
+void App::stopwatchLap() {
+    if (timer.swRunning && timer.laps.size() < 500) timer.laps.push_back(stopwatchElapsed());
+}
 
 // ---------------------------------------------------------------- Focus tab session timer (independent from Timer)
 double App::focusRemaining() const {
@@ -489,25 +505,25 @@ double App::focusRemaining() const {
 }
 void App::focusStartPause() {
     FocusState& f = focus;
-    if (f.finished) { f.finished = false; f.pausedRemaining = f.durationSec; return; }
+    if (f.finished) { f.finished = false; f.downtimeExpired = false; f.pausedRemaining = f.durationSec; return; }
     if (f.running) { f.pausedRemaining = std::max(0.0, f.endAt - now); f.running = false; }
-    else { if (f.pausedRemaining <= 0) f.pausedRemaining = f.durationSec; f.endAt = now + f.pausedRemaining; f.running = true; f.entry.clear(); }
+    else { if (f.pausedRemaining <= 0) f.pausedRemaining = f.durationSec; f.endAt = now + f.pausedRemaining; f.running = true; f.downtimeExpired = false; f.entry.clear(); }
 }
 void App::focusReset() {
     FocusState& f = focus;
-    f.running = false; f.finished = false; f.pausedRemaining = f.durationSec; f.entry.clear();
+    f.running = false; f.finished = false; f.downtimeExpired = false; f.pausedRemaining = f.durationSec; f.entry.clear();
 }
 void App::focusSetDuration(double sec) {
     FocusState& f = focus;
     f.durationSec = std::max(TIMER_MIN_SEC, std::min(sec, TIMER_MAX_SEC));
-    f.finished = false; f.entry.clear();
+    f.finished = false; f.downtimeExpired = false; f.entry.clear();
     if (f.running) f.endAt = now + f.durationSec; else f.pausedRemaining = f.durationSec;
 }
 void App::focusAdjust(double delta) {
     FocusState& f = focus;
     double nd = std::max(TIMER_MIN_SEC, std::min(f.durationSec + delta, TIMER_MAX_SEC));
     double diff = nd - f.durationSec;
-    f.durationSec = nd; f.finished = false;
+    f.durationSec = nd; f.finished = false; f.downtimeExpired = false;
     if (f.running) f.endAt = std::max(now + TIMER_MIN_SEC, std::min(now + TIMER_MAX_SEC, f.endAt + diff));
     else f.pausedRemaining = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, f.pausedRemaining + diff));
     f.entry.clear();
@@ -520,7 +536,7 @@ void App::focusDigit(int d) {
     double sec = std::atoi(e.substr(0, 2).c_str()) * 3600.0 + std::atoi(e.substr(2, 2).c_str()) * 60.0 + std::atoi(e.substr(4, 2).c_str());
     if (sec < TIMER_MIN_SEC) sec = TIMER_MIN_SEC;
     f.durationSec = std::min(sec, TIMER_MAX_SEC);
-    f.finished = false; f.running = false; f.pausedRemaining = f.durationSec;
+    f.finished = false; f.downtimeExpired = false; f.running = false; f.pausedRemaining = f.durationSec;
 }
 void App::focusBackspace() {
     FocusState& f = focus;
@@ -528,8 +544,8 @@ void App::focusBackspace() {
     f.entry.pop_back();
     std::string e = f.entry; while (e.size() < 6) e = "0" + e;
     double sec = std::atoi(e.substr(0, 2).c_str()) * 3600.0 + std::atoi(e.substr(2, 2).c_str()) * 60.0 + std::atoi(e.substr(4, 2).c_str());
-    if (sec < TIMER_MIN_SEC) sec = TIMER_MIN_SEC;
-    f.durationSec = sec; f.running = false; f.pausedRemaining = sec;
+    sec = std::max(TIMER_MIN_SEC, std::min(sec, TIMER_MAX_SEC));
+    f.durationSec = sec; f.finished = false; f.downtimeExpired = false; f.running = false; f.pausedRemaining = sec;
 }
 
 } // namespace app

@@ -130,6 +130,7 @@ static DWORD WINAPI dumpThread(LPVOID p) {
             if (!j->ok) DeleteFileW(j->path);
         }
     }
+    if (dh) FreeLibrary(dh);
     return 0;
 }
 
@@ -171,7 +172,8 @@ static LONG WINAPI crashFilter(EXCEPTION_POINTERS* ep) {
         // static storage: if dumpThread outlives the 15s wait, it never reads a destroyed stack frame
         static wchar_t path[MAX_PATH * 2 + 48];
         static DumpJob job;
-        wsprintfW(path, L"%s\\Meridian-%04d%02d%02d-%02d%02d%02d.dmp", g_dumpDir, (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour, (int)t.wMinute, (int)t.wSecond);
+        _snwprintf(path, sizeof(path) / sizeof(path[0]) - 1, L"%ls\\Meridian-%04d%02d%02d-%02d%02d%02d.dmp", g_dumpDir, (int)t.wYear, (int)t.wMonth, (int)t.wDay, (int)t.wHour, (int)t.wMinute, (int)t.wSecond);
+        path[sizeof(path) / sizeof(path[0]) - 1] = L'\0';
         CreateDirectoryW(g_dumpDir, nullptr);
         job = {ep, GetCurrentThreadId(), path, false};
         HANDLE th = CreateThread(nullptr, 1 << 20, dumpThread, &job, 0, nullptr);
@@ -189,7 +191,8 @@ static LONG WINAPI crashFilter(EXCEPTION_POINTERS* ep) {
     }
     if (g_allowRestart && g_restartCount < 3 && g_exePath[0]) {
         wchar_t cmd[MAX_PATH * 2 + 40];
-        wsprintfW(cmd, L"\"%s\" --restarted %d", g_exePath, g_restartCount + 1);
+        _snwprintf(cmd, sizeof(cmd) / sizeof(cmd[0]) - 1, L"\"%ls\" --restarted %d", g_exePath, g_restartCount + 1);
+        cmd[sizeof(cmd) / sizeof(cmd[0]) - 1] = L'\0';
         STARTUPINFOW si;
         ZeroMemory(&si, sizeof si);
         si.cb = sizeof si;
@@ -295,7 +298,7 @@ void setMenuDark(bool dark) {
         ZeroMemory(&vi, sizeof vi);
         vi.dwOSVersionInfoSize = sizeof vi;
         const bool new1903 = rtl && rtl(&vi) == 0 && vi.dwBuildNumber >= 18362;
-        HMODULE ux = new1903 ? LoadLibraryW(L"uxtheme.dll") : nullptr;
+        HMODULE ux = new1903 ? LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32) : nullptr;
         if (ux) {
             setMode = (SetModeFn)(void*)GetProcAddress(ux, MAKEINTRESOURCEA(135));
             flush = (FlushFn)(void*)GetProcAddress(ux, MAKEINTRESOURCEA(136));

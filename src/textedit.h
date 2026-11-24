@@ -226,15 +226,26 @@ inline bool redo(std::string& t, State& s) {
 // ---------------------------------------------------------------- UTF-16 positions (the drawing code measures text as wide strings)
 // byteAt[i] = the byte offset of the character that holds UTF-16 unit i; byteAt.back() == t.size().
 inline std::vector<size_t> wideToByte(const std::string& t) {
+    auto isCont = [&](size_t idx) -> bool { return idx < t.size() && (((unsigned char)t[idx] & 0xC0u) == 0x80u); };
     std::vector<size_t> v;
     for (size_t i = 0; i < t.size();) {
         const unsigned char c = (unsigned char)t[i];
-        size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
-        if (i + n > t.size()) n = 1;                                   // the same reading as util::widen: a cut-off sequence is one '?'
-        unsigned cp = c;
-        if (n == 4) cp = ((c & 7u) << 18) | (((unsigned char)t[i + 1] & 0x3Fu) << 12) | (((unsigned char)t[i + 2] & 0x3Fu) << 6) | ((unsigned char)t[i + 3] & 0x3Fu);
+        size_t n = 1;
+        unsigned cp = '?';
+        if (c < 0x80u) {
+            cp = c; n = 1;
+        } else if ((c >> 5) == 0x06u && isCont(i + 1)) {
+            const unsigned u = ((unsigned)(c & 0x1Fu) << 6) | ((unsigned char)t[i + 1] & 0x3Fu);
+            if (u >= 0x80u) { cp = u; n = 2; }
+        } else if ((c >> 4) == 0x0Eu && isCont(i + 1) && isCont(i + 2)) {
+            const unsigned u = ((unsigned)(c & 0x0Fu) << 12) | (((unsigned char)t[i + 1] & 0x3Fu) << 6) | ((unsigned char)t[i + 2] & 0x3Fu);
+            if (u >= 0x800u && !(u >= 0xD800u && u <= 0xDFFFu)) { cp = u; n = 3; }
+        } else if ((c >> 3) == 0x1Eu && isCont(i + 1) && isCont(i + 2) && isCont(i + 3)) {
+            const unsigned u = ((unsigned)(c & 0x07u) << 18) | (((unsigned char)t[i + 1] & 0x3Fu) << 12) | (((unsigned char)t[i + 2] & 0x3Fu) << 6) | ((unsigned char)t[i + 3] & 0x3Fu);
+            if (u >= 0x10000u && u <= 0x10FFFFu) { cp = u; n = 4; }
+        }
         v.push_back(i);
-        if (n == 4 && cp >= 0x10000) v.push_back(i);                   // outside the BMP: two UTF-16 units
+        if (n == 4 && cp >= 0x10000u) v.push_back(i);                  // outside the BMP: two UTF-16 units
         i += n;
     }
     v.push_back(t.size());

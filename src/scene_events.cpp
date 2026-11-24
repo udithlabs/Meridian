@@ -45,8 +45,7 @@ float hf(long long i, int salt) {
 }
 
 Pt dp(float cx, float cy, float R, double alt, double az) {
-    float r = R * (float)(90.0 - alt) / 90.f;
-    return {cx + r * (float)std::sin(astro::rad(az - gSkyHeading)), cy - r * (float)std::cos(astro::rad(az - gSkyHeading))};
+    return domeProject(cx, cy, R, alt, az);
 }
 
 struct V3 { double x, y, z; };
@@ -415,7 +414,8 @@ bool eventNamesPlanet(const App& a, int id) {
 void eventsBeginFrame(App& a) {
     a.eventsAnimating = false;
     int best = -1; float bd = 1e9, ax = 0, ay = 0;
-    const bool allow = !a.showHelp && !a.showSettings && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 12.0;
+    const bool modal = a.showHelp || a.showSettings || a.isSaver;
+    const bool allow = !modal && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 12.0;
     if (allow) {
         for (const auto& h : a.eventHits) {
             float hx = h.x + h.w * 0.5f, hy = h.y + h.h * 0.5f, dd = std::hypot(a.mouseX - hx, a.mouseY - hy);
@@ -427,8 +427,11 @@ void eventsBeginFrame(App& a) {
     if (best >= 0) { a.hoverEvent = best; a.hoverX = ax; a.hoverY = ay; }
     a.hoverOn = best >= 0;
     const float tgt = a.hoverOn ? 1.f : 0.f;
-    a.hoverT += (tgt - a.hoverT) * (1.f - std::exp(-(float)a.dt * 14.f));
-    if (std::fabs(a.hoverT - tgt) < 0.01f) a.hoverT = tgt;
+    if (modal) a.hoverT = 0.f;
+    else {
+        a.hoverT += (tgt - a.hoverT) * (1.f - std::exp(-(float)a.dt * 14.f));
+        if (std::fabs(a.hoverT - tgt) < 0.01f) a.hoverT = tgt;
+    }
     a.eventHits.clear();
 }
 

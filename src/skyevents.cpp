@@ -359,7 +359,7 @@ void addPlanets(std::vector<Event>& out, double now, const Geo& g, const Options
         std::string names;
         for (int i = 0; i < e.nBodies; ++i) names += S("%s%s", i ? ", " : "", planetName(e.bodies[i]));
         e.subtitle = S("%s  \xC2\xB7  spread over %.0f\xC2\xB0", names.c_str(), span);
-        bool eve = sunInfo(bestT, g).hor.alt < 0 && norm180(eclLonOf(planetInfo(e.bodies[0], bestT, g).eq, bestT) - sunInfo(bestT, g).eclLon) > 0;
+        const bool eve = sunInfo(bestT + 60.0, g).hor.alt < sunInfo(bestT - 60.0, g).hor.alt;
         e.details.push_back({"Best view", S("%s  \xC2\xB7  %s twilight", TT(bestT).c_str(), eve ? "evening" : "morning")});
         for (int i = 0; i < e.nBodies; ++i) {
             PlanetInfo pi = planetInfo(e.bodies[i], bestT, g);
@@ -384,12 +384,13 @@ Equatorial topocentric(const Equatorial& eq, double distKm, double t, const Geo&
 }
 
 double obscuration(double rs, double rm, double d) {
-    if (d >= rs + rm) return 0;
+    if (rs <= 0.0 || d >= rs + rm) return 0;
     if (d <= std::fabs(rs - rm)) return rm >= rs ? 1.0 : (rm * rm) / (rs * rs);
-    double a = rs * rs * std::acos((d * d + rs * rs - rm * rm) / (2 * d * rs));
-    double b = rm * rm * std::acos((d * d + rm * rm - rs * rs) / (2 * d * rm));
-    double c = 0.5 * std::sqrt((-d + rs + rm) * (d + rs - rm) * (d - rs + rm) * (d + rs + rm));
-    return (a + b - c) / (PI * rs * rs);
+    auto clamp1 = [](double v) { return std::max(-1.0, std::min(1.0, v)); };
+    double a = rs * rs * std::acos(clamp1((d * d + rs * rs - rm * rm) / (2 * d * rs)));
+    double b = rm * rm * std::acos(clamp1((d * d + rm * rm - rs * rs) / (2 * d * rm)));
+    double c = 0.5 * std::sqrt(std::max(0.0, (-d + rs + rm) * (d + rs - rm) * (d - rs + rm) * (d + rs + rm)));
+    return std::max(0.0, std::min(1.0, (a + b - c) / (PI * rs * rs)));
 }
 
 struct LGeo { double d, ru, rp, sm, dx, dy; };

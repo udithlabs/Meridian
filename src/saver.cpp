@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include "saver.h"
 
@@ -23,7 +24,7 @@ const ULONGLONG kHardStopMs = 1300;        // after the keyboard or mouse is use
 
 HWND g_clock = nullptr;
 ULONGLONG g_start = 0;
-POINT g_pointer{0, 0};
+std::atomic<LONG> g_pointerX{0}, g_pointerY{0};
 bool g_haveBaseline = false;
 DWORD g_lastInput = 0;
 bool g_closing = false;
@@ -102,6 +103,10 @@ std::wstring exeFile() {
 
 // Windows reads SCRNSAVE.EXE again when it is told the user's settings changed (what Install-ScreenSaver.bat does with rundll32). Not waited for.
 void refreshWindowsSaver() {
+    wchar_t sysDir[MAX_PATH];
+    const UINT sn = GetSystemDirectoryW(sysDir, MAX_PATH);
+    if (sn == 0 || sn >= MAX_PATH) return;
+    const std::wstring app = std::wstring(sysDir, sn) + L"\\rundll32.exe";
     wchar_t cmd[] = L"rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True";
     STARTUPINFOW si;
     ZeroMemory(&si, sizeof si);
@@ -110,7 +115,7 @@ void refreshWindowsSaver() {
     si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof pi);
-    if (CreateProcessW(nullptr, cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
+    if (CreateProcessW(app.c_str(), cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
 }
 
 // Windows only starts files called .scr: make Meridian.scr (a copy of this exe) beside it, so that a running Meridian.exe is never locked by it
@@ -118,8 +123,11 @@ bool makeScr(const std::wstring& exe, const std::wstring& scr, std::wstring* pro
     const std::wstring tmp = scr + L".new";
     SetFileAttributesW(tmp.c_str(), FILE_ATTRIBUTE_NORMAL);
     bool ok = CopyFileW(exe.c_str(), tmp.c_str(), FALSE) != 0;
-    const DWORD err = GetLastError();
-    if (ok) ok = MoveFileExW(tmp.c_str(), scr.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+    DWORD err = ok ? 0 : GetLastError();
+    if (ok) {
+        ok = MoveFileExW(tmp.c_str(), scr.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+        if (!ok) err = GetLastError();
+    }
     if (!ok) DeleteFileW(tmp.c_str());
     if (ok) return true;
     if (GetFileAttributesW(scr.c_str()) != INVALID_FILE_ATTRIBUTES) return true;       // could not refresh it (in use?), but an earlier copy is there
@@ -147,8 +155,10 @@ void goToSleep() {
         CloseHandle(token);
     }
     typedef BOOLEAN(WINAPI * SetSuspendStateFn)(BOOLEAN hibernate, BOOLEAN force, BOOLEAN disableWakeEvent);
-    if (HMODULE m = LoadLibraryW(L"powrprof.dll"))
+    if (HMODULE m = LoadLibraryExW(L"powrprof.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
         if (auto fn = (SetSuspendStateFn)(void*)GetProcAddress(m, "SetSuspendState")) fn(FALSE, FALSE, FALSE);   // FALSE: sleep, not hibernate; returns when the PC wakes up
+        FreeLibrary(m);
+    }
 }
 
 DWORD lastInputTick() {
@@ -167,7 +177,8 @@ static bool pointerWithinSlop(POINT& prev) {
     if (!GetCursorPos(&p)) return false;
     const bool moved = (p.x != prev.x || p.y != prev.y);
     prev = p;
-    const int dx = p.x - g_pointer.x, dy = p.y - g_pointer.y;
+    const int dx = p.x - (int)g_pointerX.load(std::memory_order_relaxed);
+    const int dy = p.y - (int)g_pointerY.load(std::memory_order_relaxed);
     return moved && dx * dx + dy * dy <= kMoveSlop * kMoveSlop;
 }
 
@@ -175,7 +186,7 @@ DWORD WINAPI watchdogProc(LPVOID) {
     DWORD base = 0;
     bool haveBase = false;
     ULONGLONG seen = 0;
-    POINT prevP = g_pointer;
+    POINT prevP{g_pointerX.load(std::memory_order_relaxed), g_pointerY.load(std::memory_order_relaxed)};
     for (;;) {
         Sleep(30);
         const ULONGLONG now = GetTickCount64();
@@ -209,8 +220,13 @@ bool inputMessage(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSEMOVE: {
             POINT p;
             if (!GetCursorPos(&p)) return false;
-            if (grace) { g_pointer = p; return false; }                // follow the pointer until things have settled
-            const int dx = p.x - g_pointer.x, dy = p.y - g_pointer.y;
+            if (grace) {
+                g_pointerX.store(p.x, std::memory_order_relaxed);
+                g_pointerY.store(p.y, std::memory_order_relaxed);
+                return false;                                          // follow the pointer until things have settled
+            }
+            const int dx = p.x - (int)g_pointerX.load(std::memory_order_relaxed);
+            const int dy = p.y - (int)g_pointerY.load(std::memory_order_relaxed);
             return dx * dx + dy * dy > kMoveSlop * kMoveSlop;          // Windows sends a stray move when a window appears: that is not the user
         }
         case WM_TIMER: {
@@ -303,7 +319,11 @@ bool oneAtATime() {
 void begin(HINSTANCE inst, HWND clock) {
     g_clock = clock;
     g_start = GetTickCount64();
-    GetCursorPos(&g_pointer);
+    POINT p0{0, 0};
+    if (GetCursorPos(&p0)) {
+        g_pointerX.store(p0.x, std::memory_order_relaxed);
+        g_pointerY.store(p0.y, std::memory_order_relaxed);
+    }
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof wc);
     wc.cbSize = sizeof wc;

@@ -23,6 +23,7 @@
 #include "textedit.h"
 #include "ufo_audio.h"
 #include "ufo_audio_codec.h"
+#include "settings_io.h"
 #include <memory>
 
 using namespace app;
@@ -182,13 +183,6 @@ void playHourlyChime() {
     PlaySoundW((LPCWSTR)w.data(), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
 }
 
-const char* const WKEY[WG_COUNT] = {"world", "month", "system", "note", "countdown", "phases", "week", "today", "holidays", "hourly", "daylight", "sky", "conditions", "year"};
-std::string lowerTrim(std::string v) { v = util::trim(v); for (auto& ch : v) if (ch >= 'A' && ch <= 'Z') ch += 32; return v; }
-std::vector<std::string> splitCsv(const std::string& v) {
-    std::vector<std::string> out; size_t i = 0;
-    while (i <= v.size()) { size_t e = v.find(',', i); if (e == std::string::npos) e = v.size(); std::string t = util::trim(v.substr(i, e - i)); if (!t.empty()) out.push_back(t); i = e + 1; }
-    return out;
-}
 // ---------------------------------------------------------------- settings
 // where theme packs live: a 'themes' folder next to Meridian.exe, and one in %APPDATA%\\Meridian (for installs in a read-only place)
 std::vector<std::filesystem::path> themeRoots() {
@@ -199,255 +193,33 @@ std::vector<std::filesystem::path> themeRoots() {
     return v;
 }
 
+// Dynamic DST callback for the currently displayed saved place (shared Windows TZ database with World Clocks).
+static std::string gActivePlaceTz;
+int activePlaceOffsetAt(double t) {
+    int off = 0;
+    if (!gActivePlaceTz.empty() && lookupWinTzOffset(gActivePlaceTz, t, off)) return off;
+    return localOffset(t);
+}
+
 void applyGeoFromPlace() {
     if (G.app.placeIdx < 0 || G.app.placeIdx >= (int)G.app.st.places.size()) G.app.st.geo = G.app.home;
     else G.app.st.geo = G.app.st.places[G.app.placeIdx];
 }
 
-// The layout of settings.ini. Raise it when a change needs an older file converted, and do the conversion in loadSettings() under the file's
-// own number (0 = a file from before this field existed; its layout is the same as 1).
-constexpr int SETTINGS_VERSION = 1;
-
 void loadSettings() {
-    Settings& st = G.app.st; TimerState& tm = G.app.timer;
     std::string txt;
     if (!readFile(G.settingsPath, txt)) return;
-    util::Ini ini = util::Ini::parse(txt);
-    const int fileVersion = (int)ini.getNum("meridian", "settings_version", 0);
+    int fileVersion = 0;
+    parseSettingsText(G.app, txt, unixNow(), &fileVersion);
     if (fileVersion > SETTINGS_VERSION) {
-        // written by a newer Meridian than this one. Saving would drop whatever this version does not know about, so keep a copy first (once).
-        const std::wstring bak = G.settingsPath + L".from-newer-version-" + std::to_wstring(fileVersion) + L".bak";
-        if (GetFileAttributesW(bak.c_str()) == INVALID_FILE_ATTRIBUTES) CopyFileW(G.settingsPath.c_str(), bak.c_str(), TRUE);
-    }
-    st.theme = (int)std::max(0.0, std::min((double)THEME_COUNT - 1, ini.getNum("view", "theme", st.theme)));
-    st.face = (int)std::max(0.0, std::min((double)FACE_COUNT - 1, ini.getNum("view", "face", st.face)));
-    st.h24 = ini.getBool("view", "h24", st.h24);
-    st.seconds = ini.getBool("view", "seconds", st.seconds);
-    st.useF = ini.getBool("view", "fahrenheit", st.useF);
-    st.poya = ini.getBool("view", "poya", st.poya);
-    st.pixelShift = ini.getBool("view", "pixel_shift", st.pixelShift);
-    st.keepAwake = ini.getBool("view", "keep_awake", st.keepAwake);
-    st.topmost = ini.getBool("view", "topmost", st.topmost);
-    st.fullscreen = ini.getBool("view", "fullscreen", st.fullscreen);
-    st.brightness = (float)std::max(0.15, std::min(1.0, ini.getNum("view", "brightness", st.brightness)));
-    st.emberAtNight = ini.getBool("view", "ember_at_bedtime", st.emberAtNight);
-    st.autoDim = ini.getBool("view", "auto_dim", st.autoDim);
-    st.dimNight = (float)std::max(0.15, std::min(1.0, ini.getNum("view", "dim_at_night", st.dimNight)));
-    st.emberFrom = (int)std::max(0.0, std::min(23.0, ini.getNum("view", "bedtime_from", st.emberFrom)));
-    st.emberTo = (int)std::max(0.0, std::min(23.0, ini.getNum("view", "bedtime_to", st.emberTo)));
-    st.hourlyChime = ini.getBool("view", "hourly_chime", st.hourlyChime);
-    G.app.home.name = ini.get("location", "name", G.app.home.name);
-    G.app.home.lat = std::max(-89.0, std::min(89.0, ini.getNum("location", "lat", G.app.home.lat)));
-    G.app.home.lon = std::max(-180.0, std::min(180.0, ini.getNum("location", "lon", G.app.home.lon)));
-    st.placeLocalTime = ini.getBool("location", "place_local_time", st.placeLocalTime);
-    G.app.located = ini.getBool("location", "located", true);                  // no such line (an older settings.ini): the saved place stands and is not looked up again
-    G.app.locSource = ini.get("location", "source", "");
-    G.app.locAcc = ini.getNum("location", "accuracy_m", -1);
-    G.app.locAt = ini.getNum("location", "found_at", 0);
-    G.app.homeCountry = ini.get("location", "country", ""); G.app.homeRegion = ini.get("location", "region", "");
-    {   // which countries' holidays: [holidays] auto=1, or countries=lk,uk,us
-        st.holAuto = ini.getBool("holidays", "auto", st.holAuto);
-        const std::string list = lowerTrim(ini.get("holidays", "countries", "lk"));
-        int mk = 0;
-        if (list.find("lk") != std::string::npos) mk |= holiday::C_LK;
-        if (list.find("uk") != std::string::npos) mk |= holiday::C_UK;
-        if (list.find("us") != std::string::npos) mk |= holiday::C_US;
-        st.holMask = mk;
-        const std::string nat = lowerTrim(ini.get("holidays", "uk_nation", "auto"));
-        st.ukPref = nat.find("scot") != std::string::npos ? 2 : nat.find("north") != std::string::npos ? 3 : nat.find("eng") != std::string::npos || nat.find("wales") != std::string::npos ? 1 : 0;
-    }
-    st.winX = (int)ini.getNum("window", "x", st.winX); st.winY = (int)ini.getNum("window", "y", st.winY);
-    st.winW = (int)ini.getNum("window", "w", st.winW); st.winH = (int)ini.getNum("window", "h", st.winH);
-    st.places.clear();
-    for (auto& kv : ini.ordered("places")) {
-        double la, lo;
-        if (sscanf(kv.second.c_str(), "%lf , %lf", &la, &lo) == 2 && std::fabs(la) <= 89 && std::fabs(lo) <= 180) { astro::Geo g; g.name = kv.first; g.lat = la; g.lon = lo; st.places.push_back(g); }
-    }
-    {   // the place that was on show when Meridian was closed: match by name+coordinates first (so duplicate names like two Springfields stay distinct), else coordinates, else legacy name
-        const std::string showing = ini.get("location", "showing", "");
-        const std::string sc = ini.get("location", "showing_coords", "");
-        double sla = 0, slo = 0;
-        const bool hasCoords = !sc.empty() && sscanf(sc.c_str(), "%lf , %lf", &sla, &slo) == 2;
-        G.app.placeIdx = -1;
-        if (hasCoords) {
-            for (size_t i = 0; i < st.places.size(); ++i)
-                if ((showing.empty() || st.places[i].name == showing) &&
-                    std::fabs(st.places[i].lat - sla) < 0.001 && std::fabs(st.places[i].lon - slo) < 0.001) { G.app.placeIdx = (int)i; break; }
-            if (G.app.placeIdx < 0)
-                for (size_t i = 0; i < st.places.size(); ++i)
-                    if (std::fabs(st.places[i].lat - sla) < 0.001 && std::fabs(st.places[i].lon - slo) < 0.001) { G.app.placeIdx = (int)i; break; }
-        }
-        if (G.app.placeIdx < 0 && !showing.empty())
-            for (size_t i = 0; i < st.places.size(); ++i)
-                if (st.places[i].name == showing) { G.app.placeIdx = (int)i; break; }
-    }
-    st.events.clear();
-    for (auto& kv : ini.ordered("events")) {
-        today::CustomEvent e; e.title = kv.second;
-        std::string key = kv.first; if (key.compare(0, 2, "--") == 0) key.erase(0, 2);                 // "--12-25" is the same as "12-25"
-        const int used = util::parseEventDatePrefix(key.c_str(), e.y, e.m, e.d);
-        if (!used || !util::onlySpace(key.c_str() + used) || e.title.empty()) continue;                  // not a real date (31 February ...): left out
-        if (st.events.size() >= 200) break;
-        st.events.push_back(e);
-    }
-    for (int i = 0; i < weather::PV_COUNT; ++i) st.provEnabled[i] = ini.getBool("weather", weather::providerId(i), true);
-    st.contact = ini.get("weather", "contact", "");
-    st.weatherApiKey = ini.get("weather", "weatherapi_key", "");
-    st.openWeatherKey = ini.get("weather", "openweather_key", "");
-    st.evMeteors = ini.getBool("sky", "meteors", st.evMeteors); st.evPlanets = ini.getBool("sky", "planets", st.evPlanets);
-    st.evEclipses = ini.getBool("sky", "eclipses", st.evEclipses); st.evChips = ini.getBool("sky", "chips", st.evChips);
-    st.evAnimate = ini.getBool("sky", "animate", st.evAnimate);
-    st.evDays = (int)std::max(1.0, std::min(30.0, ini.getNum("sky", "days", st.evDays)));
-    st.elToday = ini.getBool("elements", "today", st.elToday); st.elWeather = ini.getBool("elements", "weather", st.elWeather);
-    st.elSunMoon = ini.getBool("elements", "sun_moon", st.elSunMoon); st.elBand = ini.getBool("elements", "day_band", st.elBand);
-    st.elLabels = ini.getBool("elements", "labels", st.elLabels); st.elConst = ini.getBool("elements", "constellations", st.elConst);
-    st.elMilky = ini.getBool("elements", "milky_way", st.elMilky); st.elEcliptic = ini.getBool("elements", "ecliptic", st.elEcliptic);
-    st.elClouds = ini.getBool("elements", "clouds", st.elClouds); st.elTracks = ini.getBool("elements", "tracks", st.elTracks);
-    st.dayStars = ini.getBool("elements", "day_stars", st.dayStars);
-    st.elEvents = ini.getBool("panel", "sky_events", st.elEvents); st.elWorld = ini.getBool("panel", "world_clocks", st.elWorld);
-    st.elHolidays = ini.getBool("panel", "holidays", st.elHolidays); st.holCal = ini.getBool("panel", "calendar_holidays", st.holCal);
-    st.panelSecs = (int)std::max(4.0, std::min(120.0, ini.getNum("panel", "seconds", st.panelSecs)));
-    { std::string k = lowerTrim(ini.get("panel", "transition", "slide")); st.panelStyle = k == "rise" ? 1 : k == "fade" ? 2 : 0; }
-    st.panelHold = ini.getBool("panel", "pause_on_hover", st.panelHold); st.panelDots = ini.getBool("panel", "dots", st.panelDots);
-    st.skyHeading = (float)astro::norm360(ini.getNum("skymap", "heading", st.skyHeading));
-    st.skySpin = ini.getBool("skymap", "free_rotate", st.skySpin);
-    st.skySpinSecs = (int)std::max(5.0, std::min(7200.0, ini.getNum("skymap", "seconds_per_turn", st.skySpinSecs)));
-    st.skySpinDir = lowerTrim(ini.get("skymap", "direction", st.skySpinDir > 0 ? "clockwise" : "counterclockwise")).compare(0, 7, "counter") == 0 ? -1 : 1;
-    st.quietFx = ini.getBool("quiet", "weather", st.quietFx);
-    st.stormWatch = ini.getBool("storms", "watch", st.stormWatch);
-    st.stormRadius = (int)std::max(100.0, std::min(6000.0, ini.getNum("storms", "radius_km", st.stormRadius)));
-    st.quietStrength = (float)std::max(0.5, std::min(2.0, ini.getNum("quiet", "strength", 100.0) / 100.0));
-    st.quietFlare = ini.getBool("quiet", "sun_flare", st.quietFlare);
-    st.quietSmooth = ini.getBool("quiet", "smooth_motion", st.quietSmooth);
-    st.skyRain = ini.getBool("quiet", "sky_rain", st.skyRain);
-    st.spaceFx = ini.getBool("quiet", "midnight_sky", st.spaceFx);
-    st.aliensEnabled = ini.getBool("quiet", "aliens", st.aliensEnabled);
-    st.weatherMood = ini.getBool("quiet", "weather_light", st.weatherMood);
-    st.moodStrength = (float)std::max(0.5, std::min(1.5, ini.getNum("quiet", "weather_light_strength", 100.0) / 100.0));
-    // theme packs (the themes folder): which one is the theme, which extra tab was open, and which are switched off
-    st.themePack = ini.get("view", "theme_pack", "");
-    st.facePack = ini.get("view", "face_pack", "");
-    if (ini.getBool("view", "face_is_pack", false) && !st.facePack.empty()) st.face = FACE_PACK;
-    st.packsOff = splitCsv(ini.get("themes", "disabled", ""));
-    if (ini.sections.count("widgets")) {
-        if (ini.sections["widgets"].count("list")) {
-            st.widgets.clear();
-            for (auto& t : splitCsv(ini.get("widgets", "list"))) {
-                std::string k = lowerTrim(t);
-                for (int i = 0; i < WG_COUNT; ++i) if (k == WKEY[i] && std::find(st.widgets.begin(), st.widgets.end(), i) == st.widgets.end()) st.widgets.push_back(i);
-            }
-        }
-        // lists saved by an older version get the new widgets once, so the Widgets face has something to cycle through
-        if (!ini.sections["widgets"].count("layout")) {
-            for (int id : {WG_HOURLY, WG_HOLIDAYS, WG_DAYLIGHT, WG_SKY, WG_AIR, WG_YEAR})
-                if (std::find(st.widgets.begin(), st.widgets.end(), id) == st.widgets.end()) st.widgets.push_back(id);
-        }
-        { std::string k = lowerTrim(ini.get("widgets", "per_page", st.wgPerPage <= 0 ? "all" : std::to_string(st.wgPerPage)));
-          st.wgPerPage = k == "all" ? 0 : (int)std::max(1, std::min(6, atoi(k.c_str()))); }
-        st.wgSecs = (int)std::max(4.0, std::min(300.0, ini.getNum("widgets", "page_seconds", st.wgSecs)));
-        st.pinned = -1;
-        { std::string k = lowerTrim(ini.get("widgets", "pinned", "none")); for (int i = 0; i < WG_COUNT; ++i) if (k == WKEY[i]) st.pinned = i; }
-        if (ini.sections["widgets"].count("clocks")) {
-            st.clocks.clear();
-            for (auto& t : splitCsv(ini.get("widgets", "clocks"))) {
-                std::string k = lowerTrim(t);
-                for (int i = 0; i < cityCount(); ++i) if (k == lowerTrim(cityName(i)) && st.clocks.size() < 4 && std::find(st.clocks.begin(), st.clocks.end(), i) == st.clocks.end()) st.clocks.push_back(i);
-            }
-        }
-        st.weekMon = ini.getBool("widgets", "week_starts_monday", st.weekMon);
-        st.note = unescapeNl(ini.get("widgets", "note", st.note), ini.getNum("widgets", "note_format", 1) >= 2);
-        st.cdLabel = ini.get("widgets", "countdown_label", st.cdLabel); st.cdDate = ini.get("widgets", "countdown_date", st.cdDate);
-    }
-    tm.durationSec = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, ini.getNum("timer", "duration", tm.durationSec))); tm.pausedRemaining = tm.durationSec;
-    tm.alarmMinutes = (int)std::max(0.0, std::min(1439.0, ini.getNum("timer", "alarm_minutes", tm.alarmMinutes)));
-    tm.alarmOn = ini.getBool("timer", "alarm_on", false);
-    {
-        FocusState& fc = G.app.focus;
-        fc.durationSec = std::max(TIMER_MIN_SEC, std::min(TIMER_MAX_SEC, ini.getNum("focus", "duration", fc.durationSec)));
-        fc.pausedRemaining = fc.durationSec;
-        static const char* const kFx[14] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard", "drizzle", "sleet", "hail", "gale", "midnight"};
-        const std::string bk = lowerTrim(ini.get("focus", "backdrop", "live"));
-        st.focusFx = 1;
-        for (int i = 0; i < 14; ++i) if (bk == kFx[i]) { st.focusFx = i; break; }
+        // Written by a newer Meridian: always refresh & verify a recoverable snapshot whenever the file changed.
+        backupNewerSettingsSnapshot(G.settingsPath, txt, fileVersion);
     }
 }
 
 bool saveSettings() {                                      // false only when the file could not be written
     if (G.saver) return true;                                   // the screen saver shows your settings, it never changes them
-    Settings& st = G.app.st; const TimerState& tm = G.app.timer;
-    std::string o;
-    o += "; Meridian settings. Most of this is easier from the Settings panel in the app (press the comma key).\n";
-    o += "; If you edit this file by hand, do it while the app is closed. Everything is saved automatically.\n\n";
-    o += fmt("[meridian]\n; which layout this file has, so a newer Meridian can convert an older file (and an older one can tell it is looking at a newer file). Leave it alone.\nsettings_version=%d\nwritten_by=%s\n\n", SETTINGS_VERSION, MERIDIAN_VERSION);
-    o += "[location]\n; used for the sky, sunrise/sunset, the moon and the weather\n";
-    o += "name=" + G.app.home.name + "\n" + fmt("lat=%.4f\nlon=%.4f\n", G.app.home.lat, G.app.home.lon);
-    o += "; FIND MY LOCATION (Settings > Place) fills this in and it is kept until you press the button again. located=0 only on a new install that has not found\n; its location yet: it then looks once at the next start. source is where the position came from, accuracy_m how far off it may be.\n";
-    o += fmt("located=%d\nsource=", G.app.located ? 1 : 0) + G.app.locSource + fmt("\naccuracy_m=%.0f\nfound_at=%.0f\n", G.app.locAcc, G.app.locAt);
-    o += "; the country (two-letter code) and region the lookup reported. They pick the holidays when [holidays] auto=1. Empty for a place typed by hand.\ncountry=" + G.app.homeCountry + "\nregion=" + G.app.homeRegion + "\n";
-    const bool showSaved = G.app.placeIdx >= 0 && G.app.placeIdx < (int)st.places.size();
-    o += "; which place is on show: the name and coordinates of one of the [places] below, or empty for the place above. Kept across restarts.\nshowing=" +
-         (showSaved ? st.places[(size_t)G.app.placeIdx].name : std::string()) + "\nshowing_coords=" +
-         (showSaved ? fmt("%.4f,%.4f", st.places[(size_t)G.app.placeIdx].lat, st.places[(size_t)G.app.placeIdx].lon) : std::string()) +
-         fmt("\n; when viewing a saved place (N), show the clock in that place's local timezone. 1 = on, 0 = off\nplace_local_time=%d\n\n", st.placeLocalTime ? 1 : 0);
-    o += "[places]\n; extra places, cycle with N.  Name=lat,lon\n";
-    for (auto& p : st.places) {
-        std::string safe = p.name;
-        for (char& ch : safe) if (ch == '=' || ch == '\r' || ch == '\n') ch = '-';
-        while (!safe.empty() && (safe[0] == ';' || safe[0] == '#' || safe[0] == '[')) safe.erase(safe.begin());
-        if (safe.empty()) safe = "Place";
-        o += safe + fmt("=%.4f,%.4f\n", p.lat, p.lon);
-    }
-    o += "\n[events]\n; your own dates shown under TODAY.  MM-DD repeats every year, YYYY-MM-DD happens once.\n";
-    for (auto& e : st.events) o += (e.y ? fmt("%04d-%02d-%02d", e.y, e.m, e.d) : fmt("%02d-%02d", e.m, e.d)) + "=" + e.title + "\n";
-    o += "\n[view]\n";
-    o += fmt("theme=%d\n; 0 auto, 1 day, 2 dusk, 3 night, 4 ember, 5 dawn, 6 sunset, 7 sunlit, 8 sunlit II, 9 galaxy, 10 midnight\nface=%d\n; 0 sky, 1 quiet, 2 timer, 3 almanac, 4 widgets, 5 focus\n", st.theme, st.face == FACE_PACK ? (int)FACE_QUIET : st.face);
-    o += "; a theme pack (a folder in the themes folder) used as the theme, and the pack tab that was open. Leave empty for the built-in themes.\ntheme_pack=" + st.themePack + "\nface_pack=" + st.facePack + fmt("\nface_is_pack=%d\n", st.face == FACE_PACK ? 1 : 0);
-    o += fmt("h24=%d\nseconds=%d\nfahrenheit=%d\npoya=%d\npixel_shift=%d\nkeep_awake=%d\ntopmost=%d\nfullscreen=%d\nbrightness=%.2f\n",
-             st.h24, st.seconds, st.useF, st.poya, st.pixelShift, st.keepAwake, st.topmost, st.fullscreen, st.brightness);
-    o += fmt("ember_at_bedtime=%d\nbedtime_from=%d\nbedtime_to=%d\nauto_dim=%d\ndim_at_night=%.2f\nhourly_chime=%d\n\n", st.emberAtNight, st.emberFrom, st.emberTo, st.autoDim, st.dimNight, st.hourlyChime ? 1 : 0);
-    o += "[weather]\n; sources are tried in this order until one answers. 1 = on, 0 = off\n";
-    for (int i = 0; i < weather::PV_COUNT; ++i) o += fmt("%s=%d\n", weather::providerId(i), st.provEnabled[i] ? 1 : 0);
-    o += "; optional: an email or website. MET Norway and NWS ask apps to identify themselves in the User-Agent\ncontact=" + st.contact + "\n";
-    o += "; optional free API keys for WeatherAPI.com and OpenWeatherMap (stay local, also provide backup Air Quality)\n";
-    o += "weatherapi_key=" + st.weatherApiKey + "\nopenweather_key=" + st.openWeatherKey + "\n\n";
-    o += "[sky]\n; events appear on the sky map when they are this many days away or less. 1 = on, 0 = off\n";
-    o += fmt("days=%d\nmeteors=%d\nplanets=%d\neclipses=%d\nchips=%d\nanimate=%d\n\n", st.evDays, st.evMeteors, st.evPlanets, st.evEclipses, st.evChips, st.evAnimate);
-    o += fmt("[elements]\n; parts of the Sky face. 1 = on, 0 = off\ntoday=%d\nweather=%d\nsun_moon=%d\nday_band=%d\nlabels=%d\nconstellations=%d\nmilky_way=%d\necliptic=%d\nclouds=%d\ntracks=%d\nday_stars=%d\n\n",
-             st.elToday, st.elWeather, st.elSunMoon, st.elBand, st.elLabels, st.elConst, st.elMilky, st.elEcliptic, st.elClouds, st.elTracks, st.dayStars ? 1 : 0);
-    o += fmt("[panel]\n; the left side of the Sky face rotates between Today (see today= above), Sky events, Holidays and World clocks. 1 = on, 0 = off\nsky_events=%d\nholidays=%d\nworld_clocks=%d\n", st.elEvents, st.elHolidays, st.elWorld);
-    o += fmt("; seconds each panel stays, and how the next one arrives: slide, rise or fade\nseconds=%d\ntransition=%s\npause_on_hover=%d\ndots=%d\n", st.panelSecs, st.panelStyle == 1 ? "rise" : st.panelStyle == 2 ? "fade" : "slide", st.panelHold, st.panelDots);
-    o += fmt("; mark holidays on the month calendar widget (hover a date for details)\ncalendar_holidays=%d\n\n", st.holCal);
-    o += fmt("[holidays]\n; whose holidays to show, everywhere: any mix of lk (Sri Lanka), uk (United Kingdom) and us (United States).\n; auto=1 picks the country your place is in (nothing for any other country); auto=0 uses the countries listed here.\nauto=%d\n", st.holAuto);
-    { std::string l; if (st.holMask & holiday::C_LK) l += "lk"; if (st.holMask & holiday::C_UK) l += l.empty() ? "uk" : ",uk"; if (st.holMask & holiday::C_US) l += l.empty() ? "us" : ",us"; o += "countries=" + l + "\n"; }
-    o += std::string("; which UK list: auto (from your place), england-wales, scotland or northern-ireland\nuk_nation=") + (st.ukPref == 1 ? "england-wales" : st.ukPref == 2 ? "scotland" : st.ukPref == 3 ? "northern-ireland" : "auto") + "\n\n";
-    o += fmt("[skymap]\n; which compass direction is at the top of the sky map, in degrees (0 north, 90 east, 180 south, 270 west)\nheading=%.0f\n", st.skyHeading);
-    o += fmt("; free_rotate=1 turns the whole sky slowly, one full turn every seconds_per_turn seconds; direction is clockwise or counterclockwise\nfree_rotate=%d\nseconds_per_turn=%d\ndirection=%s\n\n",
-             st.skySpin, st.skySpinSecs, st.skySpinDir > 0 ? "clockwise" : "counterclockwise");
-    o += fmt("[quiet]\n; draw the weather behind the clock on the Quiet face (clouds, wind, rain, a tornado in a thunderstorm). 1 = on, 0 = off\nweather=%d\n; how strongly it is drawn, in percent (50 to 200). 100 is the default\nstrength=%.0f\n; a soft sun flare from the side the Sun is on, in the morning and the evening. 1 = on, 0 = off\nsun_flare=%d\n; rain and wind drawn at your screen's own refresh rate (up to 90 frames a second) so they stay smooth. 0 = 30 frames a second, lighter on a laptop battery\nsmooth_motion=%d\n", st.quietFx, st.quietStrength * 100.f, st.quietFlare, st.quietSmooth);
-    o += fmt("; rain also falls behind the map on the Sky face. 1 = on, 0 = off\nsky_rain=%d\n; the Galaxy theme's stars, meteors and comet behind the Quiet and Sky faces. 1 = on, 0 = off\nmidnight_sky=%d\n", st.skyRain, st.spaceFx);
-    if (!st.aliensEnabled) o += "aliens=0\n";
-    o += fmt("; the light follows the weather on every face: heavy cloud and storms darken and cool the theme, fog flattens it. 1 = on, 0 = off\nweather_light=%d\n; how strong that is, in percent (50 to 150)\nweather_light_strength=%.0f\n\n", st.weatherMood, st.moodStrength * 100.f);
-    o += fmt("[storms]\n; show named storms (cyclones, typhoons, hurricanes) when one is near you: its name, distance and direction. 1 = on, 0 = off\nwatch=%d\n; how far away still counts as near, in km\nradius_km=%d\n\n", st.stormWatch, st.stormRadius);
-    {
-        std::string off; for (const std::string& id : st.packsOff) off += std::string(off.empty() ? "" : ",") + id;
-        o += "[themes]\n; theme packs are folders in the 'themes' folder next to Meridian.exe (or in %APPDATA%\\Meridian\\themes). Drop one in, or delete it, and Meridian notices.\n; packs listed here are switched off (they stay installed). Easier from Settings > Themes.\ndisabled=" + off + "\n\n";
-    }
-    {
-        std::string wl, cl;
-        for (int id : st.widgets) wl += std::string(wl.empty() ? "" : ",") + WKEY[id];
-        for (int i : st.clocks) cl += std::string(cl.empty() ? "" : ",") + cityName(i);
-        o += "[widgets]\n; the Widgets face, in order: world, month, system, note, countdown, phases, week, today, holidays, hourly, daylight, sky, conditions, year\nlist=" + wl + "\n";
-        o += std::string("; widgets shown together on one page (1 to 6, or all) and how many seconds each page stays; the transition is the one set under [panel]\nper_page=") + (st.wgPerPage <= 0 ? std::string("all") : std::to_string(st.wgPerPage)) + fmt("\npage_seconds=%d\nlayout=2\n", st.wgSecs);
-        o += std::string("; one widget can join the rotating panel on the Sky face (a widget name, or none)\npinned=") + (st.pinned >= 0 ? WKEY[st.pinned] : "none") + "\n";
-        o += "; world clock cities, up to four (London, New York, Tokyo, Dubai, Singapore, Sydney, Los Angeles, Paris, Berlin, Delhi, Moscow, Beijing, Seoul, Cairo, Johannesburg, Sao Paulo, Chicago, Auckland, Istanbul, Riyadh, Karachi, Dhaka, Bangkok, Colombo, San Francisco, Denver, Phoenix, Toronto, Zurich, Hong Kong, Melbourne)\nclocks=" + cl + "\n";
-        o += fmt("week_starts_monday=%d\n", st.weekMon) + "note=" + escapeNl(st.note) + "\nnote_format=2\ncountdown_label=" + st.cdLabel + "\ncountdown_date=" + st.cdDate + "\n\n";
-    }
-    o += fmt("[window]\nx=%d\ny=%d\nw=%d\nh=%d\n\n", st.winX, st.winY, st.winW, st.winH);
-    o += fmt("[timer]\nduration=%.0f\nalarm_minutes=%d\nalarm_on=%d\n\n", tm.durationSec, tm.alarmMinutes, tm.alarmOn ? 1 : 0);
-    static const char* const kFxNames[14] = {"off", "live", "rain", "snow", "clouds", "fog", "storm", "stars", "blizzard", "drizzle", "sleet", "hail", "gale", "midnight"};
-    const int fxIdx = std::max(0, std::min(13, st.focusFx));
-    o += fmt("[focus]\nduration=%.0f\nbackdrop=%s\n", G.app.focus.durationSec, kFxNames[fxIdx]);
-    return writeFile(G.settingsPath, o);
+    return writeFile(G.settingsPath, serializeSettingsText(G.app));
 }
 void markDirty() { G.saveDirty = true; G.saveAt = unixNow() + 1.5; }
 // Saves when the timer says so. A save that fails (disk full, settings.ini locked by another program, a read-only folder) is not forgotten:
@@ -488,7 +260,8 @@ struct Worker {
     std::mutex mu; std::condition_variable cv;
     bool stop = false, refresh = true;
     double lat = 0, lon = 0;
-    int tz = 0;                                                      // local UTC offset, for providers that do not report one
+    int tz = 0;                                                      // target place UTC offset, for providers that do not report one
+    bool hasPlaceTz = false;                                         // true only when `tz` comes from an authoritative zone for (lat, lon)
     bool enabled[weather::PV_COUNT] = {true, true, true, true, true, true, true, true};
     std::string contact, weatherApiKey, openWeatherKey;
     weather::Data result; bool ready = false; std::string status, detail; bool failing = false;
@@ -509,18 +282,18 @@ struct Worker {
         if (exited) { th.join(); return true; }
         th.detach(); return false;
     }
-    void request(double la, double lo) {
+    void request(double la, double lo, int targetTz = 0, bool hasTz = false) {
         { std::lock_guard<std::mutex> l(mu);
           if (std::fabs(la - lat) > 1e-6 || std::fabs(lo - lon) > 1e-6) { ++locGen; ready = false; failing = false; status.clear(); detail.clear(); }   // a new place
-          lat = la; lon = lo; refresh = true; }
+          lat = la; lon = lo; tz = targetTz; hasPlaceTz = hasTz; refresh = true; }
         cv.notify_all();
     }
     void run() {
         struct ExitFlag { std::atomic<bool>& f; ~ExitFlag() { f = true; } } exitFlag{exited};
         int failures = 0;
         for (;;) {
-            double la, lo; int tzo; bool en[weather::PV_COUNT]; std::string ct, wKey, owmKey; unsigned long long gen;
-            { std::unique_lock<std::mutex> l(mu); if (stop) return; la = lat; lo = lon; gen = locGen; tzo = tz; ct = contact; wKey = weatherApiKey; owmKey = openWeatherKey; for (int i = 0; i < weather::PV_COUNT; ++i) en[i] = enabled[i]; refresh = false; }
+            double la, lo; int tzo; bool hasTzo; bool en[weather::PV_COUNT]; std::string ct, wKey, owmKey; unsigned long long gen;
+            { std::unique_lock<std::mutex> l(mu); if (stop) return; la = lat; lo = lon; gen = locGen; tzo = tz; hasTzo = hasPlaceTz; ct = contact; wKey = weatherApiKey; owmKey = openWeatherKey; for (int i = 0; i < weather::PV_COUNT; ++i) en[i] = enabled[i]; refresh = false; }
             auto stale = [&] { std::lock_guard<std::mutex> l(mu); return locGen != gen || stop; };
             auto hasNonSpace = [](const std::string& s) { for (unsigned char c : s) if (c > ' ') return true; return false; };
             weather::Data d; bool ok = false; int tried = 0; std::string firstErr;
@@ -537,7 +310,7 @@ struct Worker {
                 std::string body, abody, err;
                 ps[id].tried = true; ps[id].lastTry = unixNow(); ++tried;
                 if (weather::fetchProvider(id, la, lo, ct, body, abody, err, keyForId)) {
-                    weather::Data cand; cand.utcOffset = tzo; cand.fetched = unixNow();
+                    weather::Data cand; cand.utcOffset = tzo; cand.hasUtcOffset = hasTzo; cand.fetched = unixNow();
                     if (weather::parseProvider(id, body, la, lo, cand, err)) {
                         ok = true; d = cand; d.fetched = unixNow();
                         std::string aerr;
@@ -547,21 +320,22 @@ struct Worker {
                             while (!weather::cancelled() && !stale() && GetTickCount64() - tStag < 350ULL) Sleep(25);
                             if (!weather::cancelled() && !stale()) {
                                 if (weather::fetchAir(la, lo, abody, aerr, wKey, owmKey)) {
-                                    weather::parseAir(abody, d, aerr, la, lo);
+                                    weather::parseAir(abody, d, aerr, la, lo, d.fetched);
                                 }
                             }
                         }
                         if (!stale()) {
                             writeFile(G.forecastCache, fmt("%d %.4f,%.4f\n", id, la, lo) + body);
-                            if (d.hasAir) {
+                            if (weather::airFresh(d, d.fetched)) {
                                 writeFile(G.airCache, weather::formatAirCache(la, lo, d.fetched, weather::formatAirJson(d)));
-                                weatherLog(fmt("Air quality (%s): US AQI %.0f (%s)",
-                                               d.airSource.empty() ? "Open-Meteo" : d.airSource.c_str(), d.aqi, weather::aqiLabel(d.aqi)));
+                                weatherLog(fmt("Air quality (%s): %s %.0f (%s)",
+                                               d.airSource.empty() ? "Open-Meteo" : d.airSource.c_str(), weather::aqiScaleName(d.aqiScale), d.aqi, weather::aqiLabel(d.aqi, d.aqiScale)));
                             } else {
-                                // Keep a recent cached AQI ONLY if it matches this exact place; delete if from another city or stale
+                                d.hasAir = false;
+                                // Keep a recent cached AQI ONLY if it matches this exact place and its observation timestamp is fresh
                                 std::string cachedAir, cerr;
                                 if (readFile(G.airCache, cachedAir) && weather::parseAirCache(cachedAir, la, lo, d.fetched, 6 * 3600.0, d, cerr)) {
-                                    weatherLog(fmt("Air quality: cached US AQI %.0f (%s)", d.aqi, aerr.empty() ? "reused" : aerr.c_str()));
+                                    weatherLog(fmt("Air quality: cached %s %.0f (%s)", weather::aqiScaleName(d.aqiScale), d.aqi, aerr.empty() ? "reused" : aerr.c_str()));
                                 } else {
                                     DeleteFileW(G.airCache.c_str());
                                     if (!aerr.empty()) weatherLog("Air quality: " + aerr);
@@ -616,21 +390,28 @@ struct StormWorker {
         if (exited) { th.join(); return true; }
         th.detach(); return false;
     }
-    void configure(bool en) { { std::lock_guard<std::mutex> l(mu); if (en && !enabled) refresh = true; enabled = en; } cv.notify_all(); }
-    void request() { { std::lock_guard<std::mutex> l(mu); refresh = true; } cv.notify_all(); }
+    void configure(bool en) {
+        { std::lock_guard<std::mutex> l(mu); if (en && !enabled) refresh = true; if (!en) refresh = false; enabled = en; }
+        cv.notify_all();
+    }
+    void request() { { std::lock_guard<std::mutex> l(mu); if (enabled) refresh = true; } cv.notify_all(); }
     void run() {
         struct ExitFlag { std::atomic<bool>& f; ~ExitFlag() { f = true; } } exitFlag{exited};
         int failures = 0;
         for (;;) {
             { std::unique_lock<std::mutex> l(mu); cv.wait(l, [this] { return stop || enabled; }); if (stop) return; refresh = false; busy = true; lastTry = unixNow(); }
+            if (weather::cancelled()) { std::lock_guard<std::mutex> l(mu); busy = false; return; }
             storms::Data d; std::string err;
             const bool ok = storms::fetch(unixNow(), d, err);
+            if (weather::cancelled()) { std::lock_guard<std::mutex> l(mu); busy = false; return; }
             weatherLog(ok ? fmt("Storms: %s, %d active in the world", d.source.c_str(), (int)d.list.size()) : "Storms: " + err);
             std::unique_lock<std::mutex> l(mu);
             busy = false;
+            if (stop) return;
             if (ok) { result = d; ready = true; failures = 0; lastOk = unixNow(); lastErr.clear(); } else { ++failures; lastErr = err; }
+            if (!enabled) continue;
             const double waitSec = ok ? 30 * 60.0 : std::min(30 * 60.0, 120.0 * (1 << std::min(failures, 4)));
-            cv.wait_for(l, std::chrono::milliseconds((long long)(waitSec * 1000)), [this] { return stop || refresh; });
+            cv.wait_for(l, std::chrono::milliseconds((long long)(waitSec * 1000)), [this] { return stop || refresh || !enabled; });
             if (stop) return;
         }
     }
@@ -657,6 +438,21 @@ void pollStorms() {
     }
 }
 
+// ---------------------------------------------------------------- NOAA SWPC space weather (Kp-index) worker
+spacewx::Poller SPW;
+
+void startSpaceWxWorker() {
+    SPW.start([](double now, spacewx::Data& d, std::string& err) { return spacewx::fetch(now, d, err); },
+              []() { return unixNow(); },
+              [](const std::string& msg) { weatherLog(msg); });
+}
+
+void pollSpaceWx() {
+    std::lock_guard<std::mutex> l(SPW.mu);
+    if (SPW.ready) { G.app.spaceWx = SPW.result; SPW.ready = false; }
+    G.app.spaceWxTry = SPW.lastTry; G.app.spaceWxOk = SPW.lastOk; G.app.spaceWxErr = SPW.lastErr; G.app.spaceWxBusy = SPW.busy;
+}
+
 void applyWeatherConfig() {
     std::lock_guard<std::mutex> l(W.mu);
     for (int i = 0; i < weather::PV_COUNT; ++i) W.enabled[i] = G.app.st.provEnabled[i];
@@ -672,7 +468,10 @@ void loadWeatherCache() {
     int id; double la, lo; if (sscanf(txt.c_str(), "%d %lf,%lf", &id, &la, &lo) != 3) return;
     if (id < 0 || id >= weather::PV_COUNT) return;
     if (std::fabs(la - G.app.st.geo.lat) > 0.01 || std::fabs(lo - G.app.st.geo.lon) > 0.01) return;
-    weather::Data d; std::string err; d.utcOffset = G.app.tzOff;
+    weather::Data d; std::string err;
+    bool dynTz = false;
+    d.utcOffset = G.app.placeIdx >= 0 ? resolvePlaceOffset(G.app.st.geo, weather::Data{}, unixNow(), &dynTz) : localOffset(unixNow());
+    d.hasUtcOffset = dynTz || G.app.placeIdx < 0;
     if (!weather::parseProvider(id, txt.substr(nl + 1), la, lo, d, err)) return;
     if (!d.hasAir) {
         std::string air; if (readFile(G.airCache, air)) weather::parseAirCache(air, la, lo, unixNow(), 6 * 3600.0, d, err);
@@ -682,12 +481,36 @@ void loadWeatherCache() {
 }
 
 void pollWeather() {
-    std::lock_guard<std::mutex> l(W.mu);
-    W.tz = localOffset(unixNow());
-    G.app.wxProv = W.prov;
-    if (W.ready && W.resultGen != W.locGen) W.ready = false;          // a reply for a place that is no longer the one shown
-    if (W.ready) { G.app.wx = W.result; G.app.wxFetchedAt = unixNow(); W.ready = false; G.app.wxOffline = false; G.app.wxStatus.clear(); G.app.wxDetail.clear(); }
-    else if (W.failing) { G.app.wxOffline = true; G.app.wxStatus = W.status; G.app.wxDetail = W.detail; }
+    bool backfilledTz = false;
+    {
+        std::lock_guard<std::mutex> l(W.mu);
+        bool dynTz = false;
+        W.tz = G.app.placeIdx >= 0 ? resolvePlaceOffset(G.app.st.geo, G.app.wx, unixNow(), &dynTz) : localOffset(unixNow());
+        W.hasPlaceTz = dynTz || G.app.placeIdx < 0;
+        G.app.wxProv = W.prov;
+        if (W.ready && W.resultGen != W.locGen) W.ready = false;          // a reply for a place that is no longer the one shown
+        if (W.ready) {
+            G.app.wx = W.result; G.app.wxFetchedAt = unixNow(); W.ready = false; G.app.wxOffline = false; G.app.wxStatus.clear(); G.app.wxDetail.clear();
+            // Backfill authoritative Windows TZ onto saved places when an IANA timezone arrives from the weather provider
+            if (!G.app.wx.timezone.empty()) {
+                const std::string winTz = ianaToWinTz(G.app.wx.timezone);
+                if (!winTz.empty()) {
+                    if (G.app.placeIdx >= 0 && G.app.placeIdx < (int)G.app.st.places.size()) {
+                        if (G.app.st.places[(size_t)G.app.placeIdx].tz.empty()) {
+                            G.app.st.places[(size_t)G.app.placeIdx].tz = winTz;
+                            G.app.st.geo.tz = winTz;
+                            backfilledTz = true;
+                        }
+                    } else if (G.app.home.tz.empty()) {
+                        G.app.home.tz = winTz;
+                        G.app.st.geo.tz = winTz;
+                        backfilledTz = true;
+                    }
+                }
+            }
+        } else if (W.failing) { G.app.wxOffline = true; G.app.wxStatus = W.status; G.app.wxDetail = W.detail; }
+    }
+    if (backfilledTz) markDirty();
 }
 
 // ---------------------------------------------------------------- window helpers
@@ -797,13 +620,19 @@ void cycleTheme(int dir) {
     markDirty();
 }
 
+void requestWeatherForCurrentPlace() {
+    const Settings& st = G.app.st;
+    bool dynTz = false;
+    const int targetTz = G.app.placeIdx >= 0 ? resolvePlaceOffset(st.geo, G.app.wx, unixNow(), &dynTz) : localOffset(unixNow());
+    W.request(st.geo.lat, st.geo.lon, targetTz, dynTz || G.app.placeIdx < 0);
+}
+
 void applyPlaceChange() {
-    Settings& st = G.app.st;
     G.geoPending = false;
     applyGeoFromPlace();
     G.app.wx = weather::Data(); G.app.wxStatus = "Connecting…";
     loadWeatherCache();
-    W.request(st.geo.lat, st.geo.lon);
+    requestWeatherForCurrentPlace();
     markDirty();                                  // which place is on show is remembered for the next start
 }
 
@@ -931,6 +760,7 @@ void applyLocated(const locate::Found& f, bool autoMode) {
     a.home.name = f.name.empty() ? std::string("My location") : f.name;
     a.home.lat = std::max(-89.0, std::min(89.0, std::round(f.lat * 10000.0) / 10000.0));
     a.home.lon = std::max(-180.0, std::min(180.0, std::round(f.lon * 10000.0) / 10000.0));
+    a.home.tz = resolvePlaceWinTz(a.home.name, a.home.lat, a.home.lon);
     if (!autoMode || a.placeIdx < 0) a.placeIdx = -1;      // the button shows the new position now, even if a saved place was on screen. The automatic lookup only
                                                            // fills in "your location": a saved place that you picked stays on show
     a.located = true; a.locSource = f.source; a.locAcc = f.accuracyM; a.locAt = unixNow(); a.locErr.clear();
@@ -960,12 +790,18 @@ void command(int id) {
         case CMD_WEATHER_CFG: applyWeatherConfig(); break;
         case CMD_STORM_CFG: applyStormConfig(); break;
         case CMD_STORM_REFRESH: if (!a.st.stormWatch) toast(L"Turn on Show storms near me first"); else { SW.request(); a.stormBusy = true; toast(L"Asking for storm reports"); } break;
-        case CMD_WEATHER_REFRESH: applyWeatherConfig(); a.wxStatus = "Refreshing…"; W.request(a.st.geo.lat, a.st.geo.lon); break;
+        case CMD_SPACEWX_CFG: SPW.configure(a.st.auroraAuto); if (a.st.auroraAuto) a.spaceWxBusy = true; break;
+        case CMD_SPACEWX_REFRESH: SPW.requestOneShot(); a.spaceWxBusy = true; toast(L"Refreshing NOAA space weather"); break;
+        case CMD_WEATHER_REFRESH: applyWeatherConfig(); a.wxStatus = "Refreshing…"; requestWeatherForCurrentPlace(); break;
         case CMD_GEO: applyPlaceChange(); break;
         case CMD_GEO_SOON: G.geoPending = true; G.geoAt = unixNow() + 1.1; break;
         case CMD_LOCATE: startLocate(false); break;
         case CMD_OPEN_LOCATION_SETTINGS: ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-location", nullptr, nullptr, SW_SHOWNORMAL); break;
         case CMD_SAVE: markDirty(); break;
+        case CMD_SAVE_NOW:
+            G.saveDirty = false;
+            if (!saveSettings()) { G.saveDirty = true; G.saveAt = unixNow() + 5.0; }
+            break;
         case CMD_OPEN_INI: openSettingsIni(); break;
         case CMD_OPEN_HOLIDAYS: openHolidaysFile(); break;
         case CMD_OPEN_LOG: openFile(G.logPath, L"weather.log"); break;
@@ -1078,21 +914,23 @@ void perform(int id) {
     else if (id == HIT_CAL_NEXT) a.calOffset++;
     else if (id == HIT_CAL_TODAY) a.calOffset = 0;
     else if (id == HIT_PIN) { a.st.topmost = !a.st.topmost; applyTopmost(); toast(a.st.topmost ? L"Kept on top" : L"Normal window"); markDirty(); }
-    else if (id >= HIT_TAB0 && id < HIT_TAB0 + 3) { t.mode = id - HIT_TAB0; t.entry.clear(); }
+    else if (id >= HIT_TAB0 && id < HIT_TAB0 + 3) { t.mode = id - HIT_TAB0; t.entry.clear(); markDirty(); }
     else if (id >= HIT_PRESET0 && id < HIT_PRESET0 + 7) { a.timerSetDuration(TIMER_PRESETS[id - HIT_PRESET0]); t.entry.clear(); markDirty(); }
     else if (id == HIT_START) { a.timerStartPause(); markDirty(); }
-    else if (id == HIT_RESET) a.timerReset();
-    else if (id == HIT_LAP) a.stopwatchLap();
+    else if (id == HIT_RESET) { a.timerReset(); markDirty(); }
+    else if (id == HIT_LAP) { a.stopwatchLap(); markDirty(); }
     else if (id >= HIT_FPRESET0 && id < HIT_FPRESET0 + 7) { a.focusSetDuration(FOCUS_PRESETS[id - HIT_FPRESET0]); markDirty(); }
     else if (id == HIT_FSTART) { a.focusStartPause(); markDirty(); }
-    else if (id == HIT_FRESET) a.focusReset();
-    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 14) {
-        static const wchar_t* const kFxToast[14] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars", L"Blizzard", L"Drizzle", L"Sleet", L"Hail", L"Gale", L"Midnight"};
+    else if (id == HIT_FRESET) { a.focusReset(); markDirty(); }
+    else if (id >= HIT_FOCUSFX0 && id < HIT_FOCUSFX0 + 15) {
+        static const wchar_t* const kFxToast[15] = {L"Off", L"Live weather", L"Rain", L"Snow", L"Clouds", L"Fog", L"Storm", L"Stars", L"Blizzard", L"Drizzle", L"Sleet", L"Hail", L"Gale", L"Midnight", L"Aurora"};
         const int m = id - HIT_FOCUSFX0;
         a.st.focusFx = m;
         markDirty();
         toast(std::wstring(L"Focus ambience \xB7 ") + kFxToast[m]);
     }
+    else if (id == HIT_SKY_VIEW_DOME) { a.st.skyViewMode = 0; markDirty(); toast(L"Sky Dome"); }
+    else if (id == HIT_SKY_VIEW_ORRERY) { a.st.skyViewMode = 1; markDirty(); toast(L"Solar System Orrery"); }
 }
 
 void handleSecretKey(wchar_t kch) {
@@ -1140,6 +978,17 @@ void handleSecretKey(wchar_t kch) {
                 : L"Music stopped");
             break;
         }
+        case ufoaudio::SecretAction::ToggleAudioTest: {
+            const auto nowTrack = ufoaudio::toggleTrack(ufoaudio::Track::AudioTest);
+            toast(nowTrack == ufoaudio::Track::AudioTest
+                ? L"Now playing \xB7 Audio test track (type again or stopaudiotest to stop)"
+                : L"Music stopped");
+            break;
+        }
+        case ufoaudio::SecretAction::StopAudioTest:
+            ufoaudio::stopTrack();
+            toast(L"Music stopped");
+            break;
         case ufoaudio::SecretAction::ToggleJukebox: {
             const bool on = ufoaudio::toggleJukebox();
             toast(on
@@ -1159,10 +1008,11 @@ void handleSecretKey(wchar_t kch) {
 void dismissAlerts() {
     TimerState& t = G.app.timer; FocusState& f = G.app.focus;
     const bool wasFinished = t.finished;
-    t.finished = false; t.ringing = false;
+    t.finished = false; t.downtimeExpired = false; t.ringing = false;
     if (wasFinished) t.pausedRemaining = t.durationSec;       // do not wipe a paused countdown when dismissing a ringing alarm
-    if (f.finished) { f.finished = false; f.pausedRemaining = f.durationSec; }
+    if (f.finished) { f.finished = false; f.downtimeExpired = false; f.pausedRemaining = f.durationSec; }
     sirenStop(); G.finishHandled = G.focusFinishHandled = G.ringHandled = false;
+    markDirty();
 }
 
 void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
@@ -1178,14 +1028,18 @@ void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
     if (a.showSettings && !a.showHelp && a.settingsKey((unsigned)vk, shift)) { invalidate(); return; }      // Tab/Space/Enter focus + What's new scrolling
     if (vk == VK_ESCAPE) {
         if (a.showHelp) a.showHelp = false;
-        else if (a.showSettings) { a.showSettings = false; markDirty(); }
+        else if (a.showSettings) { a.showSettings = false; a.textTarget = nullptr; a.settingsFocus = -1; a.settingsFocusKey.clear(); a.glass.cancelHold(); markDirty(); }
         else if (t.finished || t.ringing || fc.finished) dismissAlerts();
         else if (st.fullscreen) setFullscreen(false);
         return;
     }
-    if (vk == VK_F1 || vk == VK_OEM_2 || (vk == 'I' && !a.inAboutTab())) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; a.secretBuf.clear(); return; }
+    if (vk == VK_F1 || vk == VK_OEM_2 || (vk == 'I' && !a.inAboutTab())) { a.showHelp = !a.showHelp; a.dockT = a.dockTarget = 0; a.glass.cancelHold(); a.secretBuf.clear(); return; }
     if (a.showHelp) { a.showHelp = false; return; }
-    if (vk == VK_OEM_COMMA) { a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; if (!a.showSettings) markDirty(); return; }
+    if (vk == VK_OEM_COMMA) {
+        a.showSettings = !a.showSettings; a.dockT = a.dockTarget = 0; a.glass.cancelHold();
+        if (!a.showSettings) { a.textTarget = nullptr; a.settingsFocus = -1; a.settingsFocusKey.clear(); markDirty(); }
+        return;
+    }
     if (alt && vk == VK_RETURN) { setFullscreen(!st.fullscreen); return; }
     if (vk == VK_F11 || (vk == 'F' && !ctrl && !a.showSettings)) { setFullscreen(!st.fullscreen); return; }
     if (a.showSettings) {                                           // Settings overlay is modal: do not leak clock hotkeys behind it
@@ -1228,9 +1082,10 @@ void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
             else if (focusFace) { a.focusStartPause(); markDirty(); }
             else if (st.face == FACE_PACK && a.packKey((int)vk)) markDirty();
             return;
-        case 'R': if (timerFace) a.timerReset(); else if (focusFace) a.focusReset(); else if (shift) { a.wx = weather::Data(); W.request(st.geo.lat, st.geo.lon); } return;
-        case 'L': if (timerFace) a.stopwatchLap(); return;
-        case VK_BACK: if (timerFace) a.timerBackspace(); else if (focusFace) a.focusBackspace(); return;
+        case 'R': if (timerFace) { a.timerReset(); markDirty(); } else if (focusFace) { a.focusReset(); markDirty(); } else if (shift) { a.wx = weather::Data(); requestWeatherForCurrentPlace(); } return;
+        case 'L': if (timerFace) { a.stopwatchLap(); markDirty(); } return;
+        case VK_BACK: if (timerFace) { a.timerBackspace(); markDirty(); } else if (focusFace) { a.focusBackspace(); markDirty(); } return;
+        case 'O': if (st.face == FACE_SKY) { st.skyViewMode = st.skyViewMode == 0 ? 1 : 0; markDirty(); toast(st.skyViewMode == 1 ? L"Solar System Orrery" : L"Sky Dome"); } return;
         case VK_ADD: case VK_OEM_PLUS: if (timerFace) { timerAdjustKey(+1, shift); markDirty(); } else if (focusFace) { a.focusAdjust((shift ? 600.0 : 60.0)); markDirty(); } return;
         case VK_SUBTRACT: case VK_OEM_MINUS: if (timerFace) { timerAdjustKey(-1, shift); markDirty(); } else if (focusFace) { a.focusAdjust((shift ? -600.0 : -60.0)); markDirty(); } return;
         case VK_UP: if (timerFace) { timerAdjustKey(+1, shift); markDirty(); } else if (focusFace) { a.focusAdjust((shift ? 600.0 : 60.0)); markDirty(); } else if (st.face == FACE_PACK && a.packKey(VK_UP)) markDirty(); return;
@@ -1250,7 +1105,7 @@ void onKey(WPARAM vk, bool shift, bool ctrl, bool alt, bool repeat) {
             }
             return;           // an easter egg: calls the saucer (Galaxy theme, Quiet and Sky faces)
         case 'B': st.emberAtNight = !st.emberAtNight; toast(st.emberAtNight ? Ws(fmt("Red night mode %02d:00–%02d:00", st.emberFrom, st.emberTo)) : L"Red night mode off"); markDirty(); return;
-        case 'W': a.wxStatus = "Refreshing…"; W.request(st.geo.lat, st.geo.lon); toast(L"Refreshing weather"); return;
+        case 'W': a.wxStatus = "Refreshing…"; requestWeatherForCurrentPlace(); toast(L"Refreshing weather"); return;
         case 'N': switchPlace(); return;
         case 'M': st.pixelShift = !st.pixelShift; toast(st.pixelShift ? L"Burn-in shift on" : L"Burn-in shift off"); markDirty(); return;
         case 'K': st.keepAwake = !st.keepAwake; applyKeepAwake(); toast(st.keepAwake ? L"Keeping the screen awake" : L"Screen may sleep"); markDirty(); return;
@@ -1333,8 +1188,22 @@ void flashIfMinimized() {
 void tickTimers(double now) {
     App& a = G.app; TimerState& t = a.timer; FocusState& fc = a.focus;
     a.timerTick();
-    if (t.finished && !G.finishHandled) { G.finishHandled = true; a.st.face = FACE_TIMER; t.mode = 0; a.faceChangedAt = now; sirenStart(); flashIfMinimized(); }
-    if (fc.finished && !G.focusFinishHandled) { G.focusFinishHandled = true; a.st.face = FACE_FOCUS; a.faceChangedAt = now; sirenStart(); flashIfMinimized(); }
+    if (t.finished && !G.finishHandled) {
+        G.finishHandled = true;
+        if (t.downtimeExpired) {
+            G.app.setToast(L"Countdown finished while Meridian was closed", 4.0);
+        } else {
+            a.st.face = FACE_TIMER; t.mode = 0; a.faceChangedAt = now; sirenStart(); flashIfMinimized();
+        }
+    }
+    if (fc.finished && !G.focusFinishHandled) {
+        G.focusFinishHandled = true;
+        if (fc.downtimeExpired) {
+            G.app.setToast(L"Focus session finished while Meridian was closed", 4.0);
+        } else {
+            a.st.face = FACE_FOCUS; a.faceChangedAt = now; sirenStart(); flashIfMinimized();
+        }
+    }
     if (t.ringing && !G.ringHandled) { G.ringHandled = true; a.st.face = FACE_TIMER; t.mode = 2; a.faceChangedAt = now; sirenStart(); flashIfMinimized(); }
     if (!t.finished) G.finishHandled = false;
     if (!fc.finished) G.focusFinishHandled = false;
@@ -1429,18 +1298,36 @@ void renderFrame() {
     }
     double dt = G.lastFrame > 0 ? std::max(0.0, std::min(1.0, now - G.lastFrame)) : 1.0;
     G.lastFrame = now;
-    if (G.deferWorkers && !a.revealBusy() && a.revealFrames >= 2) { G.deferWorkers = false; W.start(); SW.start(); }      // (the screen saver: the downloads wait until its start is over)
+    if (G.deferWorkers && !a.revealBusy() && a.revealFrames >= 2) { G.deferWorkers = false; W.start(); SW.start(); startSpaceWxWorker(); }      // (the screen saver: the downloads wait until its start is over)
     pollWeather();
     pollStorms();
+    pollSpaceWx();
     pollLocate();
     pollHolidays(now);
     const int sysTz = localOffset(now);
-    const bool usePlaceTz = a.placeIdx >= 0 && a.st.placeLocalTime && a.wx.valid;
-    a.tzAt = usePlaceTz ? nullptr : localOffset;
+    const bool usePlaceTz = a.placeIdx >= 0 && a.st.placeLocalTime;
+    int dispTz = sysTz;
+    if (usePlaceTz) {
+        bool dynDst = false;
+        std::string resTz;
+        dispTz = resolvePlaceOffset(a.st.geo, a.wx, now, &dynDst, &resTz);
+        gActivePlaceTz = dynDst ? resTz : std::string();
+        a.tzAt = dynDst ? activePlaceOffsetAt : nullptr;
+    } else {
+        gActivePlaceTz.clear();
+        a.tzAt = localOffset;
+    }
     a.sysTzAt = localOffset;
-    a.setNow(now, usePlaceTz ? a.wx.utcOffset : sysTz, dt);
+    a.setNow(now, dispTz, dt);
     tickTimers(now);
     ufoaudio::setSuppressed(G.sirenOn);
+    {
+        std::string audioErr;
+        if (ufoaudio::consumeTrackFailure(audioErr)) {
+            G.app.setToast(Ws("Audio unavailable \xC2\xB7 " + audioErr), 4.0);
+            weatherLog("Audio: " + audioErr);
+        }
+    }
     if (G.geoPending && now >= G.geoAt) command(CMD_GEO);
     if (noTarget) {
         ufoaudio::stop();
@@ -1480,7 +1367,7 @@ void renderFrame() {
     const bool spaceNow = spaceBusyNow(a, now);                  // Midnight: a meteor, the comet or the saucer is on screen
     const bool focusSmooth = a.focusFxBusy() && a.st.quietSmooth &&
         (a.st.focusFx == 2 || a.st.focusFx == 3 || a.st.focusFx == 6 || a.st.focusFx == 7 || a.st.focusFx == 8 ||
-         a.st.focusFx == 9 || a.st.focusFx == 10 || a.st.focusFx == 11 || a.st.focusFx == 12 ||
+         a.st.focusFx == 9 || a.st.focusFx == 10 || a.st.focusFx == 11 || a.st.focusFx == 12 || a.st.focusFx == 14 ||
          (a.st.focusFx == 1 && a.qfxFastActive()));
     const bool smooth = (a.quietFxBusy() && a.st.quietSmooth && a.qfxFastActive()) || focusSmooth || spaceNow || a.revealBusy() || a.dockBusy() || a.focusOrbBusy() || a.glassBusy();     // fluid Liquid Glass UI morphs (dock, focus orb, buttons/cards) & saver reveal run on screen refresh too
     G.smooth = smooth;
@@ -1624,6 +1511,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             float x = (float)(short)LOWORD(lp), y = (float)(short)HIWORD(lp);
             a.lastMouseMove = unixNow();
             a.settingsFocus = -1;
+            a.settingsFocusKey.clear();
             if (a.showHelp) { a.showHelp = false; invalidate(); return 0; }
             a.mouseX = x; a.mouseY = y;                                // a text box places its caret where you clicked
             a.textClicked = false; a.dblClick = msg == WM_LBUTTONDBLCLK;
@@ -1642,6 +1530,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSEWHEEL: {
             int d = GET_WHEEL_DELTA_WPARAM(wp);
             if (a.showSettings) { a.settingsWheel(d); a.lastMouseMove = unixNow(); invalidate(); return 0; }
+            if (a.showHelp) { a.lastMouseMove = unixNow(); return 0; }
             // One step per wheel notch (120). A touchpad or a free-spinning wheel sends many small movements: they add up until they make a notch, so a
             // flick no longer drops the brightness to the bottom or moves a timer by minutes. (Movement the other way starts counting again.)
             if ((d > 0) != (G.wheelAcc > 0) && G.wheelAcc != 0) G.wheelAcc = 0;
@@ -1677,7 +1566,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
                 G.clock.reset();                                  // the clocks may disagree about the time spent asleep: not a clock step
                 applyKeepAwake();
-                if (wp == PBT_APMRESUMEAUTOMATIC) W.request(a.st.geo.lat, a.st.geo.lon);
+                if (wp == PBT_APMRESUMEAUTOMATIC) requestWeatherForCurrentPlace();
                 invalidate();
             } else if (wp == PBT_APMPOWERSTATUSCHANGE) applyKeepAwake();     // the charger was plugged in or pulled out
             return TRUE;
@@ -1699,7 +1588,7 @@ struct ShotArgs {
     double advance = 0;                                                  // --advance S: let S seconds pass after the clicks (for a test shot of a fade)
     int panel = -1, transPrev = -1; float transK = -1; std::string panels; int style = -1; int calMonth = 0;
     float heading = -1; int spin = 0, quiet = -1, wgper = -1, wgpage = -1; double spinAt = 0;
-    int focusfx = -1; bool alien = false, dayStars = false; float meteor = -1.f, dockT = -1.f;
+    int focusfx = -1; bool alien = false, dayStars = false, orrery = false; float meteor = -1.f, dockT = -1.f; double kpDemo = -1.0;
     int bench = 0, benchTheme2 = -1, benchSwitch = 30; double benchFps = 24;      // --bench N: time N frames, switching theme at frame benchSwitch; writes a text report to --shot
 };
 
@@ -1782,7 +1671,7 @@ int runShot(const ShotArgs& sa) {
     if (sa.locDemo == 5) { a.locSource = "Windows location"; a.locAcc = 38; a.locAt = unixNow() - 90; }
     if (sa.wsel >= 0) a.widgetSel = sa.wsel;
     a.rotSub = sa.rotsub;
-    if (sa.hasWidgets) { a.st.widgets.clear(); for (auto& t : splitCsv(sa.widgets)) { int id = atoi(t.c_str()); if (id >= 0 && id < WG_COUNT) a.st.widgets.push_back(id); } }
+    if (sa.hasWidgets) { a.st.widgets.clear(); for (auto& t : settingsSplitCsv(sa.widgets)) { int id = atoi(t.c_str()); if (id >= 0 && id < WG_COUNT) a.st.widgets.push_back(id); } }
     if (sa.pin > -2) a.st.pinned = sa.pin;
     if (!sa.note.empty()) a.st.note = unescapeNl(sa.note, true);
     if (!sa.cdDate.empty()) { a.st.cdLabel = sa.cdLabel; a.st.cdDate = sa.cdDate; }
@@ -1805,7 +1694,9 @@ int runShot(const ShotArgs& sa) {
     if (sa.heading >= 0) { a.st.skyHeading = sa.heading; a.spinBase = sa.heading; a.spinT0 = now; }
     if (sa.spin > 0) { a.st.skySpin = true; a.st.skySpinSecs = sa.spin; a.spinT0 = now - sa.spinAt; }
     if (sa.quiet >= 0) a.st.quietPreview = sa.quiet;
-    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(13, sa.focusfx));
+    if (sa.focusfx >= 0) a.st.focusFx = std::max(0, std::min(14, sa.focusfx));
+    if (sa.orrery) a.st.skyViewMode = 1;
+    if (sa.kpDemo >= 0.0) { a.spaceWx.valid = true; a.spaceWx.kp = sa.kpDemo; a.spaceWx.kpMax24h = sa.kpDemo; a.spaceWx.source = "NOAA SWPC"; }
     if (sa.alien) { a.st.aliensEnabled = true; a.alienSeq = 1; a.alienAt = now - 4.2; }
     if (sa.dayStars) a.st.dayStars = true;
     if (sa.meteor > 0.f) a.meteorDemoU = sa.meteor;
@@ -1930,6 +1821,8 @@ bool parseArgs(ShotArgs& sa, bool& isShot) {
         else if (k == L"--spin" && i + 2 < argc) { sa.spin = (int)num(i + 1); sa.spinAt = num(i + 2); i += 2; }       // seconds per turn, and how many seconds into the turn
         else if (k == L"--quiet" && i + 1 < argc) sa.quiet = (int)num(++i);
         else if ((k == L"--focusfx" || k == L"--timerfx") && i + 1 < argc) sa.focusfx = (int)num(++i);
+        else if (k == L"--orrery") sa.orrery = true;
+        else if (k == L"--kp" && i + 1 < argc) sa.kpDemo = num(++i);
         else if (k == L"--alien") sa.alien = true;
         else if (k == L"--daystars") sa.dayStars = true;
         else if (k == L"--meteor" && i + 1 < argc) sa.meteor = (float)num(++i);
@@ -1990,10 +1883,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     G.app.spinBase = G.app.st.skyHeading; G.app.spinT0 = unixNow();         // free rotate starts from the saved heading
     G.app.home = G.app.home.name.empty() ? astro::Geo() : G.app.home;
     applyGeoFromPlace();                                                    // "your location", or the saved place that was on show when it was closed
-    G.app.timer.pausedRemaining = G.app.timer.durationSec;
     G.app.tzAt = localOffset;
     G.app.sysTzAt = localOffset;                                            // wall-clock DST rules for alarms & display
-    if (!G.saver && G.app.timer.alarmOn) { G.app.setNow(unixNow(), localOffset(unixNow()), 1.0); G.app.timer.alarmOn = false; G.app.timer.mode = 2; G.app.timerStartPause(); G.app.timer.mode = 0; }
+    if (!G.saver && G.app.timer.alarmOn) {
+        const int savedMode = G.app.timer.mode;
+        G.app.setNow(unixNow(), localOffset(unixNow()), 1.0);
+        G.app.timer.alarmOn = false; G.app.timer.mode = 2; G.app.timerStartPause();
+        G.app.timer.mode = savedMode;
+    }
     if (firstRun) { G.app.located = false; saveSettings(); }      // a new install looks for its location once, at start
 
     moonsprite::prewarm();
@@ -2010,7 +1907,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     int x = st.winX, y = st.winY, w = std::max(640, st.winW), h = std::max(400, st.winH);
     // Is the saved position still on a screen? Any connected monitor counts, not just the main one (a clock that lives on the
     // second monitor used to come back on the first).
-    bool place = x != -1 && y != -1 && robust::rectReachable(x, y, w, h);
+    bool place = !(x == -1 && y == -1) && robust::rectReachable(x, y, w, h);
     if (G.saver) {                                                  // a plain full-screen window on the main monitor, no taskbar button
         MONITORINFO mi{sizeof mi};
         GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
@@ -2028,9 +1925,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     loadWeatherCache();
     G.app.wxStatus = G.app.wx.valid ? "" : "Connecting…";
     G.app.command = command;
-    W.lat = st.geo.lat; W.lon = st.geo.lon; W.tz = localOffset(unixNow()); applyWeatherConfig();
+    {
+        bool dynTz = false;
+        W.lat = st.geo.lat; W.lon = st.geo.lon;
+        W.tz = G.app.placeIdx >= 0 ? resolvePlaceOffset(st.geo, G.app.wx, unixNow(), &dynTz) : localOffset(unixNow());
+        W.hasPlaceTz = dynTz || G.app.placeIdx < 0;
+        applyWeatherConfig();
+    }
     applyStormConfig();
-    if (G.saver) G.deferWorkers = true; else { W.start(); SW.start(); }       // (the screen saver shows the saved weather while it comes up, and starts the downloads afterwards)
+    SPW.configure(st.auroraAuto);
+    if (G.saver) G.deferWorkers = true; else { W.start(); SW.start(); startSpaceWxWorker(); }       // (the screen saver shows the saved weather while it comes up, and starts the downloads afterwards)
     weatherLog(fmt("Start: showing %s (%.4f, %.4f), %s", st.geo.name.c_str(), st.geo.lat, st.geo.lon, G.app.placeIdx >= 0 ? "a saved place" : "your location"));
     if (!G.app.located && !G.saver) startLocate(true);
     applyKeepAwake();
@@ -2072,13 +1976,15 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     // a moment, and if one is still stuck in the network, leave without it. Waiting for a stalled connection used to keep the
     // process (and its single-instance lock) alive for a long time after the window had gone.
     weather::cancelRequests();
-    W.stopAsync(); SW.stopAsync();
+    W.stopAsync(); SW.stopAsync(); SPW.stopAsync();
     const bool weatherDone = W.finish(1500);
     const bool stormsDone = SW.finish(weatherDone ? 1500 : 100);
-    const bool locDone = LC.finish(weatherDone && stormsDone ? 500 : 100);
+    const bool spaceWxDone = SPW.finish(weatherDone && stormsDone ? 1000 : 100);
+    const bool locDone = LC.finish(weatherDone && stormsDone && spaceWxDone ? 500 : 100);
     saveSettings();
     SetThreadExecutionState(ES_CONTINUOUS);
-    if (!weatherDone || !stormsDone || !locDone) ExitProcess(0);    // a stuck worker is still running: end the process before anything it uses is torn down
+    if (!weatherDone || !stormsDone || !spaceWxDone || !locDone) ExitProcess(0);    // a stuck worker is still running: end the process before anything it uses is torn down
+    if (G.hrTimer) { CloseHandle(G.hrTimer); G.hrTimer = nullptr; }
     moonsprite::shutdown();
     G.app.releaseDeviceResources(G.gfx);
     G.gfx.shutdown();                                               // release all COM objects & unregister DirectWrite loader BEFORE CoUninitialize

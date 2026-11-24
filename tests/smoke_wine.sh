@@ -39,6 +39,10 @@ for face in 0 1 2 3 4 5; do for theme in 1 7; do shot "face$face-theme$theme" 12
 for theme in 0 2 3 4 5 6 8 9 10; do shot "sky-theme$theme" 1280x720 300 --face 0 --theme $theme --time "2026-11-12 20:15:00" --tz 5:30; done
 echo "== settings pages"
 for tab in 0 1 2 3 4 5 6 7 8 9 10 11; do shot "settings$tab" 1280x720 300 --settings --tab $tab --theme 7 --time "2026-11-12 20:15:00" --tz 5:30; done
+echo "== v3.0 aurora, 3d orrery, volumetric clouds & liquid glass"
+shot "v3-aurora-quiet" 1280x720 300 --face 1 --theme 10 --quiet 16 --time "2026-11-12 20:15:00" --tz 5:30
+shot "v3-orrery-sky"   1280x720 300 --face 0 --theme 10 --orrery --time "2026-11-12 20:15:00" --tz 5:30
+shot "v3-focus-glass"  1280x720 300 --face 5 --theme 10 --focusfx 2 --advance 1.8 --time "2026-11-12 20:15:00" --tz 5:30
 echo "== holidays.txt"
 printf '# test\n2028-01-12 duruthu\n2028-02-30 bak\nnonsense\n' > "$T/hol.txt"
 shot "holidays-bad-lines" 1280x720 300 --settings --tab 9 --holidays "$(win "$T/hol.txt")" --theme 7

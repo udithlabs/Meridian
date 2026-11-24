@@ -24,7 +24,10 @@ struct SegItem { std::wstring label; float x, w; bool active; int hitId; uint64_
 void drawSlidingButtons(Ctx& c, int slideSlot, float y, float h, const std::vector<SegItem>& items, gfx::FontId font, float size, bool allowHover = true);
 
 // sky face parts
+gfx::Pt domeProject(float cx, float cy, float R, double alt, double az);
 void drawDome(Ctx& c, float cx, float cy, float R, bool labels);
+void drawOrrery(Ctx& c, float cx, float cy, float R, bool labels, bool compact = false);
+void orreryRelease(gfx::Gfx& g);
 void drawDayBand(Ctx& c, float x, float y, float w, float h);
 void drawHourly(Ctx& c, float x, float y, float w, float h);
 void drawWeatherBlock(Ctx& c, float x, float y, float w, float h);
@@ -46,6 +49,7 @@ void drawFocusBackdrop(Ctx& c);                          // Focus tab ambient we
 void drawSpaceBackdropOnly(Ctx& c);                      // Galaxy deep sky & subtle meteors (no saucer), used by Focus tab Stars mode
 void drawMidnightBackdropOnly(Ctx& c, float weatherDim = 0.f, bool explicitMode = false); // Midnight Prussian-velvet lunar airglow & zenith stars, used by Midnight theme & Focus tab Midnight mode
 void drawQuietFront(Ctx& c, float midY, float clockH);   // the one cloud (and gentle snow/rain) that drifts in front of the time (drawn after the text)
+void drawQuietWetReflection(Ctx& c, float x0, float baseY, float capH, float em, const std::wstring& hm, float dateBottomY); // wet-horizon mirrored clock reflection on Quiet
 std::string quietFxDescribe(const App& a);
 
 // theme packs (scene_theme.cpp): the scene behind the faces, and the extra tabs a pack brings. mul fades the scene (0..1)

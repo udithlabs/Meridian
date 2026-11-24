@@ -44,6 +44,9 @@ Fn loadProc(HMODULE mod, const char* name) {
     return reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(mod, name)));
 }
 
+std::atomic<LibraryLoaderFn> gLibLoader{nullptr};
+std::atomic<uint64_t> gInitAttempts{0};
+
 struct MfRuntime {
     HMODULE hShlwapi = nullptr;
     HMODULE hMfplat = nullptr;
@@ -68,9 +71,15 @@ struct MfRuntime {
     FnMFCreateSourceReaderFromByteStream pMFCreateSourceReaderFromByteStream = nullptr;
 
     bool init() {
-        hShlwapi = LoadLibraryExW(L"shlwapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        hMfplat  = LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        hMfread  = LoadLibraryExW(L"mfreadwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        gInitAttempts.fetch_add(1, std::memory_order_relaxed);
+        auto loadSys = [](const wchar_t* name) -> HMODULE {
+            if (LibraryLoaderFn fn = gLibLoader.load(std::memory_order_acquire))
+                return static_cast<HMODULE>(fn(name));
+            return LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        };
+        hShlwapi = loadSys(L"shlwapi.dll");
+        hMfplat  = loadSys(L"mfplat.dll");
+        hMfread  = loadSys(L"mfreadwrite.dll");
         if (!hShlwapi || !hMfplat || !hMfread) { shutdown(); return false; }
 
         pSHCreateMemStream = loadProc<FnSHCreateMemStream>(hShlwapi, "SHCreateMemStream");
@@ -184,6 +193,7 @@ struct MfStreamReader {
     size_t readStereoFrames(int16_t* dst, size_t maxFrames) {
         if (!reader || !dst || maxFrames == 0) return 0;
         size_t written = 0;
+        int emptyReads = 0;
         while (written < maxFrames) {
             if (pendingPos < pending.size()) {
                 const size_t availFrames = (pending.size() - pendingPos) / 2;
@@ -192,6 +202,7 @@ struct MfStreamReader {
                 pendingPos += take * 2;
                 written += take;
                 if (pendingPos >= pending.size()) { pending.clear(); pendingPos = 0; }
+                emptyReads = 0;
                 continue;
             }
             if (eof) break;
@@ -218,6 +229,10 @@ struct MfStreamReader {
                     buf->Release();
                 }
                 sample->Release();
+            }
+            if (pending.empty() && ++emptyReads >= 64) {
+                eof = true;
+                break;
             }
         }
         return written;
@@ -259,7 +274,11 @@ std::mutex gMu;
 std::condition_variable gCv;
 std::thread gThread;
 bool gThreadStarted = false;
+bool gWorkerExited = false;
 bool gShuttingDown = false;
+uint64_t gFailureSeq = 0;
+std::string gLastError;
+bool gPendingTrackFailure = false;
 
 // UFO fly-by state
 bool gActive = false;
@@ -287,11 +306,21 @@ Track nextJukeboxTrack(Track cur) {
 }
 
 void playFullTrack(const MfRuntime& mf, Track track, uint64_t seq) {
-    const int resId = (track == Track::Researched) ? IDR_RESEARCHED_SONG : IDR_UFO_SONG;
+    int resId = IDR_UFO_SONG;
+    if (track == Track::Researched) resId = IDR_RESEARCHED_SONG;
+    else if (track == Track::AudioTest) resId = IDR_AUDIOTEST_SONG;
     MfStreamReader reader;
     if (!reader.openResource(mf, resId)) {
         std::lock_guard<std::mutex> lk(gMu);
-        if (gTrackSeq == seq) { gFailedTrackSeq = seq; gTrack = Track::None; gJukebox = false; }
+        if (gTrackSeq == seq) {
+            gFailedTrackSeq = seq;
+            gTrack = Track::None;
+            gJukebox = false;
+            gLastError = "Could not decode embedded audio track";
+            gPendingTrackFailure = true;
+            ++gFailureSeq;
+            gCv.notify_all();
+        }
         return;
     }
 
@@ -308,8 +337,21 @@ void playFullTrack(const MfRuntime& mf, Track track, uint64_t seq) {
     if (!ev || waveOutOpen(&wo, WAVE_MAPPER, &fmt, (DWORD_PTR)ev, 0, CALLBACK_EVENT) != MMSYSERR_NOERROR) {
         if (ev) CloseHandle(ev);
         std::lock_guard<std::mutex> lk(gMu);
-        if (gTrackSeq == seq) { gFailedTrackSeq = seq; gTrack = Track::None; gJukebox = false; }
+        if (gTrackSeq == seq) {
+            gFailedTrackSeq = seq;
+            gTrack = Track::None;
+            gJukebox = false;
+            gLastError = "Audio output device is unavailable";
+            gPendingTrackFailure = true;
+            ++gFailureSeq;
+            gCv.notify_all();
+        }
         return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(gMu);
+        gLastError.clear();
+        gPendingTrackFailure = false;
     }
 
     constexpr int NB = 4;
@@ -530,7 +572,24 @@ void playUfoFlyby(const Clip& clip, uint64_t curFlight, float initPan) {
 
 void workerLoop() {
     MfRuntime mf;
-    if (!mf.init()) return;
+    if (!mf.init()) {
+        // Clear pending playback state so currentTrack() returns None (unblocking the hourly chime),
+        // publish the failure, and mark the worker exited so a later playback request can cleanly retry.
+        std::lock_guard<std::mutex> lk(gMu);
+        const bool hadTrack = (gTrack != Track::None || gJukebox);
+        if (gActive) gFailedFlightId = gFlightId;
+        if (hadTrack) gFailedTrackSeq = gTrackSeq;
+        gTrack = Track::None;
+        gJukebox = false;
+        gActive = false;
+        gTargetGain = 0.f;
+        gLastError = "Windows Media Foundation is unavailable";
+        if (hadTrack) gPendingTrackFailure = true;
+        ++gFailureSeq;
+        gWorkerExited = true;
+        gCv.notify_all();
+        return;
+    }
 
     Clip ufoClip;
     bool ufoTried = false;
@@ -549,7 +608,10 @@ void workerLoop() {
                 if (gTrack != Track::None && gTrackSeq != gFailedTrackSeq) return true;
                 return gActive && gFlightId != gFailedFlightId;
             });
-            if (gShuttingDown) return;
+            if (gShuttingDown) {
+                gWorkerExited = true;
+                return;
+            }
             if (gTrack != Track::None && gTrackSeq != gFailedTrackSeq) {
                 wantTrack = gTrack;
                 wantSeq = gTrackSeq;
@@ -577,6 +639,29 @@ void workerLoop() {
             }
             playUfoFlyby(ufoClip, curFlight, initPan);
         }
+    }
+}
+
+// Ensures a live worker thread is running, cleanly joining and replacing any previously exited worker
+// without ever joining while gMu is locked.
+void ensureWorkerRunning() {
+    std::thread exited;
+    {
+        std::lock_guard<std::mutex> lk(gMu);
+        if (gShuttingDown) return;
+        if (gThreadStarted && !gWorkerExited) return;
+        if (gWorkerExited && gThread.joinable()) exited = std::move(gThread);
+        gThreadStarted = false;
+        gWorkerExited = false;
+    }
+    if (exited.joinable()) exited.join();
+    {
+        std::lock_guard<std::mutex> lk(gMu);
+        if (gShuttingDown || gThreadStarted) return;
+        if (gTrack == Track::None && !gActive) return;
+        gThreadStarted = true;
+        gWorkerExited = false;
+        gThread = std::thread(workerLoop);
     }
 }
 
@@ -614,9 +699,11 @@ void update(uint64_t flightId, float xNorm, float u) {
     flybyParams(xNorm, u, pan, gain);
 
     bool wake = false;
+    bool needWorker = false;
     {
         std::lock_guard<std::mutex> lk(gMu);
         if (gShuttingDown || gTrack != Track::None) return;        // let an explicitly started full-track song finish uninterrupted
+        if (flightId == gFailedFlightId) return;                   // do not respawn every frame during the same failed flight
         const bool newFlight = (flightId != gFlightId);
         if (newFlight) {
             gFlightId = flightId;
@@ -628,12 +715,10 @@ void update(uint64_t flightId, float xNorm, float u) {
         gTargetGain = gain;
         gLastTick = GetTickCount64();
         gActive = true;
-        if (!gThreadStarted) {
-            gThreadStarted = true;
-            gThread = std::thread(workerLoop);
-        }
+        needWorker = !gThreadStarted || gWorkerExited;
         wake = !wasActive || newFlight;
     }
+    if (needWorker) ensureWorkerRunning();
     if (wake) gCv.notify_one();
 }
 
@@ -647,6 +732,7 @@ Track toggleTrack(Track track) {
     if (track == Track::None) { stopTrack(); return Track::None; }
     if (!gEnabled.load(std::memory_order_relaxed) || gSuppressed.load(std::memory_order_relaxed)) return Track::None;
     Track nowPlaying = Track::None;
+    bool needWorker = false;
     {
         std::lock_guard<std::mutex> lk(gMu);
         if (gShuttingDown) return Track::None;
@@ -661,12 +747,10 @@ Track toggleTrack(Track track) {
             gActive = false;                                       // yield any active UFO fly-by cleanly
             gTargetGain = 0.f;
             nowPlaying = track;
-            if (!gThreadStarted) {
-                gThreadStarted = true;
-                gThread = std::thread(workerLoop);
-            }
+            needWorker = !gThreadStarted || gWorkerExited;
         }
     }
+    if (needWorker) ensureWorkerRunning();
     gCv.notify_one();
     return nowPlaying;
 }
@@ -674,6 +758,7 @@ Track toggleTrack(Track track) {
 bool toggleJukebox() {
     if (!gEnabled.load(std::memory_order_relaxed) || gSuppressed.load(std::memory_order_relaxed)) return false;
     bool started = false;
+    bool needWorker = false;
     {
         std::lock_guard<std::mutex> lk(gMu);
         if (gShuttingDown) return false;
@@ -688,12 +773,10 @@ bool toggleJukebox() {
             gActive = false;
             gTargetGain = 0.f;
             started = true;
-            if (!gThreadStarted) {
-                gThreadStarted = true;
-                gThread = std::thread(workerLoop);
-            }
+            needWorker = !gThreadStarted || gWorkerExited;
         }
     }
+    if (needWorker) ensureWorkerRunning();
     gCv.notify_one();
     return started;
 }
@@ -717,6 +800,32 @@ Track currentTrack() {
     return gTrack;
 }
 
+uint64_t failureSeq() {
+    std::lock_guard<std::mutex> lk(gMu);
+    return gFailureSeq;
+}
+
+std::string lastError() {
+    std::lock_guard<std::mutex> lk(gMu);
+    return gLastError;
+}
+
+bool consumeTrackFailure(std::string& outError) {
+    std::lock_guard<std::mutex> lk(gMu);
+    if (!gPendingTrackFailure) return false;
+    gPendingTrackFailure = false;
+    outError = gLastError;
+    return true;
+}
+
+uint64_t initAttemptCount() {
+    return gInitAttempts.load(std::memory_order_relaxed);
+}
+
+void setLibraryLoaderForTest(LibraryLoaderFn fn) {
+    gLibLoader.store(fn, std::memory_order_release);
+}
+
 void shutdown() {
     gEnabled.store(false, std::memory_order_relaxed);
     std::thread toJoin;
@@ -729,9 +838,21 @@ void shutdown() {
         gJukebox = false;
         if (gThread.joinable()) toJoin = std::move(gThread);
         gThreadStarted = false;
+        gWorkerExited = false;
     }
     gCv.notify_all();
     if (toJoin.joinable()) toJoin.join();
+    {
+        std::lock_guard<std::mutex> lk(gMu);
+        gShuttingDown = false;
+        gFlightId = 0;
+        gFailedFlightId = ~0ULL;
+        gFailedTrackSeq = ~0ULL;
+        gFailureSeq = 0;
+        gLastError.clear();
+        gPendingTrackFailure = false;
+    }
+    gInitAttempts.store(0, std::memory_order_relaxed);
 }
 
 } // namespace ufoaudio

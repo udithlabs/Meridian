@@ -14,12 +14,39 @@ namespace app {
 using namespace gfx;
 using util::fmt;
 
-void App::addAction(float x, float y, float w, float h, std::function<void()> fn) {
+void App::addAction(float x, float y, float w, float h, std::function<void()> fn, uint64_t glassKey) {
     actions.push_back(std::move(fn));
+    actionGlassKeys.push_back(glassKey);
     hits.push_back({x, y, w, h, HIT_ACTION0 + (int)actions.size() - 1});
 }
 
 namespace {
+
+uint64_t fnvMix(uint64_t h, const void* data, size_t n) {
+    const uint8_t* p = (const uint8_t*)data;
+    for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ULL; }
+    return h;
+}
+uint64_t settingsGlassKey(int tab, const char* kind, const char* id, uint64_t extra = 0) {
+    uint64_t h = 14695981039346656037ULL;
+    h = fnvMix(h, &tab, sizeof(tab));
+    if (kind) h = fnvMix(h, kind, std::strlen(kind));
+    const uint8_t sep = 0x1F;
+    h = fnvMix(h, &sep, 1);
+    if (id) h = fnvMix(h, id, std::strlen(id));
+    if (extra) h = fnvMix(h, &extra, sizeof(extra));
+    return (h & 0x00FFFFFFFFFFFFFFULL) | 0x2200000000000000ULL;
+}
+uint64_t settingsGlassKeyW(int tab, const char* kind, const std::wstring& id, uint64_t extra = 0) {
+    uint64_t h = 14695981039346656037ULL;
+    h = fnvMix(h, &tab, sizeof(tab));
+    if (kind) h = fnvMix(h, kind, std::strlen(kind));
+    const uint8_t sep = 0x1F;
+    h = fnvMix(h, &sep, 1);
+    if (!id.empty()) h = fnvMix(h, id.data(), id.size() * sizeof(wchar_t));
+    if (extra) h = fnvMix(h, &extra, sizeof(extra));
+    return (h & 0x00FFFFFFFFFFFFFFULL) | 0x2200000000000000ULL;
+}
 
 // To add a settings tab: add its name to these three lists, write a tabXxx() function below, and add a case in renderSettings().
 const int NTABS = 12;
@@ -102,13 +129,12 @@ struct UI {
     explicit UI(Ctx& cc) : c(cc), a(cc.a), g(cc.g), P(cc.P), s(cc.s) {}
 
     bool over(float x, float y, float w, float h) const { return a.mouseX >= x && a.mouseX <= x + w && a.mouseY >= y && a.mouseY <= y + h; }
-    void act(float x, float y, float w, float h, std::function<void()> f) { a.addAction(x, y, w, h, std::move(f)); }
+    void act(float x, float y, float w, float h, std::function<void()> f, uint64_t glassKey = 0) { a.addAction(x, y, w, h, std::move(f), glassKey); }
     float capMid(FontId f, float size, float mid) { return mid + g.capHeight(f, size) * 0.5f; }
     Color acc() const { return tint(P, P.accent); }
 
-    void drawSwitch(float rx, float mid, bool on, uint64_t gkey = 0, bool hovered = false) {
+    void drawSwitch(float rx, float mid, bool on, uint64_t key, bool hovered = false) {
         const float tw = 46 * s, th = 26 * s, x = rx - tw, y = mid - th * 0.5f;
-        const uint64_t key = gkey ? gkey : a.nextActionGlassKey();
         const bool hv = hovered || over(x - 4 * s, y - 4 * s, tw + 8 * s, th + 8 * s);
         const glassfx::Pose gp = a.glass.pose(key, x, y, tw, th, th * 0.5f, s, hv, false);
         const glassfx::TogglePose tp = a.glass.stepToggle(key, on);
@@ -149,10 +175,10 @@ struct UI {
             g.text(F_LIGHT, 19.5f * s, x, mid - 3 * s, g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
             g.text(F_LIGHT, 14.f * s, x, mid + 17 * s, g.ellipsize(F_LIGHT, 14.f * s, Ws(hint), lw), P.ink3);
         } else g.text(F_LIGHT, 19.5f * s, x, capMid(F_LIGHT, 19.5f * s, mid), g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
-        const uint64_t gkey = a.nextActionGlassKey();
+        const uint64_t gkey = settingsGlassKey(a.settingsTab, "tog", label);
         drawSwitch(x + w, mid, v, gkey, hv);
         bool* vp = &v; App* ap = &a;
-        act(x - 10 * s, y, w + 20 * s, h, [vp, ap, after] { *vp = !*vp; if (after) after(); ap->cmd(CMD_SAVE); });
+        act(x - 10 * s, y, w + 20 * s, h, [vp, ap, after] { *vp = !*vp; if (after) after(); ap->cmd(CMD_SAVE); }, gkey);
         return h;
     }
 
@@ -167,10 +193,10 @@ struct UI {
             g.text(F_LIGHT, 19.5f * s, x, mid - 3 * s, g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
             g.text(F_LIGHT, 14.f * s, x, mid + 17 * s, g.ellipsize(F_LIGHT, 14.f * s, Ws(hint), lw), P.ink3);
         } else g.text(F_LIGHT, 19.5f * s, x, capMid(F_LIGHT, 19.5f * s, mid), g.ellipsize(F_LIGHT, 19.5f * s, Ws(label), lw), P.ink);
-        const uint64_t gkey = a.nextActionGlassKey();
+        const uint64_t gkey = settingsGlassKey(a.settingsTab, "togf", label);
         drawSwitch(x + w, mid, on, gkey, hv);
         App* ap = &a;
-        act(x - 10 * s, y, w + 20 * s, h, [ap, flip] { flip(); ap->dayIndex = -1; ap->minuteCacheAt = -1e9; ap->cmd(CMD_SAVE); });
+        act(x - 10 * s, y, w + 20 * s, h, [ap, flip] { flip(); ap->dayIndex = -1; ap->minuteCacheAt = -1e9; ap->cmd(CMD_SAVE); }, gkey);
         return h;
     }
 
@@ -183,14 +209,14 @@ struct UI {
         for (size_t i = 0; i < o.size(); ++i) {
             const bool cur = (int)i == sel;
             const bool hv = over(xx, y, ws[i], h);
-            const uint64_t gkey = a.nextActionGlassKey();
+            const uint64_t gkey = settingsGlassKeyW(a.settingsTab, "seg", o[i]);
             const glassfx::Pose gp = a.glass.pose(gkey, xx + 3 * s, y + 3 * s, std::max(8.f, ws[i] - 6 * s), h - 6 * s, (h - 6 * s) * 0.5f, s, hv, false);
             if (cur) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.24f));
             else if (gp.hoverT > 0.01f) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.07f * gp.hoverT));
             drawGlassEffects(c, gkey, gp, false, false);
             g.text(F_MONO_M, fs, gp.x + gp.w * 0.5f, capMid(F_MONO_M, fs, gp.y + gp.h * 0.5f), o[i], cur ? P.ink : lerp(P.ink3, P.ink, gp.hoverT), Align::Center, 0.1f);
             int idx = (int)i;
-            act(xx, y, ws[i], h, [on, idx] { on(idx); });
+            act(xx, y, ws[i], h, [on, idx] { on(idx); }, gkey);
             xx += ws[i];
         }
         return tot;
@@ -205,7 +231,7 @@ struct UI {
         for (int k = 0; k < 2; ++k) {
             const float cx = k ? pcx : mcx;
             const bool hv = over(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s);
-            const uint64_t gkey = a.nextActionGlassKey();
+            const uint64_t gkey = settingsGlassKey(a.settingsTab, k ? "step+" : "step-", label);
             const glassfx::Pose gp = a.glass.pose(gkey, cx - r, mid - r, 2 * r, 2 * r, r, s, hv, false);
             const float gcx = gp.x + gp.w * 0.5f, gcy = gp.y + gp.h * 0.5f;
             g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.08f + 0.06f * gp.hoverT));
@@ -217,15 +243,15 @@ struct UI {
             const float lw = std::max(1.5f, (1.75f + 0.25f * gp.hoverT) * s);
             g.line(gcx - 5.5f * s, gcy, gcx + 5.5f * s, gcy, ic, lw, true);
             if (k) g.line(gcx, gcy - 5.5f * s, gcx, gcy + 5.5f * s, ic, lw, true);
-            act(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s, k ? plus : minus);
+            act(cx - r - 3 * s, mid - r - 3 * s, 2 * r + 6 * s, 2 * r + 6 * s, k ? plus : minus, gkey);
         }
         g.text(F_MEDIUM, 19.f * s, vcx, capMid(F_MEDIUM, 19.f * s, mid), Ws(val), P.ink, Align::Center);
         return h;
     }
 
-    float button(float x, float y, float w, float h, const wchar_t* label, std::function<void()> fn, bool primary = false) {
+    float button(float x, float y, float w, float h, const wchar_t* label, std::function<void()> fn, bool primary = false, uint64_t customKey = 0) {
         const bool hv = over(x, y, w, h);
-        const uint64_t gkey = a.nextActionGlassKey();
+        const uint64_t gkey = customKey ? customKey : settingsGlassKeyW(a.settingsTab, "btn", label ? std::wstring(label) : std::wstring());
         const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
         if (primary) g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.82f + 0.14f * gp.hoverT));
         else {
@@ -234,12 +260,12 @@ struct UI {
         }
         drawGlassEffects(c, gkey, gp, primary, false);
         g.text(F_MONO_M, 12.5f * s, gp.x + gp.w * 0.5f, capMid(F_MONO_M, 12.5f * s, gp.y + gp.h * 0.5f), label, primary ? P.plate : lerp(P.ink2, P.ink, gp.hoverT), Align::Center, 0.12f);
-        act(x, y, w, h, std::move(fn));
+        act(x, y, w, h, std::move(fn), gkey);
         return h;
     }
-    float buttonAuto(float x, float y, const wchar_t* label, std::function<void()> fn, bool primary = false) {
+    float buttonAuto(float x, float y, const wchar_t* label, std::function<void()> fn, bool primary = false, uint64_t customKey = 0) {
         float w = g.textWidth(F_MONO_M, 12.5f * s, label, 0.12f) + 36 * s;
-        button(x, y, w, 36 * s, label, std::move(fn), primary);
+        button(x, y, w, 36 * s, label, std::move(fn), primary, customKey);
         return w;
     }
 
@@ -250,7 +276,7 @@ struct UI {
         const float padL = 16 * s, arrowW = 18 * s, gap = 9 * s, padR = 18 * s;
         const float w = padL + arrowW + gap + tw + padR;
         const bool hv = over(x, y, w, h);
-        const uint64_t gkey = a.nextActionGlassKey();
+        const uint64_t gkey = settingsGlassKey(a.settingsTab, "back", "BACK");
         const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
         g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.06f + 0.08f * gp.hoverT));
         g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1), std::max(1.f, gp.h - 1), std::max(0.5f, gp.r - 0.5f), lerp(P.line, withA(acc(), 0.55f), gp.hoverT), std::max(1.f, s));
@@ -264,7 +290,7 @@ struct UI {
         g.line(ax0 + 0.6f * s, mid, ax1, mid, col, sw, true);
         g.polyline({{barbX, mid - barbY}, {ax0, mid}, {barbX, mid + barbY}}, false, col, sw, true);
         g.text(F_MONO_M, fs, bx0 + padL + arrowW + gap, capMid(F_MONO_M, fs, mid), L"BACK", col, Align::Left, 0.12f);
-        act(x, y, w, h, std::move(fn));
+        act(x, y, w, h, std::move(fn), gkey);
         return w;
     }
 
@@ -275,13 +301,13 @@ struct UI {
         const float w = g.textWidth(F_LIGHT, fs, t) + 28 * s;
         if (x + w > right && x > x0) { x = x0; y += h + gap; }
         const bool hv = over(x, y, w, h);
-        const uint64_t gkey = a.nextActionGlassKey();
+        const uint64_t gkey = settingsGlassKey(a.settingsTab, "chip", label.c_str());
         const glassfx::Pose gp = a.glass.pose(gkey, x, y, w, h, h * 0.5f, s, hv, false);
         if (on) { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(acc(), 0.20f + 0.06f * gp.hoverT)); g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1), std::max(1.f, gp.h - 1), std::max(0.5f, gp.r - 0.5f), withA(acc(), 0.8f), std::max(1.f, s)); }
         else { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.05f + 0.06f * gp.hoverT)); }
         drawGlassEffects(c, gkey, gp, false, false);
         g.text(F_LIGHT, fs, gp.x + gp.w * 0.5f, capMid(F_LIGHT, fs, gp.y + gp.h * 0.5f), t, on ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Center);
-        act(x, y, w, h, std::move(fn));
+        act(x, y, w, h, std::move(fn), gkey);
         x += w + gap;
     }
 
@@ -440,8 +466,9 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
 
     // left: the catalogue
     u.sectionLabel(x, y, "All widgets");
-    float yy = y + 26 * s;
-    const float rowH = 41 * s;
+    float yy = y + 24 * s;
+    const float rowH = std::min(41.f * s, std::max(33.f * s, (h - 50.f * s) / (float)WG_COUNT));
+    const float rowFs = rowH < 39.f * s ? 18.5f * s : 20.f * s;
     for (int id = 0; id < WG_COUNT; ++id) {
         const auto& v = a.st.widgets;
         auto it = std::find(v.begin(), v.end(), id);
@@ -457,19 +484,20 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
             g.fillCircle(x + 26 * s, mid, 12 * s, withA(u.acc(), 0.22f));
             g.text(F_MONO_M, 12.5f * s, x + 26 * s, u.capMid(F_MONO_M, 12.5f * s, mid), Ws(fmt("%d", order)), P.ink, Align::Center);
         } else g.strokeCircle(x + 26 * s, mid, 11.5f * s, mulA(P.ink, 0.2f), std::max(1.f, s));
-        g.text(F_LIGHT, 20.f * s, x + 52 * s, u.capMid(F_LIGHT, 20.f * s, mid), Ws(widgetName(id)), on ? P.ink : P.ink2);
-        if (a.st.pinned == id) g.text(F_MONO, 10.5f * s, x + 52 * s + g.textWidth(F_LIGHT, 20.f * s, Ws(widgetName(id))) + 12 * s, u.capMid(F_MONO, 10.5f * s, mid), L"ON SKY", withA(P.accent2, 0.95f), Align::Left, 0.14f);
+        g.text(F_LIGHT, rowFs, x + 52 * s, u.capMid(F_LIGHT, rowFs, mid), Ws(widgetName(id)), on ? P.ink : P.ink2);
+        if (a.st.pinned == id) g.text(F_MONO, 10.5f * s, x + 52 * s + g.textWidth(F_LIGHT, rowFs, Ws(widgetName(id))) + 12 * s, u.capMid(F_MONO, 10.5f * s, mid), L"ON SKY", withA(P.accent2, 0.95f), Align::Left, 0.14f);
         // arrows and switch
         const float swR = x + lw - 14 * s;
-        u.drawSwitch(swR, mid, on, a.nextActionGlassKey(), u.over(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s));
-        u.act(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s, [ap, id] { toggleWidget(ap, id); });
+        const uint64_t swKey = settingsGlassKey(a.settingsTab, "wg_sw", widgetName(id), (uint64_t)id + 1);
+        u.drawSwitch(swR, mid, on, swKey, u.over(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s));
+        u.act(swR - 52 * s, mid - 20 * s, 56 * s, 40 * s, [ap, id] { toggleWidget(ap, id); }, swKey);
         if (on) {
             for (int k = 0; k < 2; ++k) {
                 const float ax = swR - 52 * s - 44 * s * (2 - k) + 10 * s;     // up, down
                 const bool can = k == 0 ? order > 1 : order < (int)v.size();
                 const bool hv = u.over(ax - 14 * s, mid - 16 * s, 28 * s, 32 * s) && can;
                 const float rBtn = 13.f * s;
-                const uint64_t aKey = can ? a.nextActionGlassKey() : 0;
+                const uint64_t aKey = can ? settingsGlassKey(a.settingsTab, k == 0 ? "wg_up" : "wg_dn", widgetName(id), (uint64_t)id + 1) : 0;
                 const glassfx::Pose gpA = a.glass.pose(aKey, ax - rBtn, mid - rBtn, 2.f * rBtn, 2.f * rBtn, rBtn, s, hv, false);
                 if (can) {
                     g.fillRoundRect(gpA.x, gpA.y, gpA.w, gpA.h, gpA.r, mulA(P.ink, 0.06f + 0.06f * gpA.hoverT));
@@ -481,7 +509,7 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
                 Color col = can ? lerp(P.ink2, P.ink, gpA.hoverT) : mulA(P.ink3, 0.35f);
                 const float d = k == 0 ? 1.f : -1.f;           // up chevron points up, down chevron points down
                 g.polyline({{gcx - 5.5f * s, gcy + d * 2.8f * s}, {gcx, gcy - d * 2.8f * s}, {gcx + 5.5f * s, gcy + d * 2.8f * s}}, false, col, std::max(1.4f, 1.7f * s), true);
-                if (can) u.act(ax - 14 * s, mid - 16 * s, 28 * s, 32 * s, [ap, id, k] { moveWidget(ap, id, k == 0 ? -1 : 1); });
+                if (can) u.act(ax - 14 * s, mid - 16 * s, 28 * s, 32 * s, [ap, id, k] { moveWidget(ap, id, k == 0 ? -1 : 1); }, aKey);
             }
         }
         yy += rowH;
@@ -498,7 +526,7 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
         for (auto& l : lines) { g.text(F_LIGHT, 16.f * s, rx, ry + 16 * s, l, P.ink2); ry += 22 * s; }
     }
     ry += 14 * s;
-    {
+    if (sel != WG_ORRERY) {
         bool pin = a.st.pinned == sel;
         const float hh = 62.f * s;
         const float mid = ry + hh * 0.5f;
@@ -506,9 +534,14 @@ void tabWidgets(UI& u, float x, float y, float w, float h) {
         if (hvPin) g.fillRoundRect(rx - 10 * s, ry + 2 * s, rw + 20 * s, hh - 4 * s, 14 * s, mulA(P.ink, 0.05f));
         g.text(F_LIGHT, 19.5f * s, rx, mid - 3 * s, L"Add to the rotating panel", P.ink);
         g.text(F_LIGHT, 14.f * s, rx, mid + 17 * s, L"Takes the place of the Today list", P.ink3);
-        u.drawSwitch(rx + rw, mid, pin, a.nextActionGlassKey(), hvPin);
-        u.act(rx - 10 * s, ry, rw + 20 * s, hh, [ap, sel] { ap->st.pinned = ap->st.pinned == sel ? -1 : sel; ap->cmd(CMD_SAVE); });
+        const uint64_t pinKey = settingsGlassKey(a.settingsTab, "wg_pin", widgetName(sel), (uint64_t)sel + 1);
+        u.drawSwitch(rx + rw, mid, pin, pinKey, hvPin);
+        u.act(rx - 10 * s, ry, rw + 20 * s, hh, [ap, sel] { ap->st.pinned = ap->st.pinned == sel ? -1 : sel; ap->cmd(CMD_SAVE); }, pinKey);
         ry += hh + 10 * s;
+    } else {
+        auto lines = g.wrap(F_LIGHT, 14.5f * s, L"Shown on the Widgets face and via the SKY | ORRERY switch on Sky (key O).", rw, 0, 2);
+        for (auto& l : lines) { g.text(F_LIGHT, 14.5f * s, rx, ry + 14 * s, l, P.ink3); ry += 20 * s; }
+        ry += 8 * s;
     }
     u.divider(rx, ry, rw); ry += 18 * s;
 
@@ -715,12 +748,13 @@ void tabThemes(UI& u, float x, float y, float w, float h) {
         g.text(F_MONO, 11.f * s, x + 28 * s, mid + 26 * s, g.ellipsize(F_MONO, 11.f * s, Ws(status), tw), P.ink3, Align::Left, 0.1f);
         if (p->ok) {                                                  // switch it off without deleting it
             const float swR = x + lw - 6 * s;
-            u.drawSwitch(swR, mid, !p->disabled, a.nextActionGlassKey(), u.over(swR - 56 * s, mid - 20 * s, 60 * s, 40 * s));
+            const uint64_t pkKey = settingsGlassKey(a.settingsTab, "pack_sw", p->id.c_str());
+            u.drawSwitch(swR, mid, !p->disabled, pkKey, u.over(swR - 56 * s, mid - 20 * s, 60 * s, 40 * s));
             u.act(swR - 56 * s, mid - 20 * s, 60 * s, 40 * s, [ap, id] {
                 auto& v = ap->st.packsOff; auto it = std::find(v.begin(), v.end(), id);
                 if (it != v.end()) v.erase(it); else v.push_back(id);
                 ap->syncPacks(); ap->cmd(CMD_SAVE);
-            });
+            }, pkKey);
         }
         yy += rowH;
     }
@@ -1064,23 +1098,23 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
     yy += 8 * s;
     u.sectionLabel(x, yy, "Preview"); yy += 22 * s;
     {
-        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"FOG", L"WIND", L"GALE", L"BOTH", L"DRIZZLE", L"RAIN", L"SLEET", L"HAIL", L"SNOW", L"BLIZZARD", L"THUNDER", L"T-STORM", L"TORNADO", L"SUN FLARE"};
-        static const int previewIdx[16] = {0, 1, 8, 2, 15, 3, 12, 4, 13, 14, 10, 11, 6, 7, 5, 9};
+        std::vector<std::wstring> names = {L"LIVE", L"CLOUDS", L"FOG", L"WIND", L"GALE", L"BOTH", L"DRIZZLE", L"RAIN", L"SLEET", L"HAIL", L"SNOW", L"BLIZZARD", L"THUNDER", L"T-STORM", L"TORNADO", L"AURORA", L"SUN FLARE"};
+        static const int previewIdx[17] = {0, 1, 8, 2, 15, 3, 12, 4, 13, 14, 10, 11, 6, 7, 5, 16, 9};
         float cx = x, cy = yy;
-        const float cfs = 10.6f * s, ch = 25 * s, cgap = 3.6f * s;
+        const float cfs = 10.2f * s, ch = 24 * s, cgap = 3.4f * s;
         for (size_t i = 0; i < names.size(); ++i) {
             int idx = previewIdx[i];
             const bool on = st.quietPreview == idx;
-            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 8.5f * s;
+            const float cw = g.textWidth(F_LIGHT, cfs, names[i]) + 7.2f * s;
             if (cx + cw > x + lw + 1.f && cx > x) { cx = x; cy += ch + cgap; }
             const bool hv = u.over(cx, cy, cw, ch);
-            const uint64_t gkey = a.nextActionGlassKey();
+            const uint64_t gkey = settingsGlassKey(a.settingsTab, "qprev", "", (uint64_t)(idx + 1));
             const glassfx::Pose gp = a.glass.pose(gkey, cx, cy, cw, ch, ch * 0.5f, s, hv, false);
             if (on) { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(u.acc(), 0.20f + 0.06f * gp.hoverT)); g.strokeRoundRect(gp.x + 0.5f, gp.y + 0.5f, std::max(1.f, gp.w - 1.f), std::max(1.f, gp.h - 1.f), std::max(0.5f, gp.r - 0.5f), withA(u.acc(), 0.8f), std::max(1.f, s)); }
             else { g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.05f + 0.06f * gp.hoverT)); }
             drawGlassEffects(u.c, gkey, gp, false, false);
             g.text(F_LIGHT, cfs, gp.x + gp.w * 0.5f, u.capMid(F_LIGHT, cfs, gp.y + gp.h * 0.5f), names[i], on ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Center);
-            u.act(cx, cy, cw, ch, [ap, idx] { ap->st.quietPreview = idx; ap->st.quietFx = true; if (idx == 9) ap->st.quietFlare = true; ap->cmd(CMD_SAVE); ap->setToast(idx == 0 ? L"Quiet face follows the live weather" : L"Previewing: open the Quiet face with 2"); });
+            u.act(cx, cy, cw, ch, [ap, idx] { ap->st.quietPreview = idx; ap->st.quietFx = true; if (idx == 9) ap->st.quietFlare = true; ap->cmd(CMD_SAVE); ap->setToast(idx == 0 ? L"Quiet face follows the live weather" : L"Previewing: open the Quiet face with 2"); }, gkey);
             cx += cw + cgap;
         }
         yy = cy + ch + 8 * s;
@@ -1127,29 +1161,56 @@ void tabQuiet(UI& u, float x, float y, float w, float h) {
         for (auto& l : lines) { g.text(F_SERIF_I, 26.f * s, rx, ry + 26 * s, l, P.ink); ry += 34 * s; }
         if (a.wx.valid) {
             const auto& c = a.wx.cur;
-            std::string d = fmt("Cloud %.0f%%  \xC2\xB7  wind %.0f km/h  \xC2\xB7  gusts %.0f km/h", c.cloud, c.wind, c.gust);
+            const std::string sCloud = c.hasCloud ? fmt("%.0f%%", c.cloud) : std::string("--");
+            const std::string sWind  = c.hasWind  ? fmt("%.0f km/h", c.wind) : std::string("--");
+            const std::string sGust  = c.hasGust  ? fmt("%.0f km/h", c.gust) : std::string("--");
+            std::string d = fmt("Cloud %s  \xC2\xB7  wind %s  \xC2\xB7  gusts %s", sCloud.c_str(), sWind.c_str(), sGust.c_str());
             g.text(F_MONO, 12.5f * s, rx, ry + 14 * s, Ws(util::upper(d)), P.ink3, Align::Left, 0.1f);
             ry += 30 * s;
         }
     }
-    ry += 14 * s; u.divider(rx, ry, rw); ry += 20 * s;
-    u.sectionLabel(rx, ry, "What shows up"); ry += 30 * s;
+    ry += 8 * s; u.divider(rx, ry, rw); ry += 16 * s;
+    u.sectionLabel(rx, ry, "Aurora & reflections"); ry += 24 * s;
+    ry += u.toggle(rx, ry, rw, "Live NOAA aurora", "Emerges at night during geomagnetic storms", st.auroraAuto, [ap] { ap->cmd(CMD_SPACEWX_CFG); });
+    ry += u.toggle(rx, ry, rw, "Wet-horizon reflections", "Soft wave-rippled Quiet clock shimmer in rain", st.glassDrops);
+    {
+        const bool swLive = spacewx::isLive(a.spaceWx, a.now);
+        const bool swStale = spacewx::isStale(a.spaceWx, a.now);
+        const std::string age = a.spaceWx.valid ? spacewx::ageLabel(a.spaceWx.updated, a.now) : std::string();
+        std::string kpLine;
+        if (a.spaceWxBusy) {
+            kpLine = "Checking NOAA Kp-index\xE2\x80\xA6";
+        } else if (swLive) {
+            kpLine = fmt("NOAA Kp %.1f  \xC2\xB7  %s", a.spaceWx.kp, spacewx::scaleLabel(a.spaceWx.kp));
+            if (!age.empty()) kpLine += "  \xC2\xB7  " + age;
+        } else if (swStale) {
+            kpLine = fmt("NOAA Kp %.1f  \xC2\xB7  Stale (%s)", a.spaceWx.kp, age.empty() ? "expired" : age.c_str());
+        } else if (!a.spaceWxErr.empty()) {
+            kpLine = "NOAA feed unavailable";
+        } else if (!st.auroraAuto) {
+            kpLine = "Live NOAA aurora off";
+        } else {
+            kpLine = "NOAA SWPC geomagnetic feed waiting";
+        }
+        g.text(F_MONO, 11.5f * s, rx, ry + 11 * s, g.ellipsize(F_MONO, 11.5f * s, Ws(util::upper(kpLine)), rw - 110 * s, 0.08f), (swLive && a.spaceWx.kp >= 4.66) ? u.acc() : P.ink3, Align::Left, 0.08f);
+        u.buttonAuto(rx + rw - (g.textWidth(F_MONO_M, 11.5f * s, L"REFRESH", 0.10f) + 32 * s), ry - 4 * s, L"REFRESH", [ap] { ap->cmd(CMD_SPACEWX_REFRESH); });
+        ry += 32 * s;
+    }
+    ry += 6 * s; u.divider(rx, ry, rw); ry += 16 * s;
+    u.sectionLabel(rx, ry, "What shows up"); ry += 24 * s;
     struct Row { const wchar_t* k; const wchar_t* d; };
     static const Row rows[] = {
-        {L"CLOUDS", L"sculpted cirrus wisps, cumulus towers and stratocumulus decks with directional light, plus a soft foreground veil"},
-        {L"FOG", L"layered valley mist banks, diffused sky glow, curling gossamer tendrils and floating dew-light motes"},
-        {L"WIND & GALE", L"painterly breeze ribbons from 12 km/h; strong gusts unleash sweeping gale streams and swirling leaf whirlwinds"},
-        {L"DRIZZLE", L"silky ultra-fine mist rain falling lazily with whisper-thin surface ripples and damp low haze"},
-        {L"RAIN", L"streaks down in three depths with splashes where drops land, and falls behind the Sky face"},
-        {L"SLEET & HAIL", L"freezing icy streaks mixed with wet snow for sleet; faceted ice stones with energetic ground bounces for hail"},
-        {L"SNOW", L"calm layered snowflakes drift softly; strong winter winds whip them into a driving blizzard"},
-        {L"STORMS", L"dark cloud and lightning for thunder; a twisting tornado for severe warm gusts of 70 km/h or more"},
-        {L"SUN FLARE", L"a soft golden flare from the Sun's side while it is low; clear and calm skies show nothing at all"}};
+        {L"AURORA", L"emerald-to-violet geomagnetic curtains at night during solar storms"},
+        {L"CLOUDS & FOG", L"sculpted cirrus, cumulus and layered valley mist with drifting tendrils"},
+        {L"WIND & GALE", L"painterly wind from 12 km/h; strong gusts unleash sweeping gale ribbons"},
+        {L"DRIZZLE & RAIN", L"silky drizzle ripples; three-depth rain, splashes and wet reflections"},
+        {L"SLEET & HAIL", L"freezing icy streaks with wet snow; faceted ice stones that bounce"},
+        {L"SNOW & STORM", L"drifting flakes or driving blizzard; lightning and severe tornadoes"}};
     for (const Row& r : rows) {
-        g.text(F_MONO_M, 11.3f * s, rx, ry + 13 * s, r.k, u.acc(), Align::Left, 0.10f);
-        auto lines = g.wrap(F_LIGHT, 14.2f * s, r.d, rw - 118 * s, 0, 3);
-        for (auto& l : lines) { g.text(F_LIGHT, 14.2f * s, rx + 118 * s, ry + 13 * s, l, P.ink2); ry += 19.5f * s; }
-        ry += 4 * s;
+        g.text(F_MONO_M, 11.0f * s, rx, ry + 12 * s, r.k, u.acc(), Align::Left, 0.10f);
+        auto lines = g.wrap(F_LIGHT, 13.8f * s, r.d, rw - 118 * s, 0, 2);
+        for (auto& l : lines) { g.text(F_LIGHT, 13.8f * s, rx + 118 * s, ry + 12 * s, l, P.ink2); ry += 18.5f * s; }
+        ry += 3.5f * s;
     }
 }
 
@@ -1232,9 +1293,10 @@ void tabWeather(UI& u, float x, float y, float w, float h) {
         else if (ps.tried) status = ps.err.empty() ? "no answer" : ps.err;
         else status = i == 0 ? "waiting for the first answer" : (i == weather::PV_BRIGHTSKY ? "backup \xC2\xB7 DWD / Europe" : (i == weather::PV_NWS ? "backup \xC2\xB7 US / NOAA" : "kept as a backup"));
         g.text(F_LIGHT, 13.f * s, x + 28 * s, mid + 15.5f * s, g.ellipsize(F_LIGHT, 13.f * s, Ws(status), lw - 28 * s - 86 * s), (ps.ok || inUse) && en ? P.accent2 : P.ink3);
-        u.drawSwitch(x + lw, mid, en, a.nextActionGlassKey(), hvProv);
+        const uint64_t provKey = settingsGlassKey(a.settingsTab, "wx_prov", weather::providerId(i), (uint64_t)i + 1);
+        u.drawSwitch(x + lw, mid, en, provKey, hvProv);
         bool* vp = &st.provEnabled[i];
-        u.act(x - 10 * s, yy, lw + 20 * s, rowH, [vp, ap] { *vp = !*vp; ap->cmd(CMD_WEATHER_CFG); ap->cmd(CMD_WEATHER_REFRESH); ap->cmd(CMD_SAVE); });
+        u.act(x - 10 * s, yy, lw + 20 * s, rowH, [vp, ap] { *vp = !*vp; ap->cmd(CMD_WEATHER_CFG); ap->cmd(CMD_WEATHER_REFRESH); ap->cmd(CMD_SAVE); }, provKey);
         yy += rowH;
     }
     yy += 10 * s;
@@ -1266,9 +1328,11 @@ void tabWeather(UI& u, float x, float y, float w, float h) {
         ry += 28 * s;
         if (have) {
             const std::string aqSrc = a.wx.airSource.empty() ? std::string("Open-Meteo") : a.wx.airSource;
-            const std::string air = a.wx.hasAir
-                ? fmt("Air quality from %s  \xC2\xB7  US AQI %.0f (%s)", aqSrc.c_str(), a.wx.aqi, weather::aqiLabel(a.wx.aqi))
-                : std::string("Air quality  \xC2\xB7  waiting or unavailable (retrying automatically)");
+            const bool aqFresh = weather::airFresh(a.wx, a.now);
+            const std::string air = aqFresh
+                ? fmt("Air quality from %s  \xC2\xB7  %s %.0f (%s)", aqSrc.c_str(), weather::aqiScaleName(a.wx.aqiScale), a.wx.aqi, weather::aqiLabel(a.wx.aqi, a.wx.aqiScale))
+                : (a.wx.hasAir ? fmt("Air quality from %s  \xC2\xB7  stale reading (refreshing)", aqSrc.c_str())
+                               : std::string("Air quality  \xC2\xB7  waiting or unavailable (retrying automatically)"));
             g.text(F_LIGHT, 14.5f * s, rx, ry + 14 * s, g.ellipsize(F_LIGHT, 14.5f * s, Ws(air), rw), P.ink3);
             ry += 26 * s;
         }
@@ -1321,6 +1385,7 @@ void applyHomeEdit(App* ap) {
     double la, lo; std::string nm = cleanName(ap->edName);
     if (nm.empty() || !parseNum(ap->edLat, -89, 89, la) || !parseNum(ap->edLon, -180, 180, lo)) return;
     ap->home.name = nm; ap->home.lat = la; ap->home.lon = lo;
+    ap->home.tz = resolvePlaceWinTz(nm, la, lo);
     ap->homeCountry.clear(); ap->homeRegion.clear();       // a place typed by hand: its country is not known, the holidays work it out (Sri Lanka by position, else the Windows region)
     ap->located = true; ap->locSource = "set by hand"; ap->locAcc = -1; ap->locAt = 0; ap->locErr.clear();
     if (ap->placeIdx < 0) ap->cmd(CMD_GEO_SOON);
@@ -1382,7 +1447,7 @@ void tabPlace(UI& u, float x, float y, float w, float h) {
             bx -= 10 * s;
         }
         if (current) { g.text(F_MONO_M, 11.5f * s, bx, u.capMid(F_MONO_M, 11.5f * s, mid), L"SHOWING", withA(P.accent2, 0.95f), Align::Right, 0.14f); }
-        else { const float bw = 64 * s; u.button(bx - bw, mid - 17 * s, bw, 34 * s, L"USE", std::move(use)); }
+        else { const float bw = 64 * s; u.button(bx - bw, mid - 17 * s, bw, 34 * s, L"USE", std::move(use), false, settingsGlassKey(a.settingsTab, "place_use", (name + "|" + sub).c_str())); }
         ry += rh;
     };
     row(a.home.name + "  \xC2\xB7  your location", coordText(a.home), a.placeIdx < 0, [ap] { ap->placeIdx = -1; ap->cmd(CMD_GEO); ap->cmd(CMD_SAVE); }, nullptr);
@@ -1413,6 +1478,7 @@ void tabPlace(UI& u, float x, float y, float w, float h) {
         double la, lo; std::string nm = cleanName(ap->addName);
         if (nm.empty() || !parseNum(ap->addLat, -89, 89, la) || !parseNum(ap->addLon, -180, 180, lo)) { ap->setToast(L"Enter a name, a latitude and a longitude"); return; }
         astro::Geo gg; gg.name = nm; gg.lat = la; gg.lon = lo;
+        gg.tz = resolvePlaceWinTz(nm, la, lo);
         ap->st.places.push_back(gg); ap->addName.clear(); ap->addLat.clear(); ap->addLon.clear(); ap->textTarget = nullptr;
         ap->cmd(CMD_SAVE); ap->setToast(L"Place added. Press N to switch between places");
     }, true);
@@ -1424,6 +1490,14 @@ void tabPlace(UI& u, float x, float y, float w, float h) {
 struct Release { const char* version; const char* name; std::vector<const char*> notes; const char* date = ""; };
 const std::vector<Release>& releaseNotes() {
     static const std::vector<Release> r = {
+        {"3.0.0", "Aurora", {
+            "Aurora. Official v3 release featuring Museum-Grade Aurora Borealis powered by live NOAA Space Weather, a remade modern 3D Fisheye Crystal Sky Dome, a 3D Planetarium Solar System Orrery, photorealistic volumetric fBm Clouds, and wet-horizon clock reflections on Quiet.",
+            "Museum-Grade Aurora Borealis & Live NOAA Space Weather: three depth-layered 3D perspective serpentine aurora curtains painted with vertical magnetic-field oxygen-emerald, seafoam-teal, violet-amethyst, and rose-magenta nitrogen-fringe ray striations — shimmering live on Quiet, softly crowning the Sky dome, previewable in Settings > Quiet (AURORA), featured in Focus Studio's Ambience Orb (now 15 studio backdrops), and triggered automatically at night from NOAA SWPC's live Planetary Kp-index geomagnetic storm feed.",
+            "Modern 3D Fisheye Crystal Sky Dome: remakes the Sky dome into a convex optical sapphire hemisphere with an orthogonal 3D bowed great-circle fisheye grid and foreshortened altitude parallels (15-75 deg), full 360-degree horizon-to-horizon Sun and Moon orbital arcs with luminous rise/set horizon nodes and below-horizon rim glows, a layered radiant solar sphere, cached Fresnel optical glass sheen, precision zenith reticle, and a clean double-step optical bezel.",
+            "3D Planetarium Solar System Orrery: switch the Sky face cleanly between the 3D Fisheye Sky Dome and a 3D perspective-tilted heliocentric Solar System Orrery (key O or SKY | ORRERY) — featuring a cached deep-space celestial vault, 520-rock Main Asteroid Belt, icy Kuiper Belt halo, radiant coronal Sun, depth-sorted directionally sun-lit 3D spheres for Mercury through Neptune, banded Jupiter with 4 live Galilean moons, Saturn's split back/front Cassini-division rings, and Earth's tilted orbiting Moon — also available as a new Solar System widget.",
+            "Photorealistic Volumetric fBm Clouds: replaces smooth oval puffs with multi-octave domain-warped fractal Brownian motion clouds with Beer-Lambert directional self-shadowing and silver-lining edge scattering — rendering authentic wispy cirrus, ragged turbulent cumulus, and sweeping nocturnal stratocumulus decks across Quiet, Overcast, and Focus Studio.",
+            "Wet-Horizon Clock Reflections on Quiet: during Rain, Storm, Drizzle, Sleet, or Hail, the live Quiet clock casts a silky 34-strip wave-rippled reflection across the wet lower horizon beneath the date line — toggleable anytime in Settings > Quiet.",
+        }, "24 Nov 2026"},
         {"2.9.9", "Nimbus", {
             "Nimbus. Completely remade high-end sculpted Clouds and cinematic atmospheric Fog, four brand-new artistic weather systems (Drizzle, Sleet, Hail, and Gale), the Deep-Space Cosmos theme renamed to Galaxy, and a brand-new intentional Prussian-velvet & moonlit champagne-gold Midnight theme.",
             "Galaxy & Brand-New Artistic Midnight Theme: the deep-space cosmos theme (Milky Way, emission nebulae, Andromeda, ringed Saturn, meteors, comet, and U-key UFO visitor) is now named Galaxy, while a brand-new Midnight theme brings a gallery-grade Prussian-velvet to moonlit indigo-cerulean palette, moon-pearl typography, champagne-gold & cerulean accents, frosted sapphire-crystal panels, subtle lunar airglow, and crisp zenith stars engineered to flatter every face and every weather mode.",
@@ -1825,20 +1899,40 @@ void App::settingsWheel(int delta) {
 }
 
 bool App::settingsKey(unsigned vk, bool shift) {
-    if (vk == 0x09) {                                         // Tab / Shift+Tab: move keyboard focus through interactive Settings controls
-        const int n = (int)actions.size();
-        if (n <= 2) { settingsFocus = -1; return true; }
-        if (settingsFocus < 2 || settingsFocus >= n) settingsFocus = shift ? n - 1 : 2;
-        else {
-            const int span = n - 2;
-            settingsFocus = 2 + (((settingsFocus - 2 + (shift ? -1 : 1)) % span) + span) % span;
+    if (vk == 0x09) {                                         // Tab / Shift+Tab: traverse strictly within Settings modal interactive controls
+        const int n = (int)settingsFocusList.size();
+        if (n <= 0) { settingsFocus = -1; settingsFocusKey.clear(); return true; }
+        int curPos = -1;
+        if (!settingsFocusKey.empty()) {
+            for (int i = 0; i < n; ++i) {
+                if (settingsFocusList[(size_t)i].second == settingsFocusKey) { curPos = i; break; }
+            }
         }
+        if (curPos < 0 && settingsFocus >= 0) {
+            for (int i = 0; i < n; ++i) {
+                if (settingsFocusList[(size_t)i].first == settingsFocus) { curPos = i; break; }
+            }
+        }
+        int nextPos = (curPos < 0) ? (shift ? n - 1 : 0) : (((curPos + (shift ? -1 : 1)) % n) + n) % n;
+        settingsFocus = settingsFocusList[(size_t)nextPos].first;
+        settingsFocusKey = settingsFocusList[(size_t)nextPos].second;
         return true;
     }
-    if ((vk == 0x0D || vk == 0x20) && settingsFocus >= 2 && settingsFocus < (int)actions.size()) {
-        std::function<void()> fn = actions[(size_t)settingsFocus];
-        if (fn) fn();
-        return true;
+    if (vk == 0x0D || vk == 0x20) {
+        // Resolve strictly against Settings modal controls so Enter/Space can never activate the face behind Settings or the dismissal backdrop.
+        int actIdx = -1;
+        if (!settingsFocusKey.empty()) {
+            for (const auto& it : settingsFocusList) {
+                if (it.second == settingsFocusKey) { actIdx = it.first; break; }
+            }
+        }
+        if (actIdx < 0 && settingsFocus >= settingsFocusStart && settingsFocus < settingsFocusEnd) actIdx = settingsFocus;
+        if (actIdx >= settingsFocusStart && actIdx < settingsFocusEnd && actIdx < (int)actions.size()) {
+            settingsFocus = actIdx;
+            std::function<void()> fn = actions[(size_t)actIdx];
+            if (fn) fn();
+            return true;
+        }
     }
     if (settingsTab != NTABS - 1 || aboutSub != 1) return false;
     float v = aboutScroll;
@@ -1857,30 +1951,32 @@ bool App::settingsKey(unsigned vk, bool shift) {
 
 void App::renderSettings(Gfx& g, int w, int h) {
     const float W = (float)w, H = (float)h;
-    // Expand the card on compact windows (e.g. 640x400) instead of leaving wasted scrim margin around tiny text
-    const float sFit = std::min((W - 16.f) / 1240.f, (H - 16.f) / 850.f);
-    const float s = std::max(layoutScale(w, h), std::min(1.f, sFit));
+    // Restore crisp 2.9.3 proportional card sizing (at 640x400: ~459x315 leaving breathing room around Settings to see the sky)
+    const float s = layoutScale(w, h);
     Ctx c{g, *this, pal, W, H, s};
     UI u(c);
     const Palette& P = pal;
     dockT = 0; dockTarget = 0;
     if (settingsTab < 0 || settingsTab >= NTABS) settingsTab = 0;
 
-    // scrim; a click outside the card closes the panel
+    // scrim; a click outside the card closes the panel (NEVER added to keyboard focus traversal)
     g.fillRect(0, 0, W, H, withA(P.plate, 0.84f));
-    addAction(0, 0, W, H, [this] { showSettings = false; textTarget = nullptr; settingsFocus = -1; cmd(CMD_SAVE); });
-    const float pad = std::min(36.f * s, std::max(8.f, std::min(W, H) * 0.02f));
-    const float cw = std::min(W - pad, 1240.f * s), ch = std::min(H - pad, 850.f * s);
+    addAction(0, 0, W, H, [this] { showSettings = false; textTarget = nullptr; settingsFocus = -1; settingsFocusKey.clear(); glass.cancelHold(); cmd(CMD_SAVE); }, 0);
+    const float cw = std::min(W - 40.f * s, 1240.f * s), ch = std::min(H - 40.f * s, 850.f * s);
     const float cx = (W - cw) * 0.5f, cy = (H - ch) * 0.5f;
-    addAction(cx, cy, cw, ch, [this] { textTarget = nullptr; });          // clicks on the card itself do nothing
+    addAction(cx, cy, cw, ch, [this] { textTarget = nullptr; }, 0);       // card backdrop absorbs clicks; NOT keyboard-focusable
     g.fillRoundRect(cx, cy + 6 * s, cw, ch, 34 * s, Color{0, 0, 0, 0.22f});
     g.fillRoundRect(cx, cy, cw, ch, 34 * s, withA(P.plate, 0.985f));
     g.fillRoundRect(cx, cy, cw, ch, 34 * s, mulA(P.ink, 0.025f));
     g.strokeRoundRect(cx + 0.5f, cy + 0.5f, cw - 1, ch - 1, 34 * s, P.line, std::max(1.f, s));
 
+    // Start recording strictly modal interactive controls AFTER the underlying face + scrim + card backdrop!
+    settingsFocusList.clear();
+    settingsFocusStart = (int)actions.size();
+
     // sidebar
-    const float sw = std::max(122.f, 232.f * s);
-    const float sideFs = std::max(9.5f, 13.5f * s);
+    const float sw = 232.f * s;
+    const float sideFs = 13.5f * s;
     g.text(F_SERIF_I, 46.f * s, cx + 38 * s, cy + 78 * s, L"Settings", P.ink);
     g.line(cx + sw, cy + 34 * s, cx + sw, cy + ch - 34 * s, P.line, std::max(1.f, s), false);
     float ty = cy + 122 * s;
@@ -1889,7 +1985,7 @@ void App::renderSettings(Gfx& g, int w, int h) {
         const bool cur = i == settingsTab;
         const float tx = cx + 22 * s, tw = sw - 44 * s;
         const bool hv = u.over(tx, ty, tw, th);
-        const uint64_t gkey = nextActionGlassKey();
+        const uint64_t gkey = settingsGlassKey(-1, "tab", TAB_NAMES[i], (uint64_t)i + 1);
         const glassfx::Pose gp = glass.pose(gkey, tx, ty, tw, th, th * 0.5f, s, hv, false);
         if (cur) {
             g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, withA(u.acc(), 0.16f + 0.05f * gp.hoverT));
@@ -1898,20 +1994,24 @@ void App::renderSettings(Gfx& g, int w, int h) {
             g.fillRoundRect(gp.x, gp.y, gp.w, gp.h, gp.r, mulA(P.ink, 0.06f * gp.hoverT));
         }
         drawGlassEffects(c, gkey, gp, false, false);
-        g.text(F_MONO_M, sideFs, cx + std::max(18.f, 46.f * s) + (gp.x - tx) * 0.25f, u.capMid(F_MONO_M, sideFs, gp.y + gp.h * 0.5f), Ws(TAB_NAMES[i]), cur ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Left, 0.10f);
-        addAction(tx, ty, tw, th, [this, i] { settingsTab = i; textTarget = nullptr; edInit = false; aboutSub = 0; aboutScroll = 0; });
+        g.text(F_MONO_M, sideFs, cx + 46.f * s + (gp.x - tx) * 0.25f, u.capMid(F_MONO_M, sideFs, gp.y + gp.h * 0.5f), Ws(TAB_NAMES[i]), cur ? P.ink : lerp(P.ink2, P.ink, gp.hoverT), Align::Left, 0.10f);
+        const int tabActIdx = (int)actions.size();
+        addAction(tx, ty, tw, th, [this, i] { settingsTab = i; textTarget = nullptr; edInit = false; aboutSub = 0; aboutScroll = 0; }, gkey);
+        settingsFocusList.push_back({tabActIdx, std::string("tab:") + TAB_NAMES[i]});
         ty += th + 2 * s;
     }
-    const float footX = cx + std::max(14.f, 46.f * s);
-    const float footFs = std::max(7.5f, 11.5f * s);
-    const float footTr = s < 0.6f ? 0.04f : 0.14f;
-    g.text(F_MONO, footFs, footX, cy + ch - 40 * s, g.ellipsize(F_MONO, footFs, L"ESC OR COMMA TO CLOSE", std::max(40.f, cx + sw - footX - 8.f), footTr), P.ink3, Align::Left, footTr);
+    const float footX = cx + 46.f * s;
+    const float footFs = 11.5f * s;
+    g.text(F_MONO, footFs, footX, cy + ch - 40 * s, g.ellipsize(F_MONO, footFs, L"ESC OR COMMA TO CLOSE", std::max(20.f, cx + sw - footX - 8.f * s), 0.14f), P.ink3, Align::Left, 0.14f);
 
     // content
     const float x0 = cx + sw + 44 * s, cwid = cw - sw - 44 * s - 40 * s;
     g.text(F_SERIF, 40.f * s, x0, cy + 74 * s, Ws(TAB_TITLES[settingsTab]), P.ink);
     g.text(F_LIGHT, 17.f * s, x0, cy + 106 * s, Ws(TAB_SUB[settingsTab]), P.ink3);
-    u.button(cx + cw - 40 * s - 96 * s, cy + 44 * s, 96 * s, 40 * s, L"DONE", [this] { showSettings = false; textTarget = nullptr; settingsFocus = -1; cmd(CMD_SAVE); }, true);
+    const int doneActIdx = (int)actions.size();
+    u.button(cx + cw - 40 * s - 96 * s, cy + 44 * s, 96 * s, 40 * s, L"DONE", [this] { showSettings = false; textTarget = nullptr; settingsFocus = -1; settingsFocusKey.clear(); glass.cancelHold(); cmd(CMD_SAVE); }, true, settingsGlassKey(-1, "btn", "DONE"));
+    settingsFocusList.push_back({doneActIdx, "btn:DONE"});
+    const int tabBodyStart = (int)actions.size();
     const float y0 = cy + 144 * s, hh = ch - 144 * s - 30 * s;
     g.pushClip(x0 - 16 * s, y0 - 6 * s, cwid + 32 * s, hh + 12 * s);
     switch (settingsTab) {
@@ -1929,7 +2029,22 @@ void App::renderSettings(Gfx& g, int w, int h) {
         default: tabAbout(u, x0, y0, cwid, hh); break;
     }
     g.popClip();
-    if (settingsFocus >= 2 && settingsFocus < (int)actions.size()) {
+    settingsFocusEnd = (int)actions.size();
+    for (int idx = tabBodyStart; idx < settingsFocusEnd; ++idx) {
+        settingsFocusList.push_back({idx, fmt("tab%d:ctrl:%d", settingsTab, idx - tabBodyStart)});
+    }
+    // Re-sync settingsFocus from stable named key so focus stays pinned on the same control across redraws & carousel changes!
+    if (!settingsFocusKey.empty()) {
+        int resolved = -1;
+        for (const auto& it : settingsFocusList) {
+            if (it.second == settingsFocusKey) { resolved = it.first; break; }
+        }
+        settingsFocus = resolved;
+        if (resolved < 0) settingsFocusKey.clear();
+    } else if (settingsFocus >= 0 && (settingsFocus < settingsFocusStart || settingsFocus >= settingsFocusEnd)) {
+        settingsFocus = -1;
+    }
+    if (settingsFocus >= settingsFocusStart && settingsFocus < settingsFocusEnd) {
         const int wantId = HIT_ACTION0 + settingsFocus;
         for (const auto& hr : hits) {
             if (hr.id == wantId && hr.w > 2.f && hr.h > 2.f) {
@@ -1938,7 +2053,7 @@ void App::renderSettings(Gfx& g, int w, int h) {
                 break;
             }
         }
-    } else if (settingsFocus >= (int)actions.size()) settingsFocus = -1;
+    }
 }
 
 } // namespace app

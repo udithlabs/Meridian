@@ -152,7 +152,7 @@ static void testTodayAndHolidaysFixes() {
     today::Input in;
     in.now = astro::daysFromCivil(2026, 10, 1) * 86400.0 + 12 * 3600.0; // Oct 1 (SL Children's Day)
     in.tzOff = -5 * 3600;
-    in.geo = {40.71, -74.00, "New York"};
+    in.geo = {40.71, -74.00, "New York", ""};
     in.poya = true;
     auto items = today::buildToday(in);
     for (const auto& it : items) {
@@ -179,7 +179,7 @@ static void testTodayAndHolidaysFixes() {
 
 static void testAstroAndSkyEventsFixes() {
     // M18: planetInfo OOB safety & equation of time finite
-    astro::Geo colombo{6.93, 79.86, "Colombo"};
+    astro::Geo colombo{6.93, 79.86, "Colombo", ""};
     double t = astro::daysFromCivil(2026, 11, 20) * 86400.0;
     auto badP = astro::planetInfo(99, t, colombo);
     CHECK(badP.id >= 0 && badP.id < astro::PLANET_COUNT, "planetInfo OOB not clamped");
@@ -187,7 +187,7 @@ static void testAstroAndSkyEventsFixes() {
     CHECK(std::isfinite(eot) && eot > 10.0 && eot < 18.0, "equationOfTimeMinutes out of range for Nov 20");
 
     // H13: Polar transition day length strictly in [0, 86400]
-    astro::Geo tromso{69.65, 18.96, "Tromso"};
+    astro::Geo tromso{69.65, 18.96, "Tromso", ""};
     for (int day = 15; day <= 23; ++day) {
         double tm = astro::daysFromCivil(2026, 5, day) * 86400.0 - 7200.0;
         auto de = astro::dayEvents(tm, tromso);

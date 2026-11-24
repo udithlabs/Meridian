@@ -93,6 +93,7 @@ int main() {
     {
         CHECK(checkM4aAsset("assets/ufo_song.m4a", 500000));
         CHECK(checkM4aAsset("assets/researched.m4a", 500000));
+        CHECK(checkM4aAsset("assets/audiotest.m4a", 500000));
 
         ufoaudio::Clip clip;
         clip.sampleRate = 44100;
@@ -191,6 +192,33 @@ int main() {
         CHECK(b.empty());
         CHECK(typeAll(b, L"xyz KiLlJuKeBoX") == ufoaudio::SecretAction::KillJukebox);
         CHECK(b.empty());
+        CHECK(typeAll(b, L"stopaudiotest") == ufoaudio::SecretAction::StopAudioTest);
+        CHECK(b.empty());
+        CHECK(typeAll(b, L"STOPAUDIOTEST") == ufoaudio::SecretAction::StopAudioTest);
+        CHECK(b.empty());
+        CHECK(typeAll(b, L"abc StOpAuDiOtEsx\bt") == ufoaudio::SecretAction::StopAudioTest);
+        CHECK(b.empty());
+        {
+            // Verify hashed 15-letter AudioTest trigger across lowercase, UPPERCASE, MixedCase, prefix, and Backspace
+            static const unsigned char kEnc[15] = {47, 62, 51, 46, 50, 59, 59, 47, 62, 51, 53, 46, 63, 41, 46};
+            std::wstring lo, up, mix, typo = L"xyz ";
+            for (int i = 0; i < 15; ++i) {
+                const wchar_t c = (wchar_t)(kEnc[i] ^ 0x5A);
+                lo.push_back(c);
+                up.push_back((wchar_t)(c - L'a' + L'A'));
+                mix.push_back((i & 1) ? (wchar_t)(c - L'a' + L'A') : c);
+                typo.push_back(c);
+                if (i == 6) { typo.push_back(L'z'); typo.push_back(L'\b'); }
+            }
+            CHECK(typeAll(b, lo.c_str()) == ufoaudio::SecretAction::ToggleAudioTest);
+            CHECK(b.empty());
+            CHECK(typeAll(b, up.c_str()) == ufoaudio::SecretAction::ToggleAudioTest);
+            CHECK(b.empty());
+            CHECK(typeAll(b, mix.c_str()) == ufoaudio::SecretAction::ToggleAudioTest);
+            CHECK(b.empty());
+            CHECK(typeAll(b, typo.c_str()) == ufoaudio::SecretAction::ToggleAudioTest);
+            CHECK(b.empty());
+        }
         // Case-insensitive, stray prefix, spaces/apostrophes, and Backspace typo correction
         CHECK(typeAll(b, L"xyz Aliens Don't Exx\bist") == ufoaudio::SecretAction::DisableAliens);
         CHECK(typeAll(b, L"abc Hippy Shix\bt") == ufoaudio::SecretAction::ToggleHippy);

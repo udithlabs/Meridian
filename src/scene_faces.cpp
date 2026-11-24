@@ -95,7 +95,7 @@ void App::renderTimer(Gfx& g, int w, int h) {
         }
     } else if (T.mode == 1) {
         double el = stopwatchElapsed();
-        long long cs = (long long)(el * 100.0);
+        long long cs = (long long)std::floor(std::max(0.0, el) * 100.0 + 1e-6);
         int hh = (int)(cs / 360000), mm = (int)((cs / 6000) % 60), ss = (int)((cs / 100) % 60), cc = (int)(cs % 100);
         big = hh > 0 ? Ws(fmt("%d:%02d:%02d", hh, mm, ss)) : Ws(fmt("%02d:%02d", mm, ss));
         tail = Ws(fmt(".%02d", cc));
@@ -172,11 +172,13 @@ void App::renderTimer(Gfx& g, int w, int h) {
                 int idx = n - 1 - i;
                 double t = T.laps[idx], prev = idx > 0 ? T.laps[idx - 1] : 0.0, d = t - prev;
                 float yy = cy - R + 70 * s + i * 54 * s;
-                int mm = (int)(t / 60), ss = (int)t % 60, cc = (int)((t - std::floor(t)) * 100);
-                int dm = (int)(d / 60), ds = (int)d % 60, dc = (int)((d - std::floor(d)) * 100);
+                const long long tCs = (long long)std::llround(std::max(0.0, t) * 100.0);
+                const long long dCs = (long long)std::llround(std::max(0.0, d) * 100.0);
+                const int hh = (int)(tCs / 360000), mm = (int)((tCs / 6000) % 60), ss = (int)((tCs / 100) % 60), cc = (int)(tCs % 100);
+                const int dh = (int)(dCs / 360000), dm = (int)((dCs / 6000) % 60), ds = (int)((dCs / 100) % 60), dc = (int)(dCs % 100);
                 g.text(F_MONO, 14.f * s, x, yy, Ws(fmt("%02d", idx + 1)), P.ink3, Align::Left, 0.1f);
-                const std::wstring totW = Ws(fmt("%02d:%02d.%02d", mm, ss, cc));
-                const std::wstring delW = Ws(fmt("+%02d:%02d.%02d", dm, ds, dc));
+                const std::wstring totW = hh > 0 ? Ws(fmt("%d:%02d:%02d.%02d", hh, mm, ss, cc)) : Ws(fmt("%02d:%02d.%02d", mm, ss, cc));
+                const std::wstring delW = dh > 0 ? Ws(fmt("+%d:%02d:%02d.%02d", dh, dm, ds, dc)) : Ws(fmt("+%02d:%02d.%02d", dm, ds, dc));
                 const float delWpx = g.textWidth(F_MONO, 14.5f * s, delW, 0.04f);
                 const float totRoom = std::max(60.f * s, wcol - 46 * s - delWpx - 12 * s);
                 float totFs = 28.f * s;
@@ -251,7 +253,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 const float tFs = 34.f * s, tWpx = g.textWidth(F_LIGHT, tFs, tW);
                 const std::wstring cW = Ws(kd.text);
                 std::string meta = util::upper(st.geo.name);
-                if (wx.hasAir) meta += fmt("  \xC2\xB7  AQI %.0f", wx.aqi);
+                if (weather::airFresh(wx, now)) meta += fmt("  \xC2\xB7  %s %.0f", weather::aqiScaleShort(wx.aqiScale), wx.aqi);
                 const std::wstring mW = Ws(meta);
                 const float txtColW = std::min(W * 0.21f, std::max(g.textWidth(F_LIGHT, 16.5f * s, cW), g.textWidth(F_MONO, 10.5f * s, mW, 0.12f)) + 8.f * s);
                 const float icoS = 40.f * s;
@@ -292,7 +294,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
                                fmt("  \xC2\xB7  %s %d %s", util::WEEKDAYS3[L.wday], L.d, util::MONTHS3[L.m - 1]);
             if (wx.valid) {
                 line += fmt("  \xC2\xB7  %s %s", tempStr(*this, wx.cur.temp).c_str(), util::upper(weather::describe(wx.cur.code, wx.cur.isDay).text).c_str());
-                if (wx.hasAir) line += fmt("  \xC2\xB7  AQI %.0f", wx.aqi);
+                if (weather::airFresh(wx, now)) line += fmt("  \xC2\xB7  %s %.0f", weather::aqiScaleShort(wx.aqiScale), wx.aqi);
             }
             const std::wstring lw = g.ellipsize(F_MONO, 12.5f * s, Ws(util::upper(line)), W - 2 * m, 0.10f);
             g.text(F_MONO, 12.5f * s, W * 0.5f, 36.f * s, lw, P.ink2, Align::Center, 0.10f);
@@ -303,7 +305,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
     {
         g.text(F_MONO_M, 13.f * s, W * 0.5f, (portrait ? 74.f : 62.f) * s, L"FOCUS STUDIO", P.accent, Align::Center, 0.24f);
         static const wchar_t* pl[7] = {L"5m", L"10m", L"15m", L"25m", L"30m", L"45m", L"1h"};
-        float bh = 34 * s, gap = 8 * s, pad = 28 * s, pfs = 14.f, total = 0, bw[7];
+        float bh = 34 * s, gap = 8 * s, pad = 28.f, pfs = 14.f, total = 0, bw[7];
         auto measureP = [&]() {
             total = 0;
             for (int i = 0; i < 7; ++i) { bw[i] = g.textWidth(F_MONO_M, pfs * s, pl[i], 0.06f) + pad * s; total += bw[i]; }
@@ -360,7 +362,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
     const float pul = pulse ? 0.5f + 0.5f * (float)std::sin(now * 5.0) : 1.f;
     const float breath = F.running ? (0.5f + 0.5f * (float)std::sin(now * 0.90)) : 0.f;
 
-    // Frosted glass focus medallion keeps focus digits crisp over rain, snow, clouds or starry space
+    // Frosted glass focus medallion keeps focus digits crisp over rain, snow, clouds, aurora or starry space
     {
         const float mr = R + 24.f * s;
         g.fillCircle(cx, cy, mr, withA(P.plate, P.dark ? (st.focusFx > 0 ? 0.56f : 0.34f) : (st.focusFx > 0 ? 0.48f : 0.30f)));
@@ -412,9 +414,9 @@ void App::renderFocus(Gfx& g, int w, int h) {
 
     // 5. Collapsible Lo-Fi Ambience & Theme Studio Orb -> Expanded Card on Hover (zero clutter at rest, clear of bottom dock)
     {
-        static const wchar_t* fxLabels[14] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS", L"BLIZZARD", L"DRIZZLE", L"SLEET", L"HAIL", L"GALE", L"MIDNIGHT"};
-        static const int fxSideOrder[14] = {0, 1, 9, 2, 6, 11, 10, 3, 8, 12, 4, 5, 13, 7};
-        static const int fxCompactOrder[14] = {0, 1, 4, 5, 9, 2, 6, 11, 10, 3, 8, 12, 13, 7};
+        static const wchar_t* fxLabels[15] = {L"OFF", L"LIVE", L"RAIN", L"SNOW", L"CLOUDS", L"FOG", L"STORM", L"STARS", L"BLIZZARD", L"DRIZZLE", L"SLEET", L"HAIL", L"GALE", L"MIDNIGHT", L"AURORA"};
+        static const int fxSideOrder[15] = {0, 1, 9, 2, 6, 11, 10, 3, 8, 12, 4, 5, 13, 7, 14};
+        static const int fxCompactOrder[15] = {0, 1, 4, 5, 9, 2, 6, 11, 10, 3, 8, 12, 14, 13, 7};
         const float mx = mouseX - shiftX, my = mouseY - shiftY;
         const float idleS = (float)(now - lastMouseMove);
         const std::wstring thName = Ws(util::upper(themeName()));
@@ -425,9 +427,9 @@ void App::renderFocus(Gfx& g, int w, int h) {
 
         const float pad = (useSidePanel ? 16.f : 14.f) * s;
         const float colGap = (useSidePanel ? 7.f : 6.f) * s, rowGap = (useSidePanel ? 6.f : 6.f) * s;
-        const float ch = (useSidePanel ? 28.f : 26.f) * s, navD = (useSidePanel ? 28.f : 26.f) * s;
+        const float ch = (useSidePanel ? 27.f : 26.f) * s, navD = (useSidePanel ? 28.f : 26.f) * s;
         if (useSidePanel) {
-            const float gridH = 7.f * ch + 6.f * rowGap;
+            const float gridH = 8.f * ch + 7.f * rowGap;
             expW = sidePanelW;
             expH = pad + 22.f * s + gridH + 14.f * s + 1.f + 14.f * s + 20.f * s + navD + pad;
             expX = W - m - expW;
@@ -510,7 +512,7 @@ void App::renderFocus(Gfx& g, int w, int h) {
             Ctx cb{g, *this, Pb, W, H, s};
 
             auto drawThemeNav = [&](float bx, float by, float d, int dir, int hitId) {
-                const bool hov = canHit && mouseX >= 0 && mx >= bx - 3.f * s && mx <= bx + d + 3.f * s && my >= by - 3.f * s && my <= by + d + 3.f * s;
+                const bool hov = canHit && !showSettings && !showHelp && !isSaver && mouseX >= 0 && mx >= bx - 3.f * s && mx <= bx + d + 3.f * s && my >= by - 3.f * s && my <= by + d + 3.f * s;
                 const glassfx::Pose gp = glass.pose((uint64_t)hitId, bx, by, d, d, d * 0.5f, s, hov, false);
                 const float br = gp.r, cyB = gp.y + gp.h * 0.5f;
                 Color bg = Pb.panel;
@@ -545,16 +547,17 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 const float gridY = expY + pad + 22.f * s;
                 const float fullW = expW - 2.f * pad;
                 const float cw = (fullW - colGap) * 0.5f;
-                for (int slot = 0; slot < 14; ++slot) {
+                for (int slot = 0; slot < 15; ++slot) {
                     const int modeId = fxSideOrder[slot];
-                    const int colI = slot % 2, rowI = slot / 2;
+                    const bool fullRow = (slot == 14);
+                    const int colI = fullRow ? 0 : (slot % 2), rowI = fullRow ? 7 : (slot / 2);
                     const float bx = expX + pad + colI * (cw + colGap);
                     const float by = gridY + rowI * (ch + rowGap);
-                    const float bw = cw;
+                    const float bw = fullRow ? fullW : cw;
                     const float bfs = ((modeId == 8 || modeId == 9 || modeId == 13) && bw < 102.f * s) ? 10.2f : 10.8f;
                     drawButton(cb, bx, by, bw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, bfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
-                const float divY = gridY + (7.f * ch + 6.f * rowGap) + 14.f * s;
+                const float divY = gridY + (8.f * ch + 7.f * rowGap) + 14.f * s;
                 g.line(expX + pad, divY, expX + expW - pad, divY, Pb.line, std::max(1.f, s), false);
                 const float thEyY = divY + 14.f * s + g.capHeight(F_MONO, 10.5f * s);
                 g.text(F_MONO, 10.5f * s, expX + pad, thEyY, L"THEME", Pb.ink3, Align::Left, 0.20f);
@@ -570,14 +573,14 @@ void App::renderFocus(Gfx& g, int w, int h) {
                 const float fullW = expW - 2.f * pad;
                 const float cw = (fullW - 3.f * colGap) / 4.f;
                 const float pfs = cw < 90.f * s ? 9.5f : 10.4f;
-                for (int slot = 0; slot < 14; ++slot) {
+                for (int slot = 0; slot < 15; ++slot) {
                     const int modeId = fxCompactOrder[slot];
-                    const bool pairRow = (slot >= 12);
-                    const float halfW = (fullW - colGap) * 0.5f;
-                    const int colI = pairRow ? (slot - 12) : (slot % 4), rowI = pairRow ? 3 : (slot / 4);
-                    const float bx = expX + pad + (pairRow ? colI * (halfW + colGap) : colI * (cw + colGap));
+                    const bool triRow = (slot >= 12);
+                    const float thirdW = (fullW - 2.f * colGap) / 3.f;
+                    const int colI = triRow ? (slot - 12) : (slot % 4), rowI = triRow ? 3 : (slot / 4);
+                    const float bx = expX + pad + (triRow ? colI * (thirdW + colGap) : colI * (cw + colGap));
                     const float by = expY + pad + rowI * (ch + rowGap);
-                    const float bw = pairRow ? halfW : cw;
+                    const float bw = triRow ? thirdW : cw;
                     drawButton(cb, bx, by, bw, ch, fxLabels[modeId], st.focusFx == modeId, canHit ? (HIT_FOCUSFX0 + modeId) : 0, F_MONO_M, pfs, (uint64_t)(HIT_FOCUSFX0 + modeId), canHit);
                 }
                 const float divY = expY + pad + 4.f * ch + 3.f * rowGap + 10.f * s;

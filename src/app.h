@@ -14,6 +14,7 @@
 #include "skyevents.h"
 #include "holidays.h"
 #include "storms.h"
+#include "spacewx.h"
 #include "util.h"
 #include "themes.h"
 #include "textedit.h"
@@ -25,19 +26,23 @@ enum PanelId { PANEL_TODAY = 0, PANEL_EVENTS, PANEL_HOLIDAYS, PANEL_WORLD, PANEL
 enum Face { FACE_SKY = 0, FACE_QUIET, FACE_TIMER, FACE_ALMANAC, FACE_WIDGETS, FACE_FOCUS, FACE_COUNT,
             FACE_PACK = 100 };              // an extra tab brought by a theme pack (Settings::facePack says which); not counted in FACE_COUNT
 enum WidgetId { WG_WORLD = 0, WG_MONTH, WG_SYSTEM, WG_NOTE, WG_COUNTDOWN, WG_PHASES, WG_WEEK,
-                WG_TODAY, WG_HOLIDAYS, WG_HOURLY, WG_DAYLIGHT, WG_SKY, WG_AIR, WG_YEAR, WG_COUNT };
+                WG_TODAY, WG_HOLIDAYS, WG_HOURLY, WG_DAYLIGHT, WG_SKY, WG_AIR, WG_YEAR, WG_ORRERY, WG_COUNT };
 const char* widgetName(int id);
 const char* widgetBlurb(int id);
 int cityCount();
 const char* cityName(int i);
+// Shared Windows Dynamic DST timezone lookup (used by both World Clocks and the Primary Clock for saved places).
+bool lookupWinTzOffset(const std::string& winOrIanaTz, double unixSec, int& offSecOut);
+std::string ianaToWinTz(const std::string& iana);
+std::string resolvePlaceWinTz(const std::string& name, double lat, double lon);
 enum ThemeMode { THEME_AUTO = 0, THEME_DAY, THEME_DUSK, THEME_NIGHT, THEME_EMBER, THEME_DAWN, THEME_SUNSET, THEME_SUNLIT, THEME_SUNLIT2, THEME_GALAXY, THEME_MIDNIGHT, THEME_COUNT };
 // the order themes are offered in (the numbers above are what settings.ini stores, so they never move)
 constexpr int THEME_ORDER[THEME_COUNT] = {THEME_AUTO, THEME_DAY, THEME_SUNLIT, THEME_SUNLIT2, THEME_DAWN, THEME_SUNSET, THEME_DUSK, THEME_NIGHT, THEME_MIDNIGHT, THEME_GALAXY, THEME_EMBER};
 inline int themeSlot(int theme) { for (int i = 0; i < THEME_COUNT; ++i) if (THEME_ORDER[i] == theme) return i; return 0; }
 
 // The version shown in Settings > About. Change it here (and in src/app.rc) when you make a new build.
-constexpr const char* MERIDIAN_VERSION = "2.9.9";
-constexpr const char* MERIDIAN_CODENAME = "Nimbus";
+constexpr const char* MERIDIAN_VERSION = "3.0.0";
+constexpr const char* MERIDIAN_CODENAME = "Aurora";
 // An "edition" is a name for one hand-made line of the app (the Astra Edition is another one). It is shown in Settings > About and in the setup.
 constexpr const char* MERIDIAN_EDITION = "Sonnet Edition";
 
@@ -60,7 +65,7 @@ struct Settings {
     int emberFrom = 22, emberTo = 6;
     bool hourlyChime = false;               // optional gentle glass chime on the hour (off by default; silent at bedtime & saver)
     bool placeLocalTime = false;            // when viewing a saved place (N), show the clock in that place's own local timezone
-    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars, 8 blizzard, 9 drizzle, 10 sleet, 11 hail, 12 gale, 13 midnight
+    int focusFx = 1;                        // Focus tab ambient backdrop: 0 off, 1 live, 2 rain, 3 snow, 4 clouds, 5 fog, 6 storm, 7 stars, 8 blizzard, 9 drizzle, 10 sleet, 11 hail, 12 gale, 13 midnight, 14 aurora
     int winX = -1, winY = -1, winW = 1280, winH = 720;
     std::vector<today::CustomEvent> events;
     std::vector<astro::Geo> places;
@@ -118,6 +123,10 @@ struct Settings {
     // named storms (cyclones, typhoons, hurricanes) near the place
     bool stormWatch = true;
     int stormRadius = 1500;                 // km
+    // 3.0.0 Aurora: live NOAA geomagnetic storm aurora, glass raindrops/wet reflections, Sky Dome vs Orrery view
+    bool auroraAuto = true;                 // draw live aurora on Quiet/Sky when NOAA Kp geomagnetic storms reach the sky
+    bool glassDrops = true;                 // physical surface-tension raindrops on Focus glass cards & wet-horizon clock reflections on Quiet
+    int skyViewMode = 0;                    // 0 = Sky Dome, 1 = Live Solar System Orrery
 };
 
 // a set of pages that take turns on screen (the Sky panel and the Widgets face each have one)
@@ -138,6 +147,7 @@ struct TimerState {
     double endAt = 0;                       // unix, when running
     double pausedRemaining = 300;           // when paused
     bool finished = false; double finishedAt = 0;
+    bool downtimeExpired = false;           // true when a running deadline passed while Meridian was closed (visual ack without surprise siren)
     // stopwatch
     bool swRunning = false; double swStart = 0, swElapsed = 0;
     std::vector<double> laps;
@@ -155,6 +165,7 @@ struct FocusState {
     double endAt = 0;
     double pausedRemaining = 1500;
     bool finished = false; double finishedAt = 0;
+    bool downtimeExpired = false;           // true when a running focus deadline passed while Meridian was closed
     std::string entry;                      // digits typed so far on the Focus tab
 };
 
@@ -165,10 +176,11 @@ constexpr double TIMER_MIN_SEC = 1.0, TIMER_MAX_SEC = 99.0 * 3600 + 59 * 60 + 59
 struct HitRect { float x, y, w, h; int id; };
 struct EventHit { float x, y, w, h; int idx; bool round; };      // hover target for a sky event (screen coordinates)
 struct HolHit { float x, y, w, h; int key; };                      // hover target for a holiday date (key = y*10000 + m*100 + d)
-enum Cmd { CMD_TOPMOST = 1, CMD_FULLSCREEN, CMD_KEEPAWAKE, CMD_WEATHER_CFG, CMD_WEATHER_REFRESH, CMD_GEO, CMD_GEO_SOON, CMD_SAVE, CMD_OPEN_INI, CMD_OPEN_LOG, CMD_STORM_CFG, CMD_OPEN_THEMES, CMD_RESCAN_THEMES, CMD_STORM_REFRESH, CMD_LOCATE, CMD_OPEN_LOCATION_SETTINGS, CMD_OPEN_HOLIDAYS };
+enum Cmd { CMD_TOPMOST = 1, CMD_FULLSCREEN, CMD_KEEPAWAKE, CMD_WEATHER_CFG, CMD_WEATHER_REFRESH, CMD_GEO, CMD_GEO_SOON, CMD_SAVE, CMD_SAVE_NOW, CMD_OPEN_INI, CMD_OPEN_LOG, CMD_STORM_CFG, CMD_OPEN_THEMES, CMD_RESCAN_THEMES, CMD_STORM_REFRESH, CMD_SPACEWX_CFG, CMD_SPACEWX_REFRESH, CMD_LOCATE, CMD_OPEN_LOCATION_SETTINGS, CMD_OPEN_HOLIDAYS };
 enum HitId { HIT_ACTION0 = 1000, HIT_FACE0 = 100, HIT_THEME = 200, HIT_THEME_PREV = 205, HIT_FULLSCREEN = 201, HIT_HELP = 202, HIT_PIN = 203, HIT_SETTINGS = 204, HIT_DOCK_BG = 206,
              HIT_TAB0 = 300, HIT_PRESET0 = 320, HIT_START = 340, HIT_RESET = 341, HIT_LAP = 342,
              HIT_FPRESET0 = 360, HIT_FSTART = 370, HIT_FRESET = 371, HIT_FOCUSFX0 = 500,
+             HIT_SKY_VIEW_DOME = 520, HIT_SKY_VIEW_ORRERY = 521,
              HIT_FCARD_CLOCK = 390, HIT_FCARD_WEATHER = 391,
              HIT_SKY_AQI = 392, HIT_PANEL_PREV = 393, HIT_PANEL_NEXT = 394,
              HIT_WGT_PREV = 395, HIT_WGT_NEXT = 396,
@@ -215,16 +227,12 @@ public:
     uint64_t glassKeyForHit(int id) const {
         if (id <= 0 || id == HIT_DOCK_BG) return 0;
         if (id >= HIT_ACTION0) {
-            const uint64_t idx = (uint64_t)(id - HIT_ACTION0);
-            if (showSettings) {
-                if (idx < 16) return 0x21000000ULL | idx;  // Settings chrome (scrim, card, 12 sidebar tabs, DONE) persists across tab switches
-                return 0x20000000ULL | ((uint64_t)std::max(0, settingsTab) << 16) | idx;
-            }
-            return 0x30000000ULL | ((uint64_t)std::max(0, st.face) << 16) | idx;
+            const size_t rawIdx = (size_t)(id - HIT_ACTION0);
+            if (rawIdx < actionGlassKeys.size()) return actionGlassKeys[rawIdx];
+            return 0;
         }
         return (uint64_t)id;
     }
-    uint64_t nextActionGlassKey() const { return glassKeyForHit(HIT_ACTION0 + (int)actions.size()); }
 
     // time
     double now = 0;
@@ -267,7 +275,8 @@ public:
 
     // immediate-mode controls (settings panel): handlers registered while drawing, run on click
     std::vector<std::function<void()>> actions;
-    void addAction(float x, float y, float w, float h, std::function<void()> fn);
+    std::vector<uint64_t> actionGlassKeys;  // parallel stable Liquid Glass key per action (0 = non-glass backdrop/scrim/field)
+    void addAction(float x, float y, float w, float h, std::function<void()> fn, uint64_t glassKey = 0);
     // theme packs: numbers a click sets ("button" layers; key "packid/name" -> value and the time it was set), and the keys a pack face answers to this frame
     std::unordered_map<std::string, std::pair<double, double>> packState;
     std::vector<std::pair<int, std::function<void()>>> packKeys;
@@ -279,6 +288,9 @@ public:
     std::string homeCountry, homeRegion;    // the home location's country code ("LK") and region ("Scotland"); empty when not known (a place typed by hand)
     std::string sysCountry;                 // the country of the Windows region settings, the last resort for the holidays
     int placeIdx = -1;                      // -1: home
+    // Preserved unrecognized settings.ini sections/keys (prevents loss across repeated downgrades from newer schemas)
+    int loadedSettingsVersion = 1;
+    std::vector<std::pair<std::string, std::vector<std::pair<std::string, std::string>>>> unknownIni;
     // "find my location" (Settings > Place). The answer is kept in settings.ini until the button is pressed again.
     bool located = true;                    // false only on a new install that has not found its location yet: it then looks it up once at start
     bool locBusy = false;                   // a lookup is running
@@ -289,7 +301,11 @@ public:
     int evPage = 0;                         // which page of "Your dates" is showing in the settings panel
     bool edInit = false;
     int settingsTab = 0, widgetSel = -1;
-    int settingsFocus = -1;                 // keyboard focus index in Settings actions (-1 = none; 0/1 are scrim & card backdrop)
+    int settingsFocus = -1;                 // active action index within Settings modal interactive controls (-1 = none)
+    int settingsFocusStart = -1;            // first interactive Settings action index (strictly after underlying face + modal backdrop)
+    int settingsFocusEnd = -1;              // one-past-last interactive Settings action index
+    std::string settingsFocusKey;           // stable named control key so focus survives redraws & underlying face changes
+    std::vector<std::pair<int, std::string>> settingsFocusList;   // (actionIdx, stableKey) for Settings modal controls only
     std::string packSel;                    // theme pack shown in detail on Settings > Themes
     int aboutSub = 0;                       // About tab: 0 the app, 1 the features and What's new
     float aboutScroll = 0, aboutScrollMax = 0;   // What's new: how far it is scrolled and how far it can go (in layout units, not pixels)
@@ -342,18 +358,18 @@ public:
     void skyHeadingSet(double deg);         // face this direction (keeps spinning from there when free rotate is on)
     void skySpinChanged();                  // call after st.skySpin / speed / direction changed
     // weather on the Quiet / Sky / Focus Studio faces: eased strengths of each effect
-    static constexpr int QFX_COUNT = 12;    // 0:clouds, 1:wind, 2:rain, 3:tornado, 4:thunder, 5:fog, 6:snow, 7:blizzard, 8:drizzle, 9:sleet, 10:hail, 11:gale
-    float qfx[QFX_COUNT]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // eased strengths
-    float qfxT[QFX_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // what the weather asks for right now
+    static constexpr int QFX_COUNT = 13;    // 0:clouds, 1:wind, 2:rain, 3:tornado, 4:thunder, 5:fog, 6:snow, 7:blizzard, 8:drizzle, 9:sleet, 10:hail, 11:gale, 12:aurora
+    float qfx[QFX_COUNT]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // eased strengths
+    float qfxT[QFX_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   // what the weather asks for right now
     float gloom = 0, haze = 0;              // the light under weather, 0..1: heavy cloud or storm, and fog (drives moodPalette)
     int spriteBudget = 2;                   // cached weather images (re)drawn per frame at most, so a colour change never causes one long frame
     bool weatherBusy() const { for (int i = 0; i < QFX_COUNT; ++i) if (std::fabs(qfx[i] - qfxT[i]) > 0.004f) return true; return false; }
     float fxQuality = 1.f, fxLate = 1.f;    // 0.3..1: how much detail the weather draws; lowered automatically if frames arrive late
     // Monotonic weather clocks so a new forecast or window resize never causes a jump.
-    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0, fxBlizzT = 0, fxGaleT = 0;
+    double fxCloudT = 0, fxFrontT = 0, fxFogT = 0, fxWindT = 0, fxSnowT = 0, fxBlizzT = 0, fxGaleT = 0, fxAuroraT = 0;
     float fxWk = 0;                         // wind speed (km/h) eased toward the forecast
     // fast-moving weather effects get smooth frame pacing
-    bool qfxFastActive() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] + qfx[7] + qfx[8] + qfx[9] + qfx[10] + qfx[11]) > 0.05f; }
+    bool qfxFastActive() const { return (qfx[1] + qfx[2] + qfx[3] + qfx[4] + qfx[6] + qfx[7] + qfx[8] + qfx[9] + qfx[10] + qfx[11] + qfx[12]) > 0.05f; }
     bool qfxAnyActive() const { float sum = 0.f; for (int i = 0; i < QFX_COUNT; ++i) sum += qfx[i]; return sum > 0.01f; }
     int quietFps() const { return qfxFastActive() ? (st.quietSmooth ? 60 : 30) : 15; }
     double alienAt = -1e9;                 // when the saucer was called with the U key (Midnight)
@@ -373,8 +389,13 @@ public:
     bool revealBusy() const { return revealArmed || leaveArmed; }
     bool focusFxBusy() const { return st.face == FACE_FOCUS && st.focusFx > 0; }
     bool quietFxBusy() const { return (st.face == FACE_QUIET && st.quietFx && qfxAnyActive()) || skyRainBusy() || focusFxBusy(); }
-    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f || qfx[7] > 0.01f || qfx[8] > 0.01f || qfx[9] > 0.01f || qfx[10] > 0.01f); }
+    bool skyRainBusy() const { return st.face == FACE_SKY && st.quietFx && ((st.skyRain && (qfx[2] > 0.01f || qfx[6] > 0.01f || qfx[7] > 0.01f || qfx[8] > 0.01f || qfx[9] > 0.01f || qfx[10] > 0.01f)) || qfx[12] > 0.01f); }
     bool isDstActive() const;               // true ONLY in timezones that observe DST while DST is currently in effect (always false in Sri Lanka, etc.)
+    // live geomagnetic space weather (NOAA SWPC Kp-index)
+    spacewx::Data spaceWx;
+    double spaceWxTry = 0, spaceWxOk = 0;
+    std::string spaceWxErr;
+    bool spaceWxBusy = false;
     // named storms: everything active in the world, and the ones inside the chosen radius (nearest first)
     storms::Data stormData;
     double stormTry = 0, stormOk = 0;       // when the storm feed was last asked, and when it last answered (for Settings)
@@ -466,6 +487,7 @@ private:
 extern int gSpriteBuilds;                   // how many cached weather images were drawn so far (for timing runs)
 void quietFxRelease(gfx::Gfx& g);            // frees the cached cloud images (device lost, or the window target was rebuilt)
 void spaceRelease(gfx::Gfx& g);               // frees the Midnight and Sunlit II scenery images (scene_space.cpp)
+void orreryRelease(gfx::Gfx& g);              // frees the cached 3D Solar System Orrery celestial backdrop (scene_common.cpp)
 void quietFxStep(App& a);                   // eases the Quiet-face weather effects toward what the weather asks for (scene_quiet.cpp)
 
 // azimuth that points to the top of the sky map this frame (set by App::update); the dome drawing code reads it

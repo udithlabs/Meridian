@@ -174,7 +174,7 @@ struct StereoMixer {
 };
 
 // ---------------------------------------------------------------- hidden Settings > About cheat codes
-enum class SecretAction { None = 0, DisableAliens, EnableAliens, ToggleHippy, ToggleResearched, AliensNuts, AliensNormal, ToggleJukebox, KillJukebox };
+enum class SecretAction { None = 0, DisableAliens, EnableAliens, ToggleHippy, ToggleResearched, AliensNuts, AliensNormal, ToggleJukebox, KillJukebox, ToggleAudioTest, StopAudioTest };
 
 // Feeds a character or ASCII virtual key typed blindly on Settings > About (no visible text box, like classic game cheat codes).
 // 100% case-insensitive, tolerates Backspace and spaces/apostrophes, and matches suffixes so stray earlier typing never breaks a code.
@@ -189,6 +189,15 @@ inline SecretAction feedSecretChar(std::string& buf, wchar_t ch) {
         auto endsWith = [&](const char* w) {
             const size_t n = std::strlen(w);
             return buf.size() >= n && buf.compare(buf.size() - n, n, w) == 0;
+        };
+        auto endsWithHash = [&](size_t len, uint64_t wantHash) {
+            if (buf.size() < len) return false;
+            uint64_t h = 14695981039346656037ULL;
+            for (size_t i = buf.size() - len; i < buf.size(); ++i) {
+                h ^= (unsigned char)buf[i];
+                h *= 1099511628211ULL;
+            }
+            return h == wantHash;
         };
         if (endsWith("aliensdontexist") || endsWith("aliensdontexisit")) {
             buf.clear();
@@ -213,6 +222,14 @@ inline SecretAction feedSecretChar(std::string& buf, wchar_t ch) {
         if (endsWith("researched")) {
             buf.clear();
             return SecretAction::ToggleResearched;
+        }
+        if (endsWith("stopaudiotest")) {
+            buf.clear();
+            return SecretAction::StopAudioTest;
+        }
+        if (endsWithHash(15, 0x85DDB0166045C96CULL)) {
+            buf.clear();
+            return SecretAction::ToggleAudioTest;
         }
         if (endsWith("killjukebox")) {                              // checked BEFORE "jukebox" since "killjukebox" ends with "jukebox"
             buf.clear();

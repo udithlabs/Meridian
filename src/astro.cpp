@@ -107,14 +107,15 @@ Equatorial eclipticToEquatorial(double lonDeg, double latDeg, double eclDeg) {
     double l = rad(lonDeg), b = rad(latDeg), e = rad(eclDeg);
     Equatorial r;
     r.ra = norm360(deg(std::atan2(std::sin(l) * std::cos(e) - std::tan(b) * std::sin(e), std::cos(l))));
-    r.dec = deg(std::asin(std::sin(b) * std::cos(e) + std::cos(b) * std::sin(e) * std::sin(l)));
+    double sd = std::max(-1.0, std::min(1.0, std::sin(b) * std::cos(e) + std::cos(b) * std::sin(e) * std::sin(l)));
+    r.dec = deg(std::asin(sd));
     return r;
 }
 
 Equatorial galacticToEquatorialJ2000(double l, double b) {
     const double raNGP = rad(192.85948), decNGP = rad(27.12825), lNCP = rad(122.93192);
     double L = rad(l), B = rad(b);
-    double sd = std::sin(B) * std::sin(decNGP) + std::cos(B) * std::cos(decNGP) * std::cos(lNCP - L);
+    double sd = std::max(-1.0, std::min(1.0, std::sin(B) * std::sin(decNGP) + std::cos(B) * std::cos(decNGP) * std::cos(lNCP - L)));
     double dec = std::asin(sd);
     double y = std::cos(B) * std::sin(lNCP - L);
     double x = std::sin(B) * std::cos(decNGP) - std::cos(B) * std::sin(decNGP) * std::cos(lNCP - L);
@@ -461,6 +462,82 @@ PlanetInfo planetInfo(int id, double unixSec, const Geo& g) {
     p.hor = toHorizontal(p.eq, unixSec, g);
     p.appAlt = p.hor.alt + refractionDeg(p.hor.alt);
     return p;
+}
+
+HelioBody orreryBody(int id, double unixSec) {
+    HelioBody out;
+    if (id < 0 || id >= ORRERY_COUNT) return out;
+    static const char* ONAMES[ORRERY_COUNT] = {"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"};
+    static const double OPERIOD[ORRERY_COUNT] = {87.969, 224.701, 365.256, 686.980, 4332.589, 10759.22, 30685.4, 60189.0};
+    // Outer ice-giant Keplerian elements (Schlyter)
+    static const Elem OUTER[2] = {
+        {74.0005, 1.3978e-5, 0.7733, 1.9e-8, 96.6612, 3.0565e-5, 19.18171, 0.047318, 7.45e-9, 142.5905, 0.011725806},
+        {131.7806, 3.0173e-5, 1.7700, -2.55e-7, 272.8461, -6.027e-6, 30.05826, 0.008606, 2.15e-9, 260.2471, 0.005995147},
+    };
+    out.id = id;
+    out.name = ONAMES[id];
+    out.periodDays = OPERIOD[id];
+    const double d = julianDay(unixSec) + deltaTSeconds(unixSec) / 86400.0 - 2451543.5;
+
+    if (id == OP_EARTH) {
+        const double ws = 282.9404 + 4.70935e-5 * d;
+        const double es = 0.016709 - 1.151e-9 * d;
+        const double Ms = norm360(356.0470 + 0.9856002585 * d);
+        const double Es = solveKepler(Ms, es);
+        const double xvs = std::cos(Es) - es, yvs = std::sqrt(1.0 - es * es) * std::sin(Es);
+        const double vs = deg(std::atan2(yvs, xvs)), rs = std::sqrt(xvs * xvs + yvs * yvs);
+        const double lonE = norm360(vs + ws + 180.0);
+        out.semiMajorAU = 1.0;
+        out.rAU = rs;
+        out.lonDeg = lonE;
+        out.xAU = rs * std::cos(rad(lonE));
+        out.yAU = rs * std::sin(rad(lonE));
+        out.zAU = 0.0;
+        return out;
+    }
+
+    const int eIdx = (id == OP_MERCURY) ? MERCURY : (id == OP_VENUS) ? VENUS : (id == OP_MARS) ? MARS :
+                     (id == OP_JUPITER) ? JUPITER : (id == OP_SATURN) ? SATURN : -1;
+    const Elem& el = (eIdx >= 0) ? ELEMS[eIdx] : OUTER[id - OP_URANUS];
+    const double N = rad(el.N0 + el.N1 * d), inc = rad(el.i0 + el.i1 * d), w = rad(el.w0 + el.w1 * d);
+    const double a = el.a, e = el.e0 + el.e1 * d, M = el.M0 + el.M1 * d;
+    const double E = solveKepler(M, e);
+    const double xv = a * (std::cos(E) - e), yv = a * std::sqrt(1.0 - e * e) * std::sin(E);
+    const double v = std::atan2(yv, xv), r = std::sqrt(xv * xv + yv * yv);
+    const double vw = v + w;
+    double xh = r * (std::cos(N) * std::cos(vw) - std::sin(N) * std::sin(vw) * std::cos(inc));
+    double yh = r * (std::sin(N) * std::cos(vw) + std::cos(N) * std::sin(vw) * std::cos(inc));
+    double zh = r * std::sin(vw) * std::sin(inc);
+    double lon = norm360(deg(std::atan2(yh, xh)));
+    double lat = deg(std::atan2(zh, std::sqrt(xh * xh + yh * yh)));
+    if (id == OP_JUPITER || id == OP_SATURN || id == OP_URANUS) {
+        const double Mj = ELEMS[JUPITER].M0 + ELEMS[JUPITER].M1 * d;
+        const double Msat = ELEMS[SATURN].M0 + ELEMS[SATURN].M1 * d;
+        const double Mu = OUTER[0].M0 + OUTER[0].M1 * d;
+        if (id == OP_JUPITER) {
+            lon += -0.332 * std::sin(rad(2 * Mj - 5 * Msat - 67.6)) - 0.056 * std::sin(rad(2 * Mj - 2 * Msat + 21))
+                 + 0.042 * std::sin(rad(3 * Mj - 5 * Msat + 21)) - 0.036 * std::sin(rad(Mj - 2 * Msat));
+        } else if (id == OP_SATURN) {
+            lon += 0.812 * std::sin(rad(2 * Mj - 5 * Msat - 67.6)) - 0.229 * std::cos(rad(2 * Mj - 4 * Msat - 2))
+                 + 0.119 * std::sin(rad(Mj - 2 * Msat - 3)) + 0.046 * std::sin(rad(2 * Mj - 6 * Msat - 69));
+        } else {
+            lon += 0.040 * std::sin(rad(Msat - 2 * Mu + 6)) + 0.035 * std::sin(rad(Msat - 3 * Mu + 33))
+                 - 0.015 * std::sin(rad(Mj - Mu + 20));
+        }
+        lon = norm360(lon);
+        xh = r * std::cos(rad(lon)) * std::cos(rad(lat));
+        yh = r * std::sin(rad(lon)) * std::cos(rad(lat));
+        zh = r * std::sin(rad(lat));
+    }
+    out.semiMajorAU = a;
+    out.rAU = r;
+    out.lonDeg = lon;
+    out.xAU = xh; out.yAU = yh; out.zAU = zh;
+    return out;
+}
+
+double orreryMoonLonDeg(double unixSec) {
+    return moonRaw(unixSec).lonApp;
 }
 
 // ---------------------------------------------------------------- Stars

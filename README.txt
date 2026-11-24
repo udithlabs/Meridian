@@ -1,9 +1,9 @@
-MERIDIAN 2.9.9 "Nimbus"  -  Sonnet Edition  -  an always-on clock for Windows
+MERIDIAN 3.0.0 "Aurora"  -  Sonnet Edition  -  an always-on clock for Windows
 =============================================================================
 
 Source code. Build with build.bat (Windows, MinGW-w64) or build.sh (Linux cross-compile). The result is one
 Meridian.exe; put the "themes" folder next to it to use theme packs.
-The setup wizard (Meridian-Setup-2.9.9.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
+The setup wizard (Meridian-Setup-3.0.0.exe) is built from setup\ (a small C++ program, no installer framework): see setup\BUILD.txt.
 
 Faces (Left/Right arrows, or 1-6; theme packs add more after Focus)
   Sky      big clock, a rotating left panel (what is special today, sky events, holidays,
@@ -84,11 +84,11 @@ The dock
   Rests out of sight. Move the mouse to the bottom edge and it slides up; leave and it slides away.
 
 Widgets face
-  14 widgets: World clocks, Month calendar, System, Note, Countdown, Moon phases, Week ahead (5-day forecast),
+  15 widgets: World clocks, Month calendar, System, Note, Countdown, Moon phases, Week ahead (5-day forecast),
   Today (what is special today), Holidays (the next holidays of the countries you chose), Weather (now + next 12 hours), Daylight
   (day length, sunrise, solar noon, sunset, the Sun's path through the day), Sky tonight (Moon, planets up,
   next sky event, Sun), Conditions (humidity, wind, pressure, UV, air quality, cloud cover), Year (progress,
-  week number, next equinox or solstice).
+  week number, next equinox or solstice), Solar system (live 3D heliocentric planetarium orrery).
   They come in pages of 1-6 (default 2). Each page stays 15 s (4-300 s), then the next one arrives with the
   same Slide / Rise / Fade transition as the Sky panel. Tab / Shift+Tab or the little dots under the clock
   skip; the page holds while the pointer is over it (it lets go after about 8 s of the mouse sitting still).
@@ -302,8 +302,8 @@ Away: Meridian on, then sleep (new in 2.8.0)
   Not tried on a real PC by the author: the sleep itself (Windows' SetSuspendState) was only checked with a test hook, so tell me if a PC does
   not go to sleep.
 
-Setup file (Meridian-Setup-2.9.9.exe, a separate download next to this zip)
-  If you would rather have a real installer than a folder, run Meridian-Setup-2.9.9.exe. It is a 64-bit graphical wizard drawn by Meridian's own
+Setup file (Meridian-Setup-3.0.0.exe, a separate download next to this zip)
+  If you would rather have a real installer than a folder, run Meridian-Setup-3.0.0.exe. It is a 64-bit graphical wizard drawn by Meridian's own
   code (same fonts, same Moon), one file with nothing unpacked beside it, and it needs NO administrator rights: it installs for you alone into
   %LOCALAPPDATA%\Programs\Meridian (or a folder you pick). The pages:
     Welcome        greets you by name, with tonight's real Moon (phase and all) drawn from the same astronomy code as the app
@@ -325,13 +325,33 @@ Setup file (Meridian-Setup-2.9.9.exe, a separate download next to this zip)
   Not code-signed: Windows may say "Windows protected your PC": click "More info", then "Run anyway". Windows 11's Smart App Control, if it is
   on, can refuse any unsigned program with no "Run anyway" button; then use the plain Meridian.exe from the zip, turn Smart App Control off
   (Windows Security > App & browser control), or sign the setup with a code-signing certificate (see setup\BUILD.txt).
-  For scripts: Meridian-Setup-2.9.9.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
+  For scripts: Meridian-Setup-3.0.0.exe /S installs silently with the defaults (exit code 0 = fine, 2 = failed, 3 = Meridian would not close,
   4 = it is already running);  /D=C:\Tools\Meridian picks the folder;  /ScreenSaver=5 also sets the screen saver
   (5 minutes, 1-60);  /SleepAfter=60 also puts the PC to sleep after Meridian has been on 60 more minutes (20-120; it turns the screen saver on
   too, 10 minutes unless /ScreenSaver says otherwise);  /NoSleep takes the sleep step away;  /StartWithWindows opens it at sign-in;
   /NoDesktop  /NoStartMenu  /NoGTA  /NoHalloween leave those out.
   Uninstall from a script: "<folder>\uninstall.exe" /uninstall /S  (add /DeleteSettings to remove settings too).
   Building the setup yourself: see setup\BUILD.txt in the source.
+
+New in 3.0.0 "Aurora"  (24 November 2026)
+  Official v3 release introducing Museum-Grade Aurora Borealis & Live NOAA Space Weather, a Modern 3D Fisheye Crystal Sky Dome, a 3D Planetarium Solar System Orrery, photorealistic volumetric fBm Clouds, and Wet-Horizon Clock Reflections on Quiet:
+  - Museum-Grade Aurora Borealis & Live NOAA Space Weather: three depth-layered 3D perspective serpentine aurora curtains
+    painted with vertical magnetic-field oxygen-emerald, seafoam-teal, violet-amethyst, and rose-magenta nitrogen-fringe ray
+    striations — shimmering on Quiet, crowning the Sky dome, previewable in Settings > Quiet (AURORA), featured in Focus
+    Studio's Ambience Orb (now 15 studio backdrops), and auto-triggered at night from NOAA SWPC's live Planetary Kp-index.
+  - Modern 3D Fisheye Crystal Sky Dome: convex optical sapphire hemisphere with an orthogonal 3D bowed great-circle fisheye
+    grid and foreshortened altitude parallels (15-75 deg), full 360-degree horizon-to-horizon Sun and Moon orbital arcs with
+    luminous rise/set horizon nodes and below-horizon rim glows, layered radiant solar sphere, cached Fresnel optical glass
+    sheen, precision zenith reticle, and clean double-step optical bezel.
+  - 3D Planetarium Solar System Orrery: flip the Sky face cleanly between the 3D Fisheye Sky Dome and a 3D perspective-tilted
+    Heliocentric Solar System Orrery (key O or SKY | ORRERY pill) with a 520-rock Main Asteroid Belt, icy Kuiper Belt halo,
+    radiant coronal Sun, depth-sorted directionally sun-lit 3D spheres for Mercury through Neptune, banded Jupiter with 4 live
+    Galilean moons, Saturn's split back/front Cassini-division rings, and Earth's tilted orbiting Moon — also available as a
+    new Solar System widget.
+  - Photorealistic Volumetric fBm Clouds: multi-octave domain-warped fractal noise clouds with Beer-Lambert directional
+    self-shadowing and silver-lining edge scattering replacing smooth oval puffs across Quiet, Overcast, and Focus Studio.
+  - Wet-Horizon Clock Reflections on Quiet: during Rain, Storm, Drizzle, Sleet, or Hail, Quiet mirrors the live clock digits
+    in soft 34-strip wave-rippled shimmer beneath the date line (toggleable in Settings > Quiet).
 
 New in 2.9.9 "Nimbus"  (22 November 2026)
   Completely remade volumetric Clouds and cinematic atmospheric Fog, four new artistic weather systems (Drizzle, Sleet, Hail & Gale), Galaxy theme rename, and a brand-new artistic Midnight theme:

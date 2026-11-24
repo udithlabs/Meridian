@@ -360,12 +360,19 @@ Bitmap buildSky(Ctx& c) {
         g.glow(mx, my, gr * 0.10f, rgb(0xFFF0D4), 0.55f);
     }
 
-    // 6. Masterpiece Sculpted Tilted Saturn (bottom-left: axial tilt, cloud bands, Cassini Division gap, ring shadow, moons)
+    // 6. Masterpiece Sculpted Tilted Saturn (bottom-left in landscape; upper-left open cosmos flank in portrait so Weather text & dome stay 100% clear)
     {
-        const float pr = std::max(22.f * s, 0.042f * H);
+        const bool portrait = W < H * 0.90f;
+        const float pr = portrait
+            ? std::max(16.f * s, std::min(26.f * s, 0.043f * W))
+            : std::max(22.f * s, 0.042f * H);
         const float rx = pr * 2.22f, ry = pr * 0.52f, tilt = -0.27f;          // -15.5 deg graceful tilt
-        const float px = std::max(0.090f * W, rx * 1.16f + 12.f * s);         // keeps full ring & moons clear of left edge even in narrow portrait
-        const float py = std::min(0.868f * H, H - pr * 1.48f - 10.f * s);
+        const float px = portrait
+            ? std::max(0.135f * W, rx * 1.08f + 8.f * s)
+            : std::max(0.090f * W, rx * 1.16f + 12.f * s);
+        const float py = portrait
+            ? (0.315f * H)                                                    // open pocket below portrait Date, left of Sky Dome, well above Weather!
+            : std::min(0.868f * H, H - pr * 1.48f - 10.f * s);
         const float ct = std::cos(tilt), st = std::sin(tilt);
         const float A = 0.82f;
         const Color night = rgb(0x050A1E);
@@ -994,7 +1001,7 @@ void drawMidnightBackdropOnly(Ctx& c, float weatherDim, bool explicitMode) {
     }
     const uint64_t key = mixKey(mixKey(3400, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
     if (ensure(c, gMidnightBg, key, [&] { return buildMidnightNocturne(c); })) {
-        g.drawBitmapRect(gMidnightBg.bmp, 0.f, 0.f, (float)gMidnightBg.bmp.w, (float)gMidnightBg.bmp.h, vis);
+        g.drawBitmapRect(gMidnightBg.bmp, 0.f, 0.f, c.W, c.H, vis);
     }
     // Whisper-slow twinkling zenith glints (vanish cleanly behind overcast/fog)
     const float starVis = clamp01((explicitMode ? 1.f : (1.f - 0.92f * sc)) * em * themeMul);
@@ -1028,7 +1035,7 @@ void drawSpace(Ctx& c) {
     const double t = a.now;
     const uint64_t bgKey = mixKey(mixKey(3200, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
     if (ensure(c, gBg, bgKey, [&] { return buildSky(c); }))
-        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, (float)gBg.bmp.w, (float)gBg.bmp.h, vis);
+        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, c.W, c.H, vis);
     if (vis > 0.02f && ensure(c, gNebulaPulse, mixKey(3250, ((uint64_t)c.W << 20) ^ (uint64_t)c.H), [&] { return buildNebulaPulse(c); })) {
         const float breath = 0.14f + 0.14f * (0.5f + 0.5f * std::sin(ph(t, 0.30)));
         g.drawBitmapRect(gNebulaPulse.bmp, 0.f, 0.f, c.W, c.H, clamp01(breath * vis));
@@ -1052,7 +1059,7 @@ void drawSpaceBackdropOnly(Ctx& c) {
     const double t = a.now;
     const uint64_t bgKey = mixKey(mixKey(3200, (uint64_t)c.W), mixKey((uint64_t)c.H, (uint64_t)(scaleStep(c.s) + 64)));
     if (ensure(c, gBg, bgKey, [&] { return buildSky(c); }))
-        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, (float)gBg.bmp.w, (float)gBg.bmp.h, clamp01(vis));
+        g.drawBitmapRect(gBg.bmp, 0.f, 0.f, c.W, c.H, clamp01(vis));
     if (vis > 0.02f && ensure(c, gNebulaPulse, mixKey(3250, ((uint64_t)c.W << 20) ^ (uint64_t)c.H), [&] { return buildNebulaPulse(c); })) {
         const float breath = 0.16f + 0.15f * (0.5f + 0.5f * std::sin(ph(t, 0.30)));
         g.drawBitmapRect(gNebulaPulse.bmp, 0.f, 0.f, c.W, c.H, clamp01(breath * vis));

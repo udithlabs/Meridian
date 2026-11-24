@@ -17,13 +17,22 @@ static const wchar_t* DESKTOP_KEY   = L"Control Panel\\Desktop";
 static const wchar_t* BACKUP_KEY    = L"Software\\Meridian\\ScreenSaverBackup";
 static const wchar_t* APP_KEY       = L"Software\\Meridian";
 static const wchar_t* SAVER_KEY     = L"Software\\Meridian\\Saver";      // SleepAfterMinutes lives here; Meridian reads it when it runs as the screen saver
-static const char* APP_VERSION      = "2.9.9";
+static const char* APP_VERSION      = "3.0.0";
 
 // ------------------------------------------------------------------ small helpers
+static std::string narrow(const std::wstring& w) {
+    if (w.empty()) return "";
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return "";
+    std::string s((size_t)n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), &s[0], n, nullptr, nullptr);
+    return s;
+}
 std::wstring widen(const std::string& s) {
     if (s.empty()) return L"";
     int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-    std::wstring w(n, L'\0');
+    if (n <= 0) return L"";
+    std::wstring w((size_t)n, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
     return w;
 }
@@ -73,10 +82,11 @@ static bool regGet(const wchar_t* key, const wchar_t* name, std::wstring& out, D
     if (typeOut) *typeOut = type;                                  // REG_SZ or REG_EXPAND_SZ: the text is returned as stored (a %SystemRoot% in it is not expanded)
     return true;
 }
-static void regSet(const wchar_t* key, const wchar_t* name, const std::wstring& v, DWORD type = REG_SZ) {
-    HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, key, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS) return;
-    RegSetValueExW(k, name, 0, type == REG_EXPAND_SZ ? REG_EXPAND_SZ : REG_SZ, (const BYTE*)v.c_str(), (DWORD)((v.size() + 1) * 2));
+static bool regSet(const wchar_t* key, const wchar_t* name, const std::wstring& v, DWORD type = REG_SZ) {
+    HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, key, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS) return false;
+    LONG r = RegSetValueExW(k, name, 0, type == REG_EXPAND_SZ ? REG_EXPAND_SZ : REG_SZ, (const BYTE*)v.c_str(), (DWORD)((v.size() + 1) * 2));
     RegCloseKey(k);
+    return r == ERROR_SUCCESS;
 }
 static bool regGetDword(const wchar_t* key, const wchar_t* name, DWORD& out) {
     HKEY k; if (RegOpenKeyExW(HKEY_CURRENT_USER, key, 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS) return false;
@@ -86,10 +96,11 @@ static bool regGetDword(const wchar_t* key, const wchar_t* name, DWORD& out) {
     if (r != ERROR_SUCCESS || type != REG_DWORD) return false;
     out = v; return true;
 }
-static void regSetDword(const wchar_t* key, const wchar_t* name, DWORD v) {
-    HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, key, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS) return;
-    RegSetValueExW(k, name, 0, REG_DWORD, (const BYTE*)&v, 4);
+static bool regSetDword(const wchar_t* key, const wchar_t* name, DWORD v) {
+    HKEY k; if (RegCreateKeyExW(HKEY_CURRENT_USER, key, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS) return false;
+    LONG r = RegSetValueExW(k, name, 0, REG_DWORD, (const BYTE*)&v, 4);
     RegCloseKey(k);
+    return r == ERROR_SUCCESS;
 }
 static void regDelValue(const wchar_t* key, const wchar_t* name) {
     HKEY k; if (RegOpenKeyExW(HKEY_CURRENT_USER, key, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
@@ -155,36 +166,221 @@ static std::wstring writeNewFile(const std::wstring& path, const void* data, siz
 }
 
 static void removeOldLeftovers(const std::wstring& dir) {
+    // Only remove legacy single-file swap leftovers; never wildcard-delete `.meridian-*` directories
+    // (owned transaction staging/backup folders are cleaned exclusively via `.meridian-tx.log`).
     for (const wchar_t* n : {L"Meridian.exe.old", L"Meridian.scr.old", L"uninstall.exe.old", L"Meridian.exe.new", L"Meridian.scr.new", L"uninstall.exe.new"})
         DeleteFileW((dir + L"\\" + n).c_str());
-    WIN32_FIND_DATAW fd;
-    HANDLE h = FindFirstFileW((dir + L"\\.meridian-*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) deleteTree(dir + L"\\" + fd.cFileName);
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
+}
+
+namespace {
+
+constexpr const wchar_t* TX_LOG_NAME = L".meridian-tx.log";
+
+struct TxEntry {
+    std::wstring rel;
+    bool hadOld = false;
+};
+
+struct TxRecord {
+    std::wstring stageName;   // single folder name inside `dir` (".meridian-stage-...") or empty
+    std::wstring bakName;     // single folder name inside `dir` (".meridian-backup-...")
+    std::wstring state;       // COMMITTING | ROLLING_BACK | COMMITTED
+    std::vector<TxEntry> entries;
+};
+
+static bool isOwnedTxFolderName(const std::wstring& name, const wchar_t* prefix) {
+    if (name.empty() || name.find(L'\\') != std::wstring::npos || name.find(L'/') != std::wstring::npos ||
+        name.find(L':') != std::wstring::npos || name.find(L"..") != std::wstring::npos) return false;
+    const size_t plen = wcslen(prefix);
+    return name.size() > plen && _wcsnicmp(name.c_str(), prefix, plen) == 0;
+}
+
+static bool writeTxRecord(const std::wstring& dir, const TxRecord& rec) {
+    std::string body = "MERIDIAN_TX_V1\n";
+    body += "STAGE " + narrow(rec.stageName) + "\n";
+    body += "BACKUP " + narrow(rec.bakName) + "\n";
+    body += "STATE " + narrow(rec.state) + "\n";
+    for (const auto& e : rec.entries) {
+        body += std::string("FILE ") + (e.hadOld ? "1 " : "0 ") + narrow(e.rel) + "\n";
+    }
+    const std::wstring txPath = dir + L"\\" + TX_LOG_NAME;
+    const std::wstring tmpPath = txPath + L".tmp";
+    HANDLE h = CreateFileW(tmpPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    size_t done = 0; bool ok = true;
+    while (done < body.size()) {
+        DWORD w = 0;
+        if (!WriteFile(h, body.data() + done, (DWORD)(body.size() - done), &w, nullptr) || !w) { ok = false; break; }
+        done += w;
+    }
+    if (ok && !FlushFileBuffers(h)) ok = false;
+    CloseHandle(h);
+    if (!ok) { DeleteFileW(tmpPath.c_str()); return false; }
+    if (!MoveFileExW(tmpPath.c_str(), txPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
+    return true;
+}
+
+static bool readTxRecord(const std::wstring& dir, TxRecord& out) {
+    const std::wstring txPath = dir + L"\\" + TX_LOG_NAME;
+    if (!fileExists(txPath)) return false;
+    std::vector<uint8_t> raw;
+    if (!readWhole(txPath, raw)) return false;
+    std::string text(raw.begin(), raw.end());
+    out = TxRecord{};
+    size_t pos = 0; bool headerOk = false;
+    while (pos < text.size()) {
+        size_t nl = text.find('\n', pos);
+        std::string line = (nl == std::string::npos) ? text.substr(pos) : text.substr(pos, nl - pos);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        pos = (nl == std::string::npos) ? text.size() : nl + 1;
+        if (line.empty()) continue;
+        if (!headerOk) { if (line != "MERIDIAN_TX_V1") return false; headerOk = true; continue; }
+        if (line.rfind("STAGE ", 0) == 0) out.stageName = widen(line.substr(6));
+        else if (line.rfind("BACKUP ", 0) == 0) out.bakName = widen(line.substr(7));
+        else if (line.rfind("STATE ", 0) == 0) out.state = widen(line.substr(6));
+        else if (line.rfind("FILE ", 0) == 0 && line.size() > 7) {
+            bool hadOld = (line[5] == '1');
+            if ((line[5] == '0' || line[5] == '1') && line[6] == ' ') {
+                std::wstring rel = widen(line.substr(7));
+                if (!rel.empty() && rel[0] != L'\\' && rel[0] != L'/' && rel.find(L"..") == std::wstring::npos && rel.find(L':') == std::wstring::npos) {
+                    out.entries.push_back({rel, hadOld});
+                }
+            }
+        }
+    }
+    return headerOk;
+}
+
+static void cleanupOwnedTxFolders(const std::wstring& dir, const TxRecord& rec, bool cleanBackup, bool cleanStage) {
+    if (cleanBackup && isOwnedTxFolderName(rec.bakName, L".meridian-backup-")) {
+        deleteTree(dir + L"\\" + rec.bakName);
+    }
+    if (cleanStage && isOwnedTxFolderName(rec.stageName, L".meridian-stage-")) {
+        deleteTree(dir + L"\\" + rec.stageName);
     }
 }
 
-std::wstring commitStagedFiles(const std::wstring& dir, const std::wstring& stageDir, const std::vector<std::wstring>& relFiles) {
-    const std::wstring bakDir = dir + L"\\.meridian-backup-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount());
-    struct Committed { std::wstring rel; bool hadOld; };
-    std::vector<Committed> committed;
-    committed.reserve(relFiles.size());
+static std::wstring joinFileList(const std::vector<std::wstring>& files) {
+    std::wstring out;
+    for (size_t i = 0; i < files.size(); ++i) {
+        if (i) out += L", ";
+        out += files[i];
+    }
+    return out;
+}
 
-    auto rollback = [&]() {
-        for (size_t i = committed.size(); i-- > 0;) {
-            const std::wstring dst = dir + L"\\" + committed[i].rel;
-            if (committed[i].hadOld) {
-                const std::wstring bak = bakDir + L"\\" + committed[i].rel;
-                SetFileAttributesW(dst.c_str(), FILE_ATTRIBUTE_NORMAL);
-                MoveFileExW(bak.c_str(), dst.c_str(), MOVEFILE_REPLACE_EXISTING);
-            } else {
-                deleteFile(dst);
+static bool rollbackTxRecord(const std::wstring& dir, TxRecord& rec, std::vector<std::wstring>& unresolvedOut) {
+    unresolvedOut.clear();
+    rec.state = L"ROLLING_BACK";
+    writeTxRecord(dir, rec);
+
+    const std::wstring bakDir = isOwnedTxFolderName(rec.bakName, L".meridian-backup-") ? (dir + L"\\" + rec.bakName) : L"";
+    std::vector<TxEntry> remainingRev;
+    for (size_t i = rec.entries.size(); i-- > 0;) {
+        const TxEntry& e = rec.entries[i];
+        const std::wstring dst = dir + L"\\" + e.rel;
+        if (e.hadOld) {
+            if (bakDir.empty()) continue;
+            const std::wstring bak = bakDir + L"\\" + e.rel;
+            if (!fileExists(bak)) continue;   // never moved out, or already restored in a prior pass
+            makeDirs(parentDir(dst));
+            SetFileAttributesW(dst.c_str(), FILE_ATTRIBUTE_NORMAL);
+            SetFileAttributesW(bak.c_str(), FILE_ATTRIBUTE_NORMAL);
+            bool restored = false;
+            for (int tries = 0; tries < 3 && !restored; ++tries) {
+                if (MoveFileExW(bak.c_str(), dst.c_str(), MOVEFILE_REPLACE_EXISTING)) { restored = true; break; }
+                DWORD err = GetLastError();
+                if (err != ERROR_SHARING_VIOLATION && err != ERROR_ACCESS_DENIED) break;
+                Sleep(80);
+            }
+            if (!restored) {
+                remainingRev.push_back(e);
+                unresolvedOut.push_back(e.rel);
+            }
+        } else {
+            if (fileExists(dst)) {
+                if (!deleteFile(dst) && fileExists(dst)) {
+                    remainingRev.push_back(e);
+                    unresolvedOut.push_back(e.rel);
+                }
             }
         }
-        deleteTree(bakDir);
+    }
+
+    if (unresolvedOut.empty()) {
+        cleanupOwnedTxFolders(dir, rec, true, true);
+        deleteFile(dir + L"\\" + TX_LOG_NAME);
+        return true;
+    }
+
+    // Preserve unresolved backup directory and rewrite journal with only the remaining files so a later retry recovers them cleanly.
+    std::reverse(remainingRev.begin(), remainingRev.end());
+    std::reverse(unresolvedOut.begin(), unresolvedOut.end());
+    rec.entries = remainingRev;
+    rec.state = L"ROLLING_BACK";
+    writeTxRecord(dir, rec);
+    return false;
+}
+
+} // namespace
+
+void cleanupOwnedTxAt(const std::wstring& dirIn) {
+    const std::wstring dir = trimSlash(dirIn);
+    if (dir.empty() || !dirExists(dir)) return;
+    TxRecord rec;
+    if (readTxRecord(dir, rec)) {
+        cleanupOwnedTxFolders(dir, rec, true, true);
+        deleteFile(dir + L"\\" + TX_LOG_NAME);
+    }
+    deleteFile(dir + L"\\" + TX_LOG_NAME + L".tmp");
+}
+
+std::wstring recoverPendingTransaction(const std::wstring& dirIn) {
+    const std::wstring dir = trimSlash(dirIn);
+    if (dir.empty() || !dirExists(dir)) return L"";
+    TxRecord rec;
+    if (!readTxRecord(dir, rec)) return L"";
+    if (rec.state == L"COMMITTED") {
+        cleanupOwnedTxFolders(dir, rec, true, true);
+        deleteFile(dir + L"\\" + TX_LOG_NAME);
+        return L"";
+    }
+    std::vector<std::wstring> unresolved;
+    if (rollbackTxRecord(dir, rec, unresolved)) return L"";
+    return L"A previous installation was interrupted and could not finish restoring: " + joinFileList(unresolved) +
+           L". Your original files are preserved in " + rec.bakName + L". Close any program using those files and run Setup again to finish recovery.";
+}
+
+std::wstring commitStagedFiles(const std::wstring& dirIn, const std::wstring& stageDirIn, const std::vector<std::wstring>& relFiles) {
+    const std::wstring dir = trimSlash(dirIn);
+    const std::wstring stageDir = trimSlash(stageDirIn);
+    // Always recover any interrupted transaction BEFORE staging/swapping new files so backups are never lost.
+    std::wstring pendingErr = recoverPendingTransaction(dir);
+    if (!pendingErr.empty()) return pendingErr;
+
+    const std::wstring bakName = L".meridian-backup-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount());
+    const std::wstring bakDir = dir + L"\\" + bakName;
+    TxRecord rec;
+    if (pathsEqual(trimSlash(parentDir(stageDir)), dir) && isOwnedTxFolderName(exeName(stageDir), L".meridian-stage-")) {
+        rec.stageName = exeName(stageDir);
+    }
+    rec.bakName = bakName;
+    rec.state = L"COMMITTING";
+    rec.entries.reserve(relFiles.size());
+    if (!writeTxRecord(dir, rec)) {
+        return L"Could not write the installation transaction record inside " + dir + L". Your previous installation was left untouched.";
+    }
+
+    auto failWithRollback = [&](const std::wstring& leadMsg) -> std::wstring {
+        std::vector<std::wstring> unresolved;
+        if (rollbackTxRecord(dir, rec, unresolved)) {
+            return leadMsg + L" Your previous installation was left untouched.";
+        }
+        return leadMsg + L" Rollback could not restore locked file(s): " + joinFileList(unresolved) +
+               L". Original copies were preserved in " + rec.bakName + L"; close any program using them and run Setup again to complete recovery.";
     };
 
     for (const std::wstring& rel : relFiles) {
@@ -192,14 +388,17 @@ std::wstring commitStagedFiles(const std::wstring& dir, const std::wstring& stag
         const std::wstring target = dir + L"\\" + rel;
         const std::wstring backup = bakDir + L"\\" + rel;
         if (!makeDirs(parentDir(target))) {
-            rollback();
-            return L"I could not create the folder " + parentDir(target) + L". Your previous installation was left untouched.";
+            return failWithRollback(L"I could not create the folder " + parentDir(target) + L".");
         }
-        bool hadOld = fileExists(target);
+        const bool hadOld = fileExists(target);
+        rec.entries.push_back({rel, hadOld});
+        if (!writeTxRecord(dir, rec)) {
+            rec.entries.pop_back();
+            return failWithRollback(L"Could not update the installation transaction record for " + exeName(target) + L".");
+        }
         if (hadOld) {
             if (!makeDirs(parentDir(backup))) {
-                rollback();
-                return L"Could not prepare backup for " + exeName(target) + L". Your previous installation was left untouched.";
+                return failWithRollback(L"Could not prepare backup for " + exeName(target) + L".");
             }
             SetFileAttributesW(target.c_str(), FILE_ATTRIBUTE_NORMAL);
             bool moved = false; DWORD err = 0;
@@ -210,19 +409,19 @@ std::wstring commitStagedFiles(const std::wstring& dir, const std::wstring& stag
                 Sleep(80);
             }
             if (!moved) {
-                rollback();
-                return L"Could not replace " + exeName(target) + L": " + lastErrorText(err) + L". Close any program using it and try again; your previous installation was left untouched.";
+                return failWithRollback(L"Could not replace " + exeName(target) + L": " + lastErrorText(err) + L". Close any program using it and try again.");
             }
         }
         if (!MoveFileExW(staged.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
             DWORD err = GetLastError();
-            if (hadOld) MoveFileExW(backup.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING);
-            rollback();
-            return L"Could not put " + exeName(target) + L" in place: " + lastErrorText(err) + L". Your previous installation was left untouched.";
+            return failWithRollback(L"Could not put " + exeName(target) + L" in place: " + lastErrorText(err) + L".");
         }
-        committed.push_back({rel, hadOld});
     }
-    deleteTree(bakDir);
+
+    rec.state = L"COMMITTED";
+    writeTxRecord(dir, rec);
+    cleanupOwnedTxFolders(dir, rec, true, false);
+    deleteFile(dir + L"\\" + TX_LOG_NAME);
     return L"";
 }
 static std::wstring winPath(const std::string& rel) { std::wstring w = widen(rel); for (auto& c : w) if (c == L'/') c = L'\\'; return w; }
@@ -239,7 +438,9 @@ static bool closeMeridian() {
     PostMessageW(w, WM_CLOSE, 0, 0);
     bool gone = false;
     for (int i = 0; i < 40 && !gone; ++i) { Sleep(250); gone = FindWindowW(L"MeridianWnd", nullptr) == nullptr; }
-    if (gone && proc) WaitForSingleObject(proc, 4000);
+    if (gone && proc) {
+        if (WaitForSingleObject(proc, 6000) != WAIT_OBJECT_0) gone = false;
+    }
     if (proc) CloseHandle(proc);
     if (gone) Sleep(200);
     return gone;
@@ -279,10 +480,14 @@ static void removeLinkIfOurs(bool desktop, const std::wstring& exe) {
 
 // ------------------------------------------------------------------ screen saver (the same steps as Install-ScreenSaver.bat / Remove-ScreenSaver.bat)
 static void refreshScreenSaver() {
+    wchar_t sysDir[MAX_PATH];
+    const UINT sn = GetSystemDirectoryW(sysDir, MAX_PATH);
+    if (sn == 0 || sn >= MAX_PATH) return;
+    const std::wstring app = std::wstring(sysDir, sn) + L"\\rundll32.exe";
     wchar_t cmd[] = L"rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True";
     STARTUPINFOW si{}; si.cb = sizeof(si); si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi{};
-    if (CreateProcessW(nullptr, cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+    if (CreateProcessW(app.c_str(), cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         WaitForSingleObject(pi.hProcess, 10000);
         CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
     }
@@ -382,6 +587,7 @@ static void retireOldInstall(const Payload& pl, const std::wstring& oldDir) {
     }
     deleteFile(oldDir + L"\\Meridian.scr");
     deleteFile(oldDir + L"\\uninstall.exe");
+    cleanupOwnedTxAt(oldDir);
     removeOldLeftovers(oldDir);
     std::sort(dirs.begin(), dirs.end(), [](const std::wstring& a, const std::wstring& b) { return a.size() > b.size(); });
     for (auto& d : dirs) { std::wstring p = d; while (p.size() > oldDir.size()) { if (!RemoveDirectoryW(p.c_str())) break; p = parentDir(p); } }
@@ -389,8 +595,50 @@ static void retireOldInstall(const Payload& pl, const std::wstring& oldDir) {
     RemoveDirectoryW(oldDir.c_str());
 }
 
-std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bool* stillRunning) {
+std::wstring registerAndRetireMove(const Payload& pl, const std::wstring& dirIn, const std::wstring& prevDirIn, DWORD estSizeKb, const RegOps* ops) {
+    const std::wstring dir = trimSlash(dirIn);
+    const std::wstring prevDir = trimSlash(prevDirIn);
+    const std::wstring exe = dir + L"\\Meridian.exe";
+    auto setS = [&](const wchar_t* key, const wchar_t* name, const std::wstring& v, DWORD type = REG_SZ) -> bool {
+        if (ops && ops->setStr) return ops->setStr(key, name, v, type);
+        return regSet(key, name, v, type);
+    };
+    auto setD = [&](const wchar_t* key, const wchar_t* name, DWORD v) -> bool {
+        if (ops && ops->setDword) return ops->setDword(key, name, v);
+        return regSetDword(key, name, v);
+    };
+
+    const bool ok =
+        setS(APP_KEY, L"InstallDir", dir) &&
+        setS(UNINSTALL_KEY, L"DisplayName", L"Meridian") &&
+        setS(UNINSTALL_KEY, L"DisplayVersion", widen(APP_VERSION)) &&
+        setS(UNINSTALL_KEY, L"Publisher", L"Meridian") &&
+        setS(UNINSTALL_KEY, L"DisplayIcon", exe) &&
+        setS(UNINSTALL_KEY, L"InstallLocation", dir) &&
+        setS(UNINSTALL_KEY, L"UninstallString", L"\"" + dir + L"\\uninstall.exe\" /uninstall") &&
+        setS(UNINSTALL_KEY, L"QuietUninstallString", L"\"" + dir + L"\\uninstall.exe\" /uninstall /S") &&
+        setS(UNINSTALL_KEY, L"Comments", L"Meridian - Sonnet Edition") &&
+        setD(UNINSTALL_KEY, L"NoModify", 1) &&
+        setD(UNINSTALL_KEY, L"NoRepair", 1) &&
+        setD(UNINSTALL_KEY, L"EstimatedSize", estSizeKb);
+
+    if (!ok) {
+        if (!prevDir.empty() && !pathsEqual(prevDir, dir)) {
+            return L"Could not update Windows registration for the new folder (" + dir + L"). Your previous installation in " + prevDir + L" was kept untouched.";
+        }
+        return L"Files were placed in " + dir + L", but Windows denied writing the app registration entries. Check your permissions and try again.";
+    }
+
+    // Only retire the old installation folder AFTER required Windows registration succeeds!
+    if (!prevDir.empty() && !pathsEqual(prevDir, dir)) {
+        retireOldInstall(pl, prevDir);
+    }
+    return L"";
+}
+
+std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bool* stillRunning, std::vector<std::wstring>* warnings) {
     if (stillRunning) *stillRunning = false;
+    if (warnings) warnings->clear();
     CoGuard co;
     std::wstring dir = trimSlash(o.dir);
     if (!validInstallDir(dir)) return L"That is not a folder path I can use. Choose a full folder path like C:\\Users\\you\\Meridian (a drive letter, a colon and a backslash, with nothing like C:folder or ..\\ in it).";
@@ -404,6 +652,11 @@ std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bo
         return L"Meridian is still running. Close it (right-click its icon in the taskbar, then Close window) and try again.";
     }
     if (!makeDirs(dir)) return L"I could not create " + dir + L". Choose a folder inside your own user folder, or run setup as administrator.";
+    // Recover any interrupted or partially rolled-back transaction FIRST before cleanup or staging.
+    {
+        std::wstring recErr = recoverPendingTransaction(dir);
+        if (!recErr.empty()) return recErr;
+    }
     removeOldLeftovers(dir);
 
     // Phase 1: unpack and verify every file into a staging folder before touching the existing installation
@@ -412,6 +665,7 @@ std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bo
 
     double total = 0, done = 0;
     for (auto& e : pl.e) if (included(e, o)) total += (double)e.size + 4096;
+    total = std::max(1.0, total);
     std::vector<uint8_t> exeData, buf;
     std::vector<std::wstring> relFiles;
     for (auto& e : pl.e) {
@@ -449,7 +703,7 @@ std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bo
         extraBytes += exeData.size();
     }
 
-    // Phase 2: transactional swap into `dir` (backs up existing files and restores them all if any file is locked)
+    // Phase 2: transactional swap into `dir` (persisted journal + verified rollback preserving unresolved backups)
     pr(0.72, L"Installing files");
     {
         std::wstring err = commitStagedFiles(dir, stageDir, relFiles);
@@ -475,30 +729,29 @@ std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bo
 
     pr(0.88, L"Making shortcuts");
     std::wstring sm = linkPath(false), dk = linkPath(true);
-    if (o.startMenu) { if (!sm.empty()) makeLink(sm, exe, dir); }
-    else { removeLinkIfOurs(false, exe); if (movedDir) removeLinkIfOurs(false, prevExe); }
-    if (o.desktop)   { if (!dk.empty()) makeLink(dk, exe, dir); }
-    else { removeLinkIfOurs(true, exe); if (movedDir) removeLinkIfOurs(true, prevExe); }
-    if (o.runAtLogon) regSet(RUN_KEY, L"Meridian", L"\"" + exe + L"\"");        // exactly what Meridian's own "Start with Windows" switch writes
-    else {
+    if (o.startMenu) {
+        if (sm.empty() || !makeLink(sm, exe, dir)) {
+            if (warnings) warnings->push_back(L"Start Menu shortcut could not be created.");
+        }
+    } else { removeLinkIfOurs(false, exe); if (movedDir) removeLinkIfOurs(false, prevExe); }
+    if (o.desktop) {
+        if (dk.empty() || !makeLink(dk, exe, dir)) {
+            if (warnings) warnings->push_back(L"Desktop shortcut could not be created.");
+        }
+    } else { removeLinkIfOurs(true, exe); if (movedDir) removeLinkIfOurs(true, prevExe); }
+    if (o.runAtLogon) {
+        if (!regSet(RUN_KEY, L"Meridian", L"\"" + exe + L"\"")) {
+            if (warnings) warnings->push_back(L"Start with Windows registration could not be updated.");
+        }
+    } else {
         std::wstring cur; regGet(RUN_KEY, L"Meridian", cur);
         if (pathsEqual(cur, L"\"" + exe + L"\"") || (movedDir && pathsEqual(cur, L"\"" + prevExe + L"\""))) regDelValue(RUN_KEY, L"Meridian");
     }
 
     pr(0.94, L"Telling Windows about Meridian");
-    regSet(APP_KEY, L"InstallDir", dir);
-    regSet(UNINSTALL_KEY, L"DisplayName", L"Meridian");
-    regSet(UNINSTALL_KEY, L"DisplayVersion", widen(APP_VERSION));
-    regSet(UNINSTALL_KEY, L"Publisher", L"Meridian");
-    regSet(UNINSTALL_KEY, L"DisplayIcon", exe);
-    regSet(UNINSTALL_KEY, L"InstallLocation", dir);
-    regSet(UNINSTALL_KEY, L"UninstallString", L"\"" + dir + L"\\uninstall.exe\" /uninstall");
-    regSet(UNINSTALL_KEY, L"QuietUninstallString", L"\"" + dir + L"\\uninstall.exe\" /uninstall /S");
-    regSet(UNINSTALL_KEY, L"Comments", L"Meridian - Sonnet Edition");
-    regSetDword(UNINSTALL_KEY, L"NoModify", 1);
-    regSetDword(UNINSTALL_KEY, L"NoRepair", 1);
-    regSetDword(UNINSTALL_KEY, L"EstimatedSize", (DWORD)((total + (double)extraBytes) / 1024.0) + 1);
-    if (movedDir) retireOldInstall(pl, prev.dir);            // remove the old folder's binaries and stale uninstaller now that the new copy is registered
+    const DWORD estSizeKb = (DWORD)((total + (double)extraBytes) / 1024.0) + 1;
+    std::wstring regErr = registerAndRetireMove(pl, dir, movedDir ? prev.dir : L"", estSizeKb, nullptr);
+    if (!regErr.empty()) return regErr;
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     pr(1.0, L"Done");
     return L"";
@@ -550,6 +803,7 @@ std::wstring uninstall(const Payload& pl, const std::wstring& dirIn, bool delete
         for (int t = 0; t < 12 && fileExists(p); ++t) { if (deleteFile(p)) break; err = GetLastError(); Sleep(250); }
         if (fileExists(p)) problem = L"Could not remove uninstall.exe: " + lastErrorText(err) + L".";
     }
+    cleanupOwnedTxAt(dir);
     removeOldLeftovers(dir);
     std::sort(dirs.begin(), dirs.end(), [](const std::wstring& a, const std::wstring& b) { return a.size() > b.size(); });
     for (auto& d : dirs) { std::wstring p = d; while (p.size() > dir.size()) { if (!RemoveDirectoryW(p.c_str())) break; p = parentDir(p); } }

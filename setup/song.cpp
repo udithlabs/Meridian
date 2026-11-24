@@ -17,7 +17,9 @@ struct Loaded { const uint8_t* blob = nullptr; size_t n = 0; uint64_t key = 0; s
 
 std::wstring widenUtf8(const std::string& u) {
     if (u.empty()) return L"";
-    int n = MultiByteToWideChar(CP_UTF8, 0, u.data(), (int)u.size(), nullptr, 0); std::wstring w((size_t)n, L'\0');
+    int n = MultiByteToWideChar(CP_UTF8, 0, u.data(), (int)u.size(), nullptr, 0);
+    if (n <= 0) return L"";
+    std::wstring w((size_t)n, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, u.data(), (int)u.size(), &w[0], n); return w;
 }
 Loaded& loaded() {                                   // the song resource, read once

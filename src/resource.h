@@ -9,3 +9,4 @@
 #define IDR_FONT_MONO_M    107
 #define IDR_UFO_SONG        108
 #define IDR_RESEARCHED_SONG 109
+#define IDR_AUDIOTEST_SONG  110

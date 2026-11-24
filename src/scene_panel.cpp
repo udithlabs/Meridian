@@ -20,7 +20,8 @@ void addHolidayHit(App& a, float x, float y, float w, float h, int key) { a.holH
 
 void holidaysBeginFrame(App& a) {
     int best = -1; float ax = 0, ay = 0;
-    const bool allow = !a.showHelp && !a.showSettings && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 12.0;
+    const bool modal = a.showHelp || a.showSettings || a.isSaver;
+    const bool allow = !modal && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 12.0;
     if (allow) {
         for (const auto& h : a.holHits) {
             if (a.mouseX >= h.x && a.mouseX <= h.x + h.w && a.mouseY >= h.y && a.mouseY <= h.y + h.h) { best = h.key; ax = h.x + h.w * 0.5f; ay = h.y + h.h * 0.5f; }
@@ -29,8 +30,11 @@ void holidaysBeginFrame(App& a) {
     if (best >= 0) { a.holKey = best; a.holX = ax; a.holY = ay; }
     a.holOn = best >= 0;
     const float tgt = a.holOn ? 1.f : 0.f;
-    a.holT += (tgt - a.holT) * (1.f - std::exp(-(float)a.dt * 14.f));
-    if (std::fabs(a.holT - tgt) < 0.01f) a.holT = tgt;
+    if (modal) a.holT = 0.f;
+    else {
+        a.holT += (tgt - a.holT) * (1.f - std::exp(-(float)a.dt * 14.f));
+        if (std::fabs(a.holT - tgt) < 0.01f) a.holT = tgt;
+    }
     a.holHits.clear();
 }
 
@@ -413,10 +417,10 @@ void drawSkyPanel(Ctx& c0, float x, float y, float w, float h) {
     if (st.elEvents && (!a.events.empty() || (!st.elToday && !st.elHolidays && !st.elWorld && st.pinned < 0))) list.push_back(PANEL_EVENTS);
     if (st.elHolidays && holiday::countries() != 0) list.push_back(PANEL_HOLIDAYS);       // no country on: no holiday page
     if (st.elWorld) list.push_back(PANEL_WORLD);
-    if (st.pinned >= 0 && !(st.pinned == WG_WORLD && st.elWorld)) list.push_back(PANEL_PINNED);
+    if (st.pinned >= 0 && st.pinned != WG_ORRERY && !(st.pinned == WG_WORLD && st.elWorld)) list.push_back(PANEL_PINNED);
 
     const float mx = a.mouseX - a.shiftX, my = a.mouseY - a.shiftY;
-    const bool over = st.panelHold && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 8.0 &&
+    const bool over = st.panelHold && !a.showSettings && !a.showHelp && !a.isSaver && a.mouseX >= 0 && (a.now - a.lastMouseMove) < 8.0 &&
                       mx >= x - 16 * s && mx <= x + w + 20 * s && my >= y - 44 * s && my <= y + h + 8 * s;
     if (!rotorUpdate(a, a.skyRot, list, st.panelSecs, over)) return;
 

@@ -52,7 +52,14 @@ void targets(const App& a, float t[App::QFX_COUNT]) {
         case 13: t[0] = 0.88f; t[1] = 0.30f; t[5] = 0.14f; t[9] = 1.f; return;                         // icy freezing sleet (ice streaks + wet snow)
         case 14: t[0] = 0.96f; t[1] = 0.35f; t[4] = 0.45f; t[10] = 1.f; return;                        // dramatic bouncing hailstorm
         case 15: t[0] = 0.80f; t[1] = 0.18f; t[11] = 1.f; return;                                      // roaring coastal gale
+        case 16: t[12] = 1.f; return;                                                                  // aurora borealis / australis
         default: break;
+    }
+    // Live geomagnetic space weather (NOAA SWPC Planetary Kp-index): aurora emerges organically at night during live storms
+    if (a.st.auroraAuto && spacewx::isLive(a.spaceWx, a.now) && a.sun.hor.alt < -3.0) {
+        const float nightF = smoothstep(-3.f, -10.f, (float)a.sun.hor.alt);
+        const float au = spacewx::auroraVisibility(a.spaceWx.kp, a.st.geo.lat, false);
+        if (au > 0.02f) t[12] = clamp01(au * nightF);
     }
     if (!a.wx.valid) return;
     const weather::Current& c = a.wx.cur;
@@ -62,8 +69,10 @@ void targets(const App& a, float t[App::QFX_COUNT]) {
     const bool sleet = !hail && (sleetCode(c.code) || ((rainCode(c.code) || drizzleCode(c.code)) && c.temp >= -2.0 && c.temp <= 1.5));
     const bool snow = !hail && !sleet && (snowCode(c.code) || thunderSnow);
     const bool drizzle = !hail && !sleet && !snow && (drizzleCode(c.code) || (!rainCode(c.code) && c.precip >= 0.04 && c.precip < 0.45));
-    if (c.cloud >= 30.0) t[0] = 0.3f + 0.7f * clamp01((float)(c.cloud - 30.0) / 55.f);
-    const double w = std::max(c.wind, 0.6 * c.gust);
+    if (c.hasCloud && c.cloud >= 30.0) t[0] = 0.3f + 0.7f * clamp01((float)(c.cloud - 30.0) / 55.f);
+    const double windEff = c.hasWind ? c.wind : 0.0;
+    const double gustEff = c.hasGust ? c.gust : 0.0;
+    const double w = std::max(windEff, 0.6 * gustEff);
     if (w >= 12.0) t[1] = 0.28f + 0.72f * clamp01((float)(w - 12.0) / 30.f);
     if (hail) {
         t[10] = (c.code == 99) ? 1.0f : 0.82f;
@@ -82,9 +91,9 @@ void targets(const App& a, float t[App::QFX_COUNT]) {
         t[6] = std::max(baseSnow, 0.45f + 0.55f * clamp01((float)(c.precip / 2.2)));
         t[0] = std::max(t[0], 0.45f + 0.25f * t[6]);
         // Blizzard / harsh snowstorm: snow whipped by strong winds/gusts, heavy snow with brisk winds, or freezing thundersnow
-        const bool blizzWind = w >= 28.0 || c.gust >= 42.0 || (heavySnow && (w >= 18.0 || c.gust >= 30.0)) || thunderSnow;
+        const bool blizzWind = w >= 28.0 || gustEff >= 42.0 || (heavySnow && (w >= 18.0 || gustEff >= 30.0)) || thunderSnow;
         if (blizzWind) {
-            const float windAmt = clamp01((float)(std::max(w - 18.0, (c.gust - 30.0) * 0.75) / 28.0));
+            const float windAmt = clamp01((float)(std::max(w - 18.0, (gustEff - 30.0) * 0.75) / 28.0));
             const float heavyBoost = heavySnow ? 0.22f : 0.f;
             t[7] = clamp01(0.38f + 0.62f * windAmt + heavyBoost);
             if (thunderSnow) t[7] = std::max(t[7], 0.85f);
@@ -102,18 +111,19 @@ void targets(const App& a, float t[App::QFX_COUNT]) {
     const bool rain = !hail && !sleet && !snow && !drizzle && (rainCode(c.code) || c.precip >= 0.45);
     if (rain) { t[2] = 0.45f + 0.55f * clamp01((float)(c.precip / 3.0)); t[0] = std::max(t[0], 0.50f + 0.25f * t[2]); }     // rain falls out of cloud: always a few of them, whatever the cover reported
     if (thunder) { t[4] = 1.f; t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.3f); }   // dark cloud and lightning, with rain only if rain is reported
-    if (!snow && !sleet && (c.gust >= 70.0 || (thunder && c.gust >= 55.0))) {                 // a severe warm-sector storm: the tornado (never during freezing snow/sleet)
+    if (!snow && !sleet && (gustEff >= 70.0 || (thunder && gustEff >= 55.0))) {               // a severe warm-sector storm: the tornado (never during freezing snow/sleet)
         t[3] = 1.f; t[4] = std::max(t[4], 0.7f); t[0] = std::max(t[0], 0.95f); t[1] = std::max(t[1], 0.7f);
-    } else if (t[7] < 0.25f && (c.wind >= 42.0 || c.gust >= 58.0)) {                          // Beaufort gale-force winds (when not already in a tornado or full blizzard)
-        const float gAmt = clamp01((float)std::max((c.wind - 42.0) / 24.0, (c.gust - 58.0) / 24.0));
+    } else if (t[7] < 0.25f && (windEff >= 42.0 || gustEff >= 58.0)) {                        // Beaufort gale-force winds (when not already in a tornado or full blizzard)
+        const float gAmt = clamp01((float)std::max((windEff - 42.0) / 24.0, (gustEff - 58.0) / 24.0));
         t[11] = clamp01(0.45f + 0.55f * gAmt);
         t[0] = std::max(t[0], 0.55f + 0.28f * t[11]);
         t[1] *= 1.f - 0.72f * t[11];
     }
     // fog: reported as fog, or the air is saturated and still. Damp mountain mornings read as a soft mist.
     if (c.code == 45 || c.code == 48) t[5] = 0.95f;
-    else if (!rain && !snow && !sleet && !hail && !thunder && c.humidity >= 96.0 && w < 10.0) t[5] = std::max(t[5], 0.25f + 0.45f * clamp01((float)(c.humidity - 96.0) / 4.f));
+    else if (!rain && !snow && !sleet && !hail && !thunder && c.hasHumidity && c.humidity >= 96.0 && w < 10.0) t[5] = std::max(t[5], 0.25f + 0.45f * clamp01((float)(c.humidity - 96.0) / 4.f));
     if (t[5] > 0.01f && t[7] < 0.05f && t[11] < 0.05f) t[1] *= 1.f - 0.6f * t[5];             // wind does not show through thick calm fog (a blizzard or gale keeps its wind)
+    if (t[12] > 0.01f) t[12] *= clamp01(1.f - 0.65f * t[0]) * clamp01(1.f - 0.80f * t[5]);     // overcast & fog veil the real live aurora gracefully
 }
 
 // the way the wind blows across the screen: +1 to the right, -1 to the left
@@ -127,7 +137,7 @@ float heavyOf(const App& a) {
 }
 
 float windSide(const App& a) {
-    if (a.st.quietPreview != 0 || !a.wx.valid) return 1.f;
+    if (a.st.quietPreview != 0 || !a.wx.valid || !a.wx.cur.hasWind) return 1.f;
     const double toward = (a.wx.cur.windDir + 180.0) * 3.14159265 / 180.0;
     return std::sin(toward) >= 0 ? 1.f : -1.f;
 }
@@ -140,7 +150,8 @@ float windKmh(const App& a) {
     if (a.st.quietPreview == 13) return 34.f;
     if (a.st.quietPreview == 14) return 44.f;
     if (a.st.quietPreview == 15) return 66.f;
-    return a.wx.valid ? (float)std::max(a.wx.cur.wind, 0.6 * a.wx.cur.gust) : 0.f;
+    if (!a.wx.valid) return 0.f;
+    return (float)std::max(a.wx.cur.hasWind ? a.wx.cur.wind : 0.0, a.wx.cur.hasGust ? 0.6 * a.wx.cur.gust : 0.0);
 }
 
 // overall strength from Settings: every alpha goes through al()
@@ -248,132 +259,158 @@ void softPlume(Gfx& g, float cx, float cy, float rx, float ry, float ox, float o
     }, op);
 }
 
-// Archetype 1: High-altitude silky cirrus / mare's-tail wisps (sweeping feathered wind-curled ribbons)
-void cirrusShape(Gfx& g, float cx, float cy, float cw, int seed, const Tones& T, float heavy) {
-    const float span = cw * 1.18f;
-    // Soft high-altitude veil under heavy weather so storms still build a unified canopy
-    if (heavy > 0.25f) {
-        const float ha = (heavy - 0.25f) / 0.75f;
-        softPlume(g, cx, cy + cw * 0.03f, cw * 0.56f, cw * 0.16f, -cw * 0.08f, -cw * 0.04f, T.body, T.shade, 0.34f * ha);
+// ---------------------------------------------------------------- Photorealistic Volumetric fBm Cloud Synthesizer (3.0.0)
+// Generates real multi-octave domain-warped fractal noise clouds with Beer-Lambert directional self-shadowing
+// and silver-lining edge scattering directly into cached premultiplied BGRA sprites (zero cartoon oval blobs!).
+inline uint32_t cHash2(int x, int y, uint32_t seed) {
+    uint32_t h = (uint32_t)x * 374761393u + (uint32_t)y * 668265263u + seed * 1442695041u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+inline float cVNoise(float x, float y, uint32_t seed) {
+    const int xi = (int)std::floor(x), yi = (int)std::floor(y);
+    float fx = x - (float)xi, fy = y - (float)yi;
+    // Quintic smoothstep eliminates grid crease artifacts completely
+    const float ux = fx * fx * fx * (fx * (fx * 6.f - 15.f) + 10.f);
+    const float uy = fy * fy * fy * (fy * (fy * 6.f - 15.f) + 10.f);
+    constexpr float inv = 1.f / 65535.f;
+    const float v00 = (cHash2(xi,     yi,     seed) & 0xFFFFu) * inv;
+    const float v10 = (cHash2(xi + 1, yi,     seed) & 0xFFFFu) * inv;
+    const float v01 = (cHash2(xi,     yi + 1, seed) & 0xFFFFu) * inv;
+    const float v11 = (cHash2(xi + 1, yi + 1, seed) & 0xFFFFu) * inv;
+    return (v00 + (v10 - v00) * ux) * (1.f - uy) + (v01 + (v11 - v01) * ux) * uy;
+}
+float cFbm(float x, float y, uint32_t seed, int octaves) {
+    float sum = 0.f, amp = 0.50f, norm = 0.f;
+    for (int o = 0; o < octaves; ++o) {
+        sum += amp * cVNoise(x, y, seed + (uint32_t)o * 97u);
+        norm += amp;
+        // Orthonormal rotation + lacunarity breaks up axis alignment for organic atmospheric turbulence
+        const float nx = (0.80f * x - 0.60f * y) * 2.04f + 13.7f;
+        const float ny = (0.60f * x + 0.80f * y) * 2.04f - 7.3f;
+        x = nx; y = ny;
+        amp *= 0.50f;
     }
-    for (int st = 0; st < 3; ++st) {
-        const float yOff = (st - 1.f) * cw * (0.052f + 0.020f * hashf(seed * 19 + st, 501));
-        const float xOff = (hashf(seed * 19 + st, 502) - 0.5f) * cw * 0.24f + (st - 1.f) * cw * 0.06f;
-        const float sLen = span * (0.78f + 0.26f * hashf(seed * 19 + st, 503));
-        const float archScale = st == 0 ? 0.68f : (st == 1 ? 1.00f : 1.28f);
-        const float arch = (0.032f + 0.032f * hashf(seed * 19 + st, 504)) * cw * archScale;
-        const float curl = (0.048f + 0.036f * hashf(seed * 19 + st, 505)) * cw;
-        const int segs = 13;
-        for (int m = 0; m < segs; ++m) {
-            const float u = (m + 0.5f) / segs;
-            const float env = std::pow(std::sin(u * PI_F), 0.72f);
-            const float px = cx + xOff + (u - 0.5f) * sLen;
-            // Graceful wind-swept arc with delicate mare's-tail lift at the trailing tip
-            const float tailLift = std::pow(std::max(0.f, (u - 0.62f) / 0.38f), 1.8f) * curl;
-            const float py = cy + yOff + std::sin(u * PI_F * 1.15f + st * 0.7f) * arch - tailLift;
-            const float rx = cw * (0.095f + 0.085f * env) * (0.85f + 0.30f * hashf(seed * 41 + st * 17 + m, 506));
-            const float ry = cw * (0.018f + 0.024f * env) * (1.f + 0.45f * heavy);
-            softPlume(g, px, py + ry * 0.35f, rx * 1.15f, ry * 1.35f, 0.f, -ry * 0.25f, T.body, T.shade, (0.20f + 0.12f * heavy) * env);
-            softPlume(g, px - rx * 0.06f, py - ry * 0.12f, rx * 0.96f, ry * 0.85f, -rx * 0.14f, -ry * 0.30f, T.hi, T.body, 0.34f * env);
-            if (st != 2 && env > 0.55f) {
-                softPlume(g, px - rx * 0.10f, py - ry * 0.35f, rx * 0.68f, ry * 0.45f, -rx * 0.12f, -ry * 0.20f, T.rim, T.hi, 0.22f * env * (1.f - 0.45f * heavy));
-            }
-        }
-    }
+    return sum / std::max(0.001f, norm);
 }
 
-// Archetype 2: Sculpted volumetric cauliflower cumulus bank — flat shadowed condensation base,
-// asymmetric rising domes, cohesive upper-left directional light and crisp sunlit/moonlit crown rims.
-void cumulusShape(Gfx& g, float cx, float cy, float cw, float ht, int seed, const Tones& T, float opScale = 1.f) {
-    struct Lobe { float dx, dy, rx, ry, crown; };
-    const float flip = (seed & 1) ? -1.f : 1.f;
-    // Hand-composed asymmetric silhouette (zero uniform sausage rows!)
-    static const Lobe baseLobes[7] = {
-        {-0.35f,  0.04f, 0.21f, 0.11f, 0.25f},   // tapered trailing flank
-        {-0.20f, -0.04f, 0.24f, 0.16f, 0.62f},   // left mid shoulder
-        {-0.05f, -0.13f, 0.27f, 0.22f, 1.00f},   // sovereign rising crown dome
-        { 0.13f, -0.08f, 0.24f, 0.18f, 0.82f},   // secondary east tower
-        { 0.28f,  0.00f, 0.20f, 0.13f, 0.45f},   // right shoulder
-        { 0.39f,  0.05f, 0.16f, 0.09f, 0.18f},   // feathered leading wisp
-        {-0.01f,  0.02f, 0.30f, 0.14f, 0.40f},   // plush center volume anchor
+// kind: 0 = wispy silky high-altitude cirrus, 1 = natural convective cumulus/stratocumulus bank,
+//       2 = sweeping horizontal night/coastal stratocumulus sheet, 3 = full-width overcast/storm canopy
+Bitmap buildVolumetricCloud(Gfx& g, int sw, int sh, int kind, uint32_t seed, const Tones& T, float heavy, float opScale = 1.f) {
+    if (sw < 16 || sh < 12) return Bitmap{};
+    std::vector<uint8_t> px((size_t)sw * (size_t)sh * 4u, 0);
+    const float invW = 1.f / (float)sw, invH = 1.f / (float)sh;
+    const float flip = (seed & 1u) ? -1.f : 1.f;
+    const float offX = (float)(seed % 19u) * 3.17f, offY = (float)((seed * 7u) % 17u) * 2.83f;
+
+    auto sampleDensity = [&](float u, float v, int oct) -> float {
+        // u in [-1, 1], v in [-1, 1] (for kind==3 canopy: v in [0, 1] hanging from top)
+        if (kind == 3) {
+            const float xEdge = smoothstep(-1.02f, -0.82f, u) * (1.f - smoothstep(0.82f, 1.02f, u));
+            const float yDrop = 1.f - smoothstep(0.18f, 0.96f, v);
+            const float baseEnv = xEdge * yDrop;
+            if (baseEnv < 0.005f) return 0.f;
+            const float wx = (cFbm(u * 2.6f + offX, v * 2.4f + offY, seed + 11u, 2) - 0.5f) * 0.55f;
+            const float wy = (cFbm(u * 2.6f + offX + 5.1f, v * 2.4f + offY - 3.7f, seed + 23u, 2) - 0.5f) * 0.35f;
+            const float n = cFbm((u + wx) * 3.1f + offX, (v + wy) * 3.8f + offY, seed + 41u, oct);
+            return clamp01((baseEnv * 1.18f + (n - 0.44f) * 0.92f) * (0.85f + 0.25f * heavy));
+        }
+
+        // Smooth organic elliptical-radial feather so cloud silhouettes dissipate naturally with zero straight clip lines
+        const float boxFade = smoothstep(-0.98f, -0.68f, u) * (1.f - smoothstep(0.68f, 0.98f, u))
+                            * smoothstep(-0.98f, -0.68f, v) * (1.f - smoothstep(0.68f, 0.98f, v))
+                            * (1.f - smoothstep(0.56f, 0.97f, std::hypot(u * 0.96f, v * 0.98f)));
+        if (boxFade < 0.004f) return 0.f;
+
+        const float uf = u * flip;
+        if (kind == 0) {
+            // Silky stretched high-altitude cirrus filaments (wind-sheared mare's tails)
+            const float arch = std::sin(uf * 2.2f + 0.5f) * 0.16f - std::pow(std::max(0.f, (uf - 0.25f) / 0.75f), 1.8f) * 0.22f;
+            const float dy = v - arch;
+            const float env = std::exp(-(uf * uf * 1.65f + dy * dy * 7.8f)) * boxFade;
+            if (env < 0.01f) return 0.f;
+            const float wx = (cFbm(uf * 1.6f + offX, dy * 4.5f + offY, seed + 3u, 2) - 0.5f) * 0.65f;
+            const float wy = (cFbm(uf * 1.8f + offX + 4.3f, dy * 4.8f + offY, seed + 7u, 2) - 0.5f) * 0.38f;
+            const float fib = cFbm((uf + wx) * 2.1f + offX, (dy + wy) * 8.2f + offY, seed + 17u, oct);
+            const float ridge = 1.f - std::fabs(2.f * cFbm((uf + wx * 0.6f) * 3.2f - offY, (dy + wy * 0.6f) * 10.5f + offX, seed + 29u, std::max(2, oct - 1)) - 1.f);
+            const float raw = env * (0.45f + 1.05f * fib * 0.72f + 0.48f * ridge * ridge) - (0.34f - 0.08f * heavy);
+            return clamp01(raw * 2.1f);
+        }
+
+        if (kind == 1) {
+            // Photorealistic turbulent convective cloud bank: naturally ragged asymmetric crown, flat atmospheric base
+            const float skew = -0.10f * uf + 0.08f * std::sin(uf * 3.0f);
+            const float flatBase = 1.f - smoothstep(0.18f, 0.58f, v);
+            const float domeW = 1.f + 0.28f * smoothstep(-0.35f, 0.35f, v);  // wider at base, narrower ragged crests above
+            const float r2 = (uf / domeW) * (uf / domeW) * 1.48f + (v + 0.06f - skew) * (v + 0.06f - skew) * 2.45f;
+            const float env = std::exp(-r2 * 1.35f) * (0.35f + 0.65f * flatBase) * boxFade;
+            if (env < 0.012f) return 0.f;
+            const float wx = (cFbm(uf * 2.1f + offX, v * 2.4f + offY, seed + 13u, 2) - 0.5f) * 0.62f;
+            const float wy = (cFbm(uf * 2.1f + offX + 6.7f, v * 2.4f + offY - 2.9f, seed + 19u, 2) - 0.5f) * 0.52f;
+            const float nMain = cFbm((uf + wx) * 3.4f + offX, (v + wy) * 4.0f + offY, seed + 31u, oct);
+            const float billow = 1.f - std::fabs(2.f * cFbm((uf + wx * 0.5f) * 5.2f + offY, (v + wy * 0.5f) * 5.8f - offX, seed + 53u, std::max(2, oct - 1)) - 1.f);
+            const float detail = 0.74f * nMain + 0.26f * billow * billow;
+            const float raw = env * 1.32f + (detail - 0.50f) * (0.85f * smoothstep(0.02f, 0.42f, env)) - 0.26f;
+            return clamp01(raw * 1.95f);
+        }
+
+        // kind == 2: Sweeping coastal / nocturnal stratocumulus vapor deck (wide shredded horizontal bands with realistic rifts)
+        const float wave = 0.07f * std::sin(uf * 2.7f + 0.8f);
+        const float dy = v - wave;
+        const float baseCut = 1.f - smoothstep(0.22f, 0.62f, dy);
+        const float env = std::exp(-(uf * uf * 1.25f + dy * dy * 4.6f)) * (0.40f + 0.60f * baseCut) * boxFade;
+        if (env < 0.01f) return 0.f;
+        const float wx = (cFbm(uf * 1.9f + offX, dy * 3.4f + offY, seed + 37u, 2) - 0.5f) * 0.72f;
+        const float wy = (cFbm(uf * 2.0f + offX - 5.4f, dy * 3.6f + offY + 4.1f, seed + 43u, 2) - 0.5f) * 0.40f;
+        const float n = cFbm((uf + wx) * 2.8f + offX, (dy + wy) * 5.6f + offY, seed + 61u, oct);
+        const float wisps = cFbm((uf + wx * 0.8f) * 5.4f - offY, (dy + wy * 0.6f) * 8.2f + offX, seed + 79u, std::max(2, oct - 1));
+        const float raw = env * 1.28f + (0.68f * n + 0.32f * wisps - 0.49f) * (0.90f * smoothstep(0.02f, 0.38f, env)) - 0.24f;
+        return clamp01(raw * 2.05f);
     };
-    Lobe L[7];
-    for (int i = 0; i < 7; ++i) {
-        const float jx = (hashf(seed * 37 + i, 521) - 0.5f) * 0.045f;
-        const float jy = (hashf(seed * 37 + i, 522) - 0.5f) * 0.032f;
-        const float jr = 0.90f + 0.22f * hashf(seed * 37 + i, 523);
-        L[i] = {
-            cx + (baseLobes[i].dx * flip + jx) * cw,
-            cy + (baseLobes[i].dy + jy) * cw * ht,
-            baseLobes[i].rx * cw * jr,
-            baseLobes[i].ry * cw * ht * jr,
-            baseLobes[i].crown
-        };
-    }
 
-    // Pass 1: Grounded flat condensation shadow base (gives real meteorological weight)
-    const float yBase = cy + 0.075f * cw * ht;
-    softPlume(g, cx - 0.14f * cw * flip, yBase, 0.36f * cw, 0.115f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.54f * opScale);
-    softPlume(g, cx + 0.14f * cw * flip, yBase + 0.005f * cw * ht, 0.34f * cw, 0.110f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.48f * opScale);
+    // Light march vector toward upper-left sunlight / moonlight
+    const float lx = -0.055f, ly = (kind == 3) ? -0.095f : -0.088f;
+    const auto toB = [](float val) -> uint8_t { return (uint8_t)std::max(0, std::min(255, (int)(val * 255.f + 0.5f))); };
 
-    // Pass 2: Cool shadowed lower-rear billow envelope
-    for (int i = 0; i < 6; ++i) {
-        softPlume(g, L[i].dx, L[i].dy + L[i].ry * 0.32f, L[i].rx * 1.12f, L[i].ry * 0.96f, 0.f, L[i].ry * 0.20f, T.shade, T.deep, 0.44f * opScale);
-    }
+    for (int y = 0; y < sh; ++y) {
+        const float v = (kind == 3) ? ((y + 0.5f) * invH) : ((y + 0.5f) * invH * 2.f - 1.f);
+        for (int x = 0; x < sw; ++x) {
+            const float u = (x + 0.5f) * invW * 2.f - 1.f;
+            const float d = sampleDensity(u, v, 5);
+            if (d < 0.006f) continue;
 
-    // Pass 3: Main sculpted volumetric body with cohesive upper-left directional lighting
-    for (int i = 0; i < 7; ++i) {
-        const Color cCore = lerp(T.body, T.hi, 0.48f * L[i].crown);
-        const Color cEdge = lerp(T.shade, T.body, 0.45f + 0.35f * L[i].crown);
-        volPuff(g, L[i].dx, L[i].dy, L[i].rx, L[i].ry, -0.22f * L[i].rx, -0.34f * L[i].ry, cCore, cEdge, (0.58f + 0.14f * L[i].crown) * opScale);
-    }
+            // 2-step Beer-Lambert directional light march for genuine 3D volumetric internal shadows & silver-lining rims!
+            const float d1 = sampleDensity(u + lx * 0.75f, v + ly * 0.75f, 3);
+            const float d2 = sampleDensity(u + lx * 2.05f, v + ly * 2.05f, 3);
+            const float occ = clamp01(0.36f * d + 0.62f * d1 + 0.74f * d2);
+            const float trans = std::exp(-occ * (kind == 0 ? 1.45f : (2.15f + 0.55f * heavy)));
+            const float skyGrad = (kind == 3) ? clamp01(0.42f - 0.28f * v) : clamp01(0.58f - 0.54f * v);
+            // Silver-lining forward scatter where cloud wisps thin out facing the sky light
+            const float silver = clamp01((1.f - smoothstep(0.10f, 0.68f, d2)) * smoothstep(0.04f, 0.36f, d) * (0.35f + 0.65f * skyGrad));
+            // Internal sculptural light relief so cloud interiors show rich rolling volumetric depth (never flat grey!)
+            const float relief = (d - d1) * 0.85f + (cFbm(u * 4.4f + offX, v * 5.2f + offY, seed + 131u, 3) - 0.5f) * 0.24f;
+            const float lit = clamp01(trans * (0.32f + 0.68f * skyGrad) + relief + (kind == 0 ? 0.34f : 0.24f) * silver * (1.f - 0.35f * heavy));
 
-    // Pass 4: Luminous sunlit / moonlit upper domes (cohesive wide highlight, never tiny polka dots!)
-    for (int i = 1; i <= 4; ++i) {
-        if (L[i].crown < 0.42f) continue;
-        volPuff(g, L[i].dx - 0.10f * L[i].rx, L[i].dy - 0.24f * L[i].ry, L[i].rx * 0.78f, L[i].ry * 0.64f,
-                -0.24f * L[i].rx, -0.30f * L[i].ry, T.hi, T.body, (0.46f * L[i].crown) * opScale);
-    }
+            Color col;
+            if (lit < 0.30f)      col = lerp(T.deep,  T.shade, lit / 0.30f);
+            else if (lit < 0.58f) col = lerp(T.shade, T.body,  (lit - 0.30f) / 0.28f);
+            else if (lit < 0.82f) col = lerp(T.body,  T.hi,    (lit - 0.58f) / 0.24f);
+            else                  col = lerp(T.hi,    T.rim,   (lit - 0.82f) / 0.18f);
 
-    // Pass 5: Crisp directional crown rim highlights hugging the topmost ridges of the sovereign towers
-    for (int i = 1; i <= 3; ++i) {
-        if (L[i].crown < 0.60f) continue;
-        softPlume(g, L[i].dx - 0.14f * L[i].rx, L[i].dy - 0.46f * L[i].ry, L[i].rx * 0.62f, L[i].ry * 0.34f,
-                  -0.18f * L[i].rx, -0.22f * L[i].ry, T.rim, T.hi, (0.44f * L[i].crown) * opScale);
-    }
-
-    // Pass 6: Gentle internal lower-belly occlusion fold so the bright domes pop in 3D relief above the flat base
-    softPlume(g, cx, yBase + 0.01f * cw * ht, 0.42f * cw, 0.085f * cw * ht, 0.f, 0.02f * cw * ht, T.shade, T.deep, 0.34f * opScale);
-}
-
-// Archetype 3: Sweeping coastal / twilight stratocumulus shelf — wide dramatic horizontal deck
-// with terraced undulating upper billows, backlit crown edge and feathery wind-drawn flanks.
-void stratusShape(Gfx& g, float cx, float cy, float cw, float ht, int seed, const Tones& T, float opScale = 1.f) {
-    const float flip = (seed & 1) ? -1.f : 1.f;
-    // Pass 1: Long sculpted shelf underside shadow
-    softPlume(g, cx, cy + 0.06f * cw * ht, 0.60f * cw, 0.115f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.56f * opScale);
-    softPlume(g, cx - 0.24f * cw * flip, cy + 0.055f * cw * ht, 0.36f * cw, 0.095f * cw * ht, 0.f, 0.02f * cw * ht, T.deep, T.shade, 0.40f * opScale);
-
-    // Pass 2: Overlapping elongated horizontal ridge billows
-    const int n = 8;
-    for (int m = 0; m < n; ++m) {
-        const float u = (m + 0.5f) / n;
-        const float env = std::pow(std::sin(u * PI_F), 0.65f);
-        const float px = cx + ((u - 0.5f) * 0.96f * flip + (hashf(seed * 29 + m, 541) - 0.5f) * 0.04f) * cw;
-        const float bump = (0.04f + 0.075f * env * (0.75f + 0.5f * hashf(seed * 29 + m, 542))) * cw * ht;
-        const float py = cy - bump * 0.75f + 0.03f * cw * ht;
-        const float rx = cw * (0.14f + 0.11f * env) * (0.9f + 0.2f * hashf(seed * 29 + m, 543));
-        const float ry = cw * ht * (0.055f + 0.065f * env);
-        volPuff(g, px, py, rx, ry, -0.18f * rx, -0.34f * ry, lerp(T.body, T.hi, 0.36f * env), T.shade, (0.48f + 0.18f * env) * opScale);
-        if (env > 0.45f) {
-            softPlume(g, px - 0.08f * rx, py - 0.32f * ry, rx * 0.74f, ry * 0.46f, -0.15f * rx, -0.22f * ry, T.hi, T.body, 0.40f * env * opScale);
-            if (env > 0.70f) {
-                softPlume(g, px - 0.12f * rx, py - 0.50f * ry, rx * 0.54f, ry * 0.26f, -0.12f * rx, -0.15f * ry, T.rim, T.hi, 0.34f * env * opScale);
-            }
+            const float alpha = clamp01(smoothstep(0.01f, kind == 0 ? 0.56f : 0.72f, d) * opScale);
+            const size_t idx = ((size_t)y * (size_t)sw + (size_t)x) * 4u;
+            px[idx + 0] = toB(col.b * alpha);
+            px[idx + 1] = toB(col.g * alpha);
+            px[idx + 2] = toB(col.r * alpha);
+            px[idx + 3] = toB(alpha);
         }
     }
-    // Pass 3: Soft dark underside horizon line unifying the shelf
-    softPlume(g, cx + 0.05f * cw * flip, cy + 0.07f * cw * ht, 0.50f * cw, 0.075f * cw * ht, 0.f, 0.015f * cw * ht, T.deep, T.shade, 0.36f * opScale);
+    return g.makeBitmap(px.data(), sw, sh);
+}
+
+// Keep a tiny ultra-soft fallback only if a sprite hasn't finished building yet on frame 0
+void fallbackCloudPuff(Gfx& g, float cx, float cy, float cw, const Tones& T, float op) {
+    softPlume(g, cx, cy, cw * 0.45f, cw * 0.16f, -cw * 0.08f, -cw * 0.05f, T.body, T.shade, op * 0.38f);
 }
 
 // ---------------------------------------------------------------- cached soft shapes
@@ -383,7 +420,7 @@ void stratusShape(Gfx& g, float cx, float cy, float cw, float ht, int seed, cons
 constexpr float SPR = 0.5f;           // images are kept at half size: the shapes are soft, and it quarters the memory
 
 struct Slot { Bitmap bmp; uint64_t key = 0, failed = 0; float nominal = 0; };       // nominal: the size (px) the image was drawn for, so a stale one can be scaled
-Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gFogGlow, gSnowFlake, gBlizzStreak, gBlizzDrift, gDrizzleStreak, gSleetStreak, gHailStone, gGaleGust;
+Slot gCloud[6], gCeiling, gMist, gFront, gFog[3], gFogGlow, gSnowFlake, gBlizzStreak, gBlizzDrift, gDrizzleStreak, gSleetStreak, gHailStone, gGaleGust, gAuroraRay[3], gAuroraGlow, gClockRefl;
 float gCeilH = 0, gMistH = 0, gFrontCw = 0, gFogH = 0, gSnowCell = 0, gBlizzS = 0, gBlizzSlant = 0, gBlizzDriftH = 0;
 float gDrizS = 0, gDrizSlant = 0, gSleetS = 0, gSleetSlant = 0, gHailS = 0, gHailSlant = 0, gGaleGustH = 0;
 bool gResizing = false;      // the window size changed a moment ago: keep drawing the images we have, rebuild once it settles
@@ -462,61 +499,34 @@ Frame makeFrame(Ctx& c, float heavy) {
     return F;
 }
 
-// One image slot per cloud archetype:
+// One cached photorealistic volumetric fBm image slot per cloud archetype:
 //   0, 1: High sweeping silky cirrus / upper-sky filaments
-//   2, 3: Sculpted volumetric cauliflower cumulus banks
-//   4, 5: Wide dramatic coastal / twilight stratocumulus shelves
+//   2, 3: Photorealistic turbulent convective cumulus banks
+//   4, 5: Wide atmospheric night/coastal stratocumulus vapor decks
 bool cloudReady(Ctx& c, const Frame& F, int j) {
     const int sq = (int)std::lround(std::log2(std::max(0.05f, c.s)) * 5.f);          // the scale in ~15% steps
-    const float cw = (470.f + 72.f * j) * std::pow(2.f, sq / 5.f);
+    const float cw = (490.f + 76.f * j) * std::pow(2.f, sq / 5.f);
     uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.shade), q3(F.T.rim))),
-                          mixKey(mixKey(q3(F.T.deep), (uint64_t)(sq + 300)), (uint64_t)(j * 16 + F.hq)));
+                          mixKey(mixKey(q3(F.T.deep), (uint64_t)(sq + 300)), (uint64_t)(8100 + j * 16 + F.hq)));
     return ensure(c.g, gCloud[j], key, cw, [&] {
-        const float aspW = (j < 2) ? 1.80f : (j < 4 ? 1.68f : 1.78f);
-        const float aspH = (j < 2) ? 0.74f : (j < 4 ? 1.06f : 0.86f);
-        const int sw = std::max(32, (int)(cw * aspW * SPR));
-        const int sh = std::max(24, (int)(cw * aspH * SPR));
-        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        const float cws = cw * SPR;
-        if (j < 2) {
-            cirrusShape(c.g, sw * 0.5f, sh * 0.50f, cws, j + 11, F.T, F.hq / 4.f);
-        } else if (j < 4) {
-            cumulusShape(c.g, sw * 0.5f, sh * 0.58f, cws, 0.96f, j + 23, F.T, 1.0f);
-        } else {
-            stratusShape(c.g, sw * 0.5f, sh * 0.54f, cws, 0.96f, j + 37, F.T, 1.0f);
-        }
-        return c.g.endSprite();
+        const float aspW = (j < 2) ? 1.88f : (j < 4 ? 1.72f : 1.92f);
+        const float aspH = (j < 2) ? 0.68f : (j < 4 ? 0.96f : 0.78f);
+        const int sw = std::max(64, std::min(440, (int)(cw * aspW * SPR)));
+        const int sh = std::max(40, std::min(240, (int)(cw * aspH * SPR)));
+        const int kind = (j < 2) ? 0 : (j < 4 ? 1 : 2);
+        return buildVolumetricCloud(c.g, sw, sh, kind, (uint32_t)(107 + j * 53), F.T, F.hq / 4.f, 1.0f);
     });
 }
 
-// Sculpted storm / heavy overcast ceiling canopy with undulating stratocumulus shelves & faint diffuse sky breaks
+// Photorealistic turbulent storm / heavy overcast upper cloud canopy
 bool ceilingReady(Ctx& c, const Frame& F) {
     const float W = c.W, H = c.H;
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.deep), q3(F.T.shade)), mixKey(q3(F.T.body), q3(F.T.hi))), mixKey(qsz(W), qsz(H)));
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.deep), q3(F.T.shade)), mixKey(q3(F.T.body), q3(F.T.hi))), mixKey(qsz(W), mixKey(qsz(H), (uint64_t)(8200 + F.hq))));
     gCeilH = 0.44f * H;
     return ensure(c.g, gCeiling, key, 0.f, [&] {
-        const int sw = std::max(32, (int)(W * SPR)), sh = std::max(24, (int)(gCeilH * SPR));
-        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        // Upper brooding deck
-        for (int j = 0; j < 6; ++j) {
-            const float u = (j + 0.5f) / 6.f;
-            const float px = sw * (0.04f + 0.92f * u) + (hashf(j, 90) - 0.5f) * sw * 0.06f;
-            const float py = sh * (0.08f + 0.14f * hashf(j, 91));
-            const float rx = sw * (0.24f + 0.09f * hashf(j, 92));
-            const float ry = sh * (0.42f + 0.18f * hashf(j, 93));
-            softPlume(c.g, px, py, rx, ry, 0.f, -ry * 0.2f, F.T.deep, F.T.shade, 0.72f);
-        }
-        // Sculpted lower shelf undulations with subtle lit upper breaks
-        for (int j = 0; j < 5; ++j) {
-            const float u = (j + 0.5f) / 5.f;
-            const float px = sw * (0.08f + 0.84f * u);
-            const float py = sh * (0.24f + 0.12f * hashf(j, 94));
-            const float rx = sw * (0.19f + 0.08f * hashf(j, 95));
-            const float ry = sh * (0.24f + 0.10f * hashf(j, 96));
-            volPuff(c.g, px, py, rx, ry, -rx * 0.18f, -ry * 0.30f, F.T.body, F.T.shade, 0.36f);
-            softPlume(c.g, px - rx * 0.12f, py - ry * 0.36f, rx * 0.56f, ry * 0.24f, 0.f, 0.f, F.T.hi, F.T.body, 0.18f);
-        }
-        return c.g.endSprite();
+        const int sw = std::max(96, std::min(480, (int)(W * SPR * 0.75f)));
+        const int sh = std::max(48, std::min(220, (int)(gCeilH * SPR * 0.85f)));
+        return buildVolumetricCloud(c.g, sw, sh, 3, 913u, F.T, F.hq / 4.f, 0.88f);
     });
 }
 
@@ -533,19 +543,16 @@ bool mistReady(Ctx& c, const Frame& F) {
     });
 }
 
-// The ethereal, feathered cloud wisp that glides softly in front of the Quiet clock
+// The ethereal, feathered volumetric cloud wisp that glides softly in front of the Quiet clock
 bool frontReady(Ctx& c, const Frame& F, float clockH) {
     const float W = c.W, H = c.H;
     const float fcw = frontWidth(W, H), fht = frontHeightScale(clockH, fcw);
-    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.rim), qsz(W))), mixKey(qsz(H), (uint64_t)(fht * 8.f)));
+    uint64_t key = mixKey(mixKey(mixKey(q3(F.T.body), q3(F.T.hi)), mixKey(q3(F.T.rim), qsz(W))), mixKey(qsz(H), (uint64_t)(8300 + (int)(fht * 8.f))));
     gFrontCw = fcw;
     return ensure(c.g, gFront, key, 0.f, [&] {
-        const int sw = std::max(32, (int)(fcw * 1.72f * SPR));
-        const int sh = std::max(24, (int)(fcw * 0.88f * fht * SPR));
-        if (!c.g.beginSprite(sw, sh)) return Bitmap{};
-        stratusShape(c.g, sw * 0.5f, sh * 0.56f, fcw * SPR, fht, 77, F.T, 0.88f);
-        cirrusShape(c.g, sw * 0.52f, sh * 0.44f, fcw * 0.78f * SPR, 79, F.T, 0.f);
-        return c.g.endSprite();
+        const int sw = std::max(80, std::min(420, (int)(fcw * 1.65f * SPR * 0.8f)));
+        const int sh = std::max(40, std::min(200, (int)(fcw * 0.78f * fht * SPR * 0.8f)));
+        return buildVolumetricCloud(c.g, sw, sh, 2, 777u, F.T, F.hq / 4.f, 0.82f);
     });
 }
 
@@ -688,15 +695,16 @@ void drawClouds(Ctx& c, const Frame& F, float k, float heavy) {
             if (cloudReady(c, F, j)) {
                 const Bitmap& bm = gCloud[j].bmp;
                 const float sc = cw / std::max(1.f, gCloud[j].nominal);
-                const float bw = bm.w / SPR * sc, bh = bm.h / SPR * sc;      // back to full size
-                const float anchorY = (L == 0) ? 0.50f : (L == 1 ? 0.58f : 0.54f);
-                const float layerBase = (L == 0) ? 0.36f : (L == 1 ? 0.48f : 0.54f);
-                const float nightBoost = 1.f + 0.30f * c.a.palTarget.nightness;
-                const float lightTrim = c.a.palTarget.dark ? 1.f : 0.94f;
+                const float bw = gCloud[j].nominal * (L == 0 ? 1.88f : (L == 1 ? 1.72f : 1.92f)) * sc;
+                const float bh = gCloud[j].nominal * (L == 0 ? 0.68f : (L == 1 ? 0.96f : 0.78f)) * sc;
+                const float anchorY = (L == 0) ? 0.50f : (L == 1 ? 0.54f : 0.52f);
+                const float layerBase = (L == 0) ? 0.44f : (L == 1 ? 0.58f : 0.62f);
+                const float nightBoost = 1.f + 0.24f * c.a.palTarget.nightness;
+                const float lightTrim = c.a.palTarget.dark ? 1.f : 0.96f;
                 g.drawBitmapRect(bm, x + cw * 0.5f - bw * 0.5f, y - bh * anchorY, bw, bh,
                                  clamp01(layerBase * f * gs * nightBoost * lightTrim));
             } else if (i < 6 && !gCloud[j].bmp.bmp) {                        // fallback before first sprite finishes building
-                cumulusShape(g, x + cw * 0.5f, y, cw, 0.9f, i + 17, F.T, clamp01(0.42f * f));
+                fallbackCloudPuff(g, x + cw * 0.5f, y, cw, F.T, clamp01(0.42f * f));
             }
         }
     }
@@ -2475,6 +2483,229 @@ void drawTornado(Ctx& c, float k, float side, float q) {
     }
 }
 
+// ---------------------------------------------------------------- Aurora Borealis / Australis (3.0.0 "Aurora")
+// Museum-grade multi-curtain geomagnetic aurora built from 3 cached vertical magnetic-ray sprites:
+//   - Variant 0: Luminous oxygen-emerald lower curtain rim fading upward through seafoam-teal into violet-indigo
+//   - Variant 1: High-altitude ethereal violet-amethyst & cyan crown veil
+//   - Variant 2: High-energy emerald fold accented by a rose-magenta nitrogen lower fringe
+// Drawn as 3 depth-layered 3D perspective serpentine ribbons with authentic optical folding & magnetic zenith convergence.
+bool auroraRayReady(Ctx& c, int variant) {
+    const Palette& P = c.P;
+    const int emQ = (int)std::lround(P.ember * 8.f);
+    const uint64_t key = mixKey((uint64_t)(8800 + variant * 13), (uint64_t)(emQ * 3 + (P.dark ? 1 : 0)));
+    return ensure(c.g, gAuroraRay[variant], key, 1.f, [&]() -> Bitmap {
+        const int bw = 76, bh = 360;
+        if (!c.g.beginSprite(bw, bh)) return Bitmap{};
+        Gfx& g = c.g;
+        auto T = [&](unsigned hex) { return tint(P, rgb(hex)); };
+        const float cx = bw * 0.5f;
+
+        if (variant == 0) {
+            // Primary Oxygen-Emerald -> Seafoam-Teal -> Violet Crown vertical curtain card
+            const Color colBot = T(0x46FFB4);
+            const Color colMid = T(0x28DFCF);
+            const Color colHi  = T(0x6C66F5);
+            const Color colTop = T(0xA858E8);
+            // Soft broad vertical body
+            g.radialEllipse(cx, bh * 0.78f, bw * 0.44f, bh * 0.16f, 0.f, bh * 0.04f, {
+                {0.00f, withA(colBot, 0.72f)},
+                {0.42f, withA(colMid, 0.40f)},
+                {0.78f, withA(colMid, 0.10f)},
+                {1.00f, withA(colBot, 0.00f)},
+            }, 1.f);
+            g.radialEllipse(cx, bh * 0.52f, bw * 0.42f, bh * 0.36f, 0.f, bh * 0.08f, {
+                {0.00f, withA(colMid, 0.46f)},
+                {0.48f, withA(lerp(colMid, colHi, 0.55f), 0.24f)},
+                {0.82f, withA(colHi, 0.07f)},
+                {1.00f, withA(colTop, 0.00f)},
+            }, 1.f);
+            g.radialEllipse(cx, bh * 0.26f, bw * 0.38f, bh * 0.24f, 0.f, bh * 0.04f, {
+                {0.00f, withA(colTop, 0.24f)},
+                {0.55f, withA(colHi, 0.10f)},
+                {1.00f, withA(colTop, 0.00f)},
+            }, 1.f);
+            // Crisp magnetic-field vertical ray striations (authentic dancing pillars!)
+            for (int r = 0; r < 11; ++r) {
+                const float rx = cx + (hashf(r, 911) - 0.5f) * bw * 0.68f;
+                const float rw = 2.0f + 3.4f * hashf(r, 912);
+                const float topY = bh * (0.08f + 0.26f * hashf(r, 913));
+                const float botY = bh * (0.76f + 0.14f * hashf(r, 914));
+                const float midY = 0.5f * (topY + botY);
+                const float rh = 0.5f * (botY - topY);
+                const Color rCol = lerp(colBot, colMid, 0.35f + 0.45f * hashf(r, 915));
+                g.radialEllipse(rx, midY, rw, rh, 0.f, rh * 0.32f, {
+                    {0.00f, withA(colBot, 0.52f)},
+                    {0.36f, withA(rCol, 0.28f)},
+                    {0.72f, withA(colHi, 0.09f)},
+                    {1.00f, withA(colTop, 0.00f)},
+                }, 0.85f);
+            }
+        } else if (variant == 1) {
+            // Distant High-Altitude Amethyst-Violet & Cerulean Veil
+            const Color colBot = T(0x36DCDA);
+            const Color colMid = T(0x785CF2);
+            const Color colTop = T(0xCF5AC8);
+            g.radialEllipse(cx, bh * 0.64f, bw * 0.46f, bh * 0.28f, 0.f, bh * 0.06f, {
+                {0.00f, withA(colBot, 0.42f)},
+                {0.50f, withA(colMid, 0.24f)},
+                {1.00f, withA(colMid, 0.00f)},
+            }, 1.f);
+            g.radialEllipse(cx, bh * 0.36f, bw * 0.44f, bh * 0.34f, 0.f, bh * 0.05f, {
+                {0.00f, withA(colMid, 0.36f)},
+                {0.46f, withA(colTop, 0.22f)},
+                {0.84f, withA(colTop, 0.06f)},
+                {1.00f, withA(colTop, 0.00f)},
+            }, 1.f);
+            for (int r = 0; r < 9; ++r) {
+                const float rx = cx + (hashf(r, 921) - 0.5f) * bw * 0.64f;
+                const float rw = 2.4f + 4.0f * hashf(r, 922);
+                const float rh = bh * (0.28f + 0.16f * hashf(r, 923));
+                const float ry = bh * (0.42f + 0.14f * hashf(r, 924));
+                g.radialEllipse(rx, ry, rw, rh, 0.f, rh * 0.22f, {
+                    {0.00f, withA(colBot, 0.30f)},
+                    {0.50f, withA(colMid, 0.18f)},
+                    {0.85f, withA(colTop, 0.06f)},
+                    {1.00f, withA(colTop, 0.00f)},
+                }, 0.85f);
+            }
+        } else {
+            // Near High-Energy Folding Curtain with Electric Emerald Rim + Rose-Magenta Nitrogen Fringe
+            const Color colFringe = T(0xF562B4);
+            const Color colRim    = T(0x64FFBA);
+            const Color colMid    = T(0x22E8C0);
+            const Color colTop    = T(0x7C60F6);
+            // Crisp lower nitrogen rose-pink flash fringe
+            g.radialEllipse(cx, bh * 0.88f, bw * 0.40f, bh * 0.075f, 0.f, 0.f, {
+                {0.00f, withA(colFringe, 0.62f)},
+                {0.52f, withA(colFringe, 0.24f)},
+                {1.00f, withA(colFringe, 0.00f)},
+            }, 1.f);
+            // Intense luminous emerald folding core right above the fringe
+            g.radialEllipse(cx, bh * 0.74f, bw * 0.42f, bh * 0.18f, 0.f, bh * 0.04f, {
+                {0.00f, withA(colRim, 0.82f)},
+                {0.44f, withA(colMid, 0.42f)},
+                {0.82f, withA(colMid, 0.10f)},
+                {1.00f, withA(colMid, 0.00f)},
+            }, 1.f);
+            g.radialEllipse(cx, bh * 0.42f, bw * 0.36f, bh * 0.32f, 0.f, bh * 0.08f, {
+                {0.00f, withA(colMid, 0.38f)},
+                {0.55f, withA(colTop, 0.18f)},
+                {1.00f, withA(colTop, 0.00f)},
+            }, 1.f);
+            for (int r = 0; r < 10; ++r) {
+                const float rx = cx + (hashf(r, 931) - 0.5f) * bw * 0.62f;
+                const float rw = 1.8f + 3.0f * hashf(r, 932);
+                const float rh = bh * (0.28f + 0.14f * hashf(r, 933));
+                const float ry = bh * (0.56f + 0.12f * hashf(r, 934));
+                g.radialEllipse(rx, ry, rw, rh, 0.f, rh * 0.36f, {
+                    {0.00f, withA(colRim, 0.60f)},
+                    {0.35f, withA(colMid, 0.30f)},
+                    {0.78f, withA(colTop, 0.08f)},
+                    {1.00f, withA(colTop, 0.00f)},
+                }, 0.90f);
+            }
+        }
+        return c.g.endSprite();
+    });
+}
+
+bool auroraGlowReady(Ctx& c) {
+    const Palette& P = c.P;
+    const int gw = std::max(64, std::min(512, (int)std::lround(c.W * 0.25f)));
+    const int gh = std::max(64, std::min(320, (int)std::lround(c.H * 0.25f)));
+    const int emQ = (int)std::lround(P.ember * 8.f);
+    const uint64_t key = mixKey(mixKey(8860, (uint64_t)((gw << 16) | gh)), (uint64_t)(emQ * 3 + (P.dark ? 1 : 0)));
+    return ensure(c.g, gAuroraGlow, key, 1.f, [&]() -> Bitmap {
+        if (!c.g.beginSprite(gw, gh)) return Bitmap{};
+        Gfx& g = c.g;
+        auto T = [&](unsigned hex) { return tint(P, rgb(hex)); };
+        // Upper celestial emerald-teal atmospheric scatter
+        g.radialEllipse(gw * 0.48f, gh * 0.24f, gw * 0.62f, gh * 0.36f, 0.f, 0.f, {
+            {0.00f, withA(T(0x28D49E), 0.24f)},
+            {0.48f, withA(T(0x22789A), 0.12f)},
+            {1.00f, withA(T(0x162448), 0.00f)},
+        }, 1.f);
+        // Right upper violet-amethyst crown haze
+        g.radialEllipse(gw * 0.76f, gh * 0.16f, gw * 0.42f, gh * 0.28f, 0.f, 0.f, {
+            {0.00f, withA(T(0x8852E0), 0.18f)},
+            {0.55f, withA(T(0x46308E), 0.07f)},
+            {1.00f, withA(T(0x181A38), 0.00f)},
+        }, 1.f);
+        // Subtle emerald-cerulean luminance bounce along the distant horizon
+        g.radialEllipse(gw * 0.50f, gh * 1.02f, gw * 0.68f, gh * 0.24f, 0.f, -gh * 0.04f, {
+            {0.00f, withA(T(0x2CE0A8), 0.16f)},
+            {0.55f, withA(T(0x1A6870), 0.06f)},
+            {1.00f, withA(T(0x0E1E2C), 0.00f)},
+        }, 1.f);
+        return c.g.endSprite();
+    });
+}
+
+void drawAurora(Ctx& c, float k, float q, bool skyOnly = false) {
+    if (k < 0.01f) return;
+    Gfx& g = c.g; App& a = c.a; const Palette& P = c.P; const float W = c.W, H = c.H;
+    const float str = std::min(1.45f, gFx);
+    const float themeA = (P.dark ? 1.0f : 0.52f) * (1.f - 0.35f * P.ember);
+    const float master = clamp01(k * str * themeA * (skyOnly ? 0.62f : 1.0f));
+    if (master < 0.015f) return;
+
+    // 1. Cached upper-sky atmospheric glow & subtle horizon bounce
+    if (auroraGlowReady(c)) {
+        const float pulse = 0.88f + 0.12f * std::sin(ph(a.fxAuroraT, 0.24));
+        g.drawBitmapRect(gAuroraGlow.bmp, 0.f, 0.f, W, H, clamp01(master * pulse));
+    }
+
+    if (!auroraRayReady(c, 0) || !auroraRayReady(c, 1) || !auroraRayReady(c, 2)) return;
+    const double t = a.fxAuroraT;
+
+    // Helper: draw one serpentine 3D-folded perspective aurora curtain ribbon
+    auto drawRibbon = [&](int variant, int slices, float baseY, float spanH, float widthMul,
+                          float ampX, float ampY, float freq, float speed, float phaseOff, float op, float foldStrength) {
+        const Bitmap& bm = gAuroraRay[variant].bmp;
+        const int N = std::max(14, (int)std::lround(slices * (0.55f + 0.45f * q)));
+        for (int i = 0; i < N; ++i) {
+            const float u = (float)i / (float)std::max(1, N - 1);
+            const float env = std::pow(std::sin(u * PI_F), 0.62f);
+            if (env < 0.03f) continue;
+
+            // 3D serpentine ribbon curve with horizontal fold compression (creates authentic luminous double-pleats!)
+            const float w1 = std::sin(u * freq + ph(t, speed, phaseOff));
+            const float w2 = std::sin(u * (freq * 1.85f) - ph(t, speed * 0.72, phaseOff * 1.7 + 1.1));
+            const float w3 = std::cos(u * (freq * 0.65f) + ph(t, speed * 0.42, phaseOff * 0.6 + 2.4));
+
+            // Horizontal perspective fold: shifts x non-linearly so adjacent ray cards bunch at the fold crests
+            const float foldX = foldStrength * W * (0.075f * w1 + 0.038f * w2);
+            const float px = W * (-0.06f + 1.12f * u) + foldX + ampX * W * w3;
+            const float py = H * baseY + ampY * H * (0.58f * w1 + 0.28f * w2 - 0.22f * std::sin(u * PI_F));
+
+            // Perspective curtain height & gentle magnetic-zenith tilt fanning toward upper center
+            const float rayH = H * spanH * (0.78f + 0.34f * (0.5f + 0.5f * w2)) * (0.72f + 0.28f * env);
+            const float rayW = (W / (float)N) * widthMul * (0.86f + 0.28f * (0.5f + 0.5f * w1));
+            const float zenithTilt = ((px - W * 0.50f) / std::max(1.f, W)) * 18.f + w2 * 3.5f;
+
+            // Travelling geomagnetic shimmer wave gliding smoothly along the magnetic field lines
+            const float wave = 0.56f + 0.44f * std::sin(u * 13.5f - ph(t, 1.05 + 0.35 * variant, phaseOff));
+            const float foldBoost = 1.f + 0.42f * std::max(0.f, std::cos(u * freq + ph(t, speed, phaseOff)));
+            const float sliceA = clamp01(op * master * env * (0.68f + 0.32f * wave) * foldBoost);
+            if (sliceA < 0.012f) continue;
+
+            // Anchor rotation near the bright lower curtain edge so upper rays fan toward the magnetic zenith
+            const float dx = px - rayW * 0.5f;
+            const float dy = py - rayH * 0.82f;
+            g.drawBitmapRot(bm, dx, dy, rayW, rayH, px, py, zenithTilt, sliceA, false);
+        }
+    };
+
+    // Layer 0: Broad distant violet-cyan upper canopy veil
+    drawRibbon(1, 24, 0.30f, 0.46f, 3.1f, 0.05f, 0.075f, 3.6f, 0.14f, 0.4f, 0.42f, 0.70f);
+    // Layer 1: Sovereign sweeping serpentine emerald-teal primary curtain (main centerpiece!)
+    drawRibbon(0, 36, 0.42f, 0.52f, 2.75f, 0.04f, 0.095f, 4.8f, 0.22f, 1.9f, 0.62f, 1.15f);
+    // Layer 2: Near electric folding emerald + rose-magenta nitrogen-fringe ribbon
+    if (!skyOnly) {
+        drawRibbon(2, 26, 0.50f, 0.42f, 2.50f, 0.06f, 0.085f, 5.8f, 0.28f, 3.7f, 0.46f, 1.25f);
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- foreground weather veil in front of the Quiet clock
@@ -2514,7 +2745,8 @@ void drawQuietFront(Ctx& c, float midY, float clockH) {
     if (k < 0.02f) return;
     if (!frontReady(c, F, clockH)) return;
     const double t = a.now;
-    const float bw = gFront.bmp.w / SPR, bh = gFront.bmp.h / SPR;
+    const float fht = frontHeightScale(clockH, gFrontCw);
+    const float bw = gFrontCw * 1.65f, bh = gFrontCw * 0.78f * fht;
     const double spanD = 1440.0 + bw / std::max(0.1f, s);
     // starts completely off-screen left (-bw) and exits completely off-screen right (+W) so wrap never teleports mid-screen
     const float bx = (float)(loopPos(a.fxFrontT, 28.0, 0.35 * spanD, spanD) / spanD) * (W + bw) - bw;
@@ -2555,6 +2787,7 @@ void quietFxStep(App& a) {
         a.fxBlizzT += dtc * (0.95 + 0.65 * bGust * bGust + bBoost);
         const float gGust = 0.5f + 0.5f * std::sin(ph(gustT, 0.68) + 0.90f * std::sin(ph(gustT, 0.27)));
         a.fxGaleT += dtc * (1.15 + 0.85 * gGust * gGust + 0.50f * clamp01((a.fxWk - 36.f) / 36.f));
+        a.fxAuroraT += dtc;
     }
     // the light: heavy cloud, storms, hail and blizzards darken and cool it; fog and drizzle add soft atmospheric haze; sleet brings wintry chill.
     {
@@ -2586,16 +2819,19 @@ void quietFxRelease(gfx::Gfx& g) {
     freeSlot(g, gCeiling); freeSlot(g, gMist); freeSlot(g, gFront);
     freeSlot(g, gSnowFlake); freeSlot(g, gBlizzStreak); freeSlot(g, gBlizzDrift);
     freeSlot(g, gDrizzleStreak); freeSlot(g, gSleetStreak); freeSlot(g, gHailStone); freeSlot(g, gGaleGust);
+    for (auto& s : gAuroraRay) freeSlot(g, s);
+    freeSlot(g, gAuroraGlow);
+    freeSlot(g, gClockRefl);
 }
 
 std::string quietFxDescribe(const App& a) {
     if (!a.st.quietFx) return "Switched off. No weather is drawn behind the clock.";
     float t[App::QFX_COUNT]; targets(a, t);
     if (a.st.quietPreview != 0) {
-        static const char* n[16] = {"", "sculpted clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "cinematic fog", "the sun flare", "snowfall", "a harsh snowstorm (blizzard)", "silky drizzle", "freezing sleet", "a bouncing hailstorm", "a howling coastal gale"};
-        return std::string("Previewing ") + n[std::max(1, std::min(15, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
+        static const char* n[17] = {"", "sculpted clouds", "wind", "clouds and wind", "rain", "a severe storm with a tornado", "thunder and cloud with no rain", "a thunderstorm with rain", "cinematic fog", "the sun flare", "snowfall", "a harsh snowstorm (blizzard)", "silky drizzle", "freezing sleet", "a bouncing hailstorm", "a howling coastal gale", "aurora borealis"};
+        return std::string("Previewing ") + n[std::max(1, std::min(16, a.st.quietPreview))] + ". Set it back to Live to follow the real weather.";
     }
-    if (!a.wx.valid) return "No weather yet, so nothing is drawn.";
+    if (!a.wx.valid && t[12] < 0.02f) return "No weather yet, so nothing is drawn.";
     std::string parts; int cnt = 0;
     auto add = [&](const char* p) { parts += std::string(cnt++ ? ", " : "") + p; };
     if (t[3] > 0) return "A severe storm: a tornado twists up behind the clock, with lightning.";
@@ -2606,6 +2842,7 @@ std::string quietFxDescribe(const App& a) {
     if (t[11] > 0.25f) return "A coastal gale: sweeping wind ribbons and swirling leaves across the sky.";
     if (t[5] > 0.6f) return "Fog: layered valley mist drifting softly behind the clock.";
     if (t[8] > 0.20f) return "Drizzle: ultra-fine misty rain and gentle surface ripples.";
+    if (t[12] > 0.08f) add("aurora");
     if (t[5] > 0) add("mist");
     if (t[0] > 0) add("clouds");
     if (t[1] > 0) add("wind");
@@ -2679,14 +2916,83 @@ void drawSunFlare(Ctx& c) {
     }
 }
 
-// Precipitation on the Sky face (rain, drizzle, sleet, hail, snow & blizzard): drawn behind the sky dome and labels so every label stays legible.
+// ---------------------------------------------------------------- Wet-Horizon Clock Reflections on Quiet (3.0.0 "Aurora")
+// Renders a vertically mirrored, horizontally wave-rippled reflection of the live Quiet clock digits glistening across
+// a rain-slicked horizon floor beneath the date line. Sprite is cached & rebuilt only when the minute digits or palette change.
+void drawQuietWetReflection(Ctx& c, float x0, float baseY, float capH, float em, const std::wstring& hm, float dateBottomY) {
+    App& a = c.a; Gfx& g = c.g; const Palette& P = c.P; const float s = c.s, W = c.W, H = c.H;
+    if (!a.st.glassDrops || !a.st.quietFx || hm.empty()) return;
+    const float wet = clamp01(std::max(a.qfx[2], std::max(a.qfx[8] * 0.72f, std::max(a.qfx[9] * 0.80f, std::max(a.qfx[10] * 0.68f, a.qfx[5] * 0.22f)))));
+    if (wet < 0.04f) return;
+
+    const float tw = g.timeWidth(F_DISPLAY, em, hm);
+    const int sw = std::max(16, std::min(1600, (int)std::ceil(tw + 24.f * s)));
+    const int sh = std::max(16, std::min(520, (int)std::ceil(capH + 24.f * s)));
+    uint64_t key = 9100ULL;
+    for (wchar_t ch : hm) key = mixKey(key, (uint64_t)ch);
+    key = mixKey(key, (uint64_t)((sw << 16) | sh));
+    key = mixKey(key, (uint64_t)((int)std::lround(P.ink.r * 24.f) * 900 + (int)std::lround(P.ink.g * 24.f) * 30 + (int)std::lround(P.ink.b * 24.f)));
+
+    if (!ensure(c.g, gClockRefl, key, 1.f, [&]() -> Bitmap {
+        if (!g.beginSprite(sw, sh)) return Bitmap{};
+        const float padX = (sw - tw) * 0.5f;
+        const float padBase = sh - 10.f * s;
+        g.timeText(F_DISPLAY, em, padX, padBase, hm, P.ink, lerp(P.ink, P.ink2, 0.6f), Align::Left);
+        return g.endSprite();
+    })) return;
+
+    // Horizon pool starts subtly below the date line and fills down toward the wet ground
+    const float poolY = std::min(H * 0.88f, std::max(baseY + capH * 0.28f, dateBottomY + 26.f * s));
+    const float reflH = std::min(H - poolY - 6.f * s, capH * 0.44f);
+    if (reflH < 18.f * s) return;
+
+    // 1. Wet slate horizon sheen & faint liquid mirror catchlight
+    const Color sheenCol = P.dark ? lerp(P.ink2, P.accent2, 0.35f) : lerp(P.bgBottom, P.ink2, 0.25f);
+    g.radialEllipse(W * 0.5f, poolY + reflH * 0.45f, tw * 0.64f, reflH * 0.95f, 0.f, -reflH * 0.15f, {
+        {0.00f, withA(sheenCol, (P.dark ? 0.13f : 0.08f) * wet)},
+        {0.55f, withA(sheenCol, (P.dark ? 0.05f : 0.03f) * wet)},
+        {1.00f, withA(sheenCol, 0.00f)},
+    }, 1.f);
+    // Crisp wet horizon hairline shimmer
+    g.line(x0 - 20.f * s, poolY, x0 + tw + 20.f * s, poolY, withA(sheenCol, (P.dark ? 0.10f : 0.07f) * wet), std::max(1.f, s), true);
+
+    // 2. Vertically mirrored clock digits sliced into 34 ultra-fine water-rippled horizontal bands
+    const int strips = 34;
+    const float srcBand = (float)gClockRefl.bmp.h / (float)strips;
+    const float dstBand = reflH / (float)strips;
+    const float dstX0 = x0 - (sw - tw) * 0.5f;
+    const double t = a.now;
+    const float baseOp = (P.dark ? 0.25f : 0.18f) * wet * std::min(1.25f, std::max(0.5f, a.st.quietStrength));
+
+    for (int i = 0; i < strips; ++i) {
+        const float u = (i + 0.5f) / (float)strips;
+        const float topSoft = smoothstep(0.f, 0.10f, u);
+        const float fade = topSoft * std::pow(1.f - u, 1.65f);
+        const float op = baseOp * fade;
+        if (op < 0.004f) continue;
+        // Organic dual-wave rain-puddle horizontal distortion increasing smoothly with depth into the pool
+        const float wave = std::sin(u * 14.5f - ph(t, 2.55) + 0.65f * std::sin(ph(t, 1.15)))
+                         + 0.42f * std::sin(u * 27.0f + ph(t, 3.40));
+        const float dx = dstX0 + wave * (1.2f + 6.8f * u * u) * s;
+        // Source strip runs bottom-to-top of upright sprite so flipY mirrors the digits cleanly from their baseline down
+        const float sy = (float)gClockRefl.bmp.h - (i + 1) * srcBand;
+        const float dy = poolY + i * dstBand;
+        g.drawBitmapSubScaled(gClockRefl.bmp, dx, dy, (float)sw, dstBand + 0.8f, 0.f, sy, (float)gClockRefl.bmp.w, srcBand, op, true);
+    }
+}
+
+// Precipitation & live Aurora on the Sky face: drawn behind the sky dome and labels so every label stays legible.
 void drawSkyRain(Ctx& c) {
     App& a = c.a;
-    if (!a.st.quietFx || !a.st.skyRain) return;
-    if (a.qfx[2] < 0.01f && a.qfx[6] < 0.01f && a.qfx[7] < 0.01f && a.qfx[8] < 0.01f && a.qfx[9] < 0.01f && a.qfx[10] < 0.01f) return;
+    if (!a.st.quietFx) return;
+    const bool hasAurora = a.qfx[12] > 0.01f;
+    const bool hasPrecip = a.st.skyRain && (a.qfx[2] > 0.01f || a.qfx[6] > 0.01f || a.qfx[7] > 0.01f || a.qfx[8] > 0.01f || a.qfx[9] > 0.01f || a.qfx[10] > 0.01f);
+    if (!hasAurora && !hasPrecip) return;
     gFx = std::max(0.4f, std::min(2.f, a.st.quietStrength));
     budgetTick(a); trackSize(c);
     const float side = windSide(a), q = std::max(0.3f, std::min(1.f, a.fxQuality));
+    if (hasAurora) drawAurora(c, a.qfx[12], q, true);
+    if (!hasPrecip) return;
     const Frame F = makeFrame(c, heavyOf(a));
     const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
     if (a.qfx[2] > 0.01f) drawRain(c, F, a.qfx[2] * 0.7f, side, q * 0.7f, true);
@@ -2709,6 +3015,7 @@ void drawQuietFx(Ctx& c) {
     const float calmSnow = a.qfx[6] * (1.f - 0.90f * a.qfx[7]);
     const float windVis = a.qfx[1] * (1.f - 0.78f * std::max(a.qfx[7], a.qfx[11]));
     const float fogVis = a.qfx[5] * (1.f - 0.85f * a.qfx[7]);      // blizzard renders its own billowing whiteout drift curtains
+    if (a.qfx[12] > 0.01f) drawAurora(c, a.qfx[12], q);            // aurora floats high above clouds & weather
     if (a.qfx[0] > 0.01f) drawClouds(c, F, a.qfx[0], heavy);
     if (fogVis > 0.01f) drawFog(c, F, fogVis, q);
     if (a.qfx[4] > 0.01f) drawLightning(c, a.qfx[4], a.qfx[3] > 0.01f, a.qfx[0], heavy);
@@ -2723,7 +3030,7 @@ void drawQuietFx(Ctx& c) {
     if (windVis > 0.01f) drawWind(c, F, windVis, q);
 }
 
-// Focus tab ambient backdrop: 14 curated studio atmospheres (Off, Live, Rain, Snow, Clouds, Fog, Storm, Stars, Blizzard, Drizzle, Sleet, Hail, Gale, Midnight).
+// Focus tab ambient backdrop: 15 curated studio atmospheres (Off, Live, Rain, Snow, Clouds, Fog, Storm, Stars, Blizzard, Drizzle, Sleet, Hail, Gale, Midnight, Aurora).
 void drawFocusBackdrop(Ctx& c) {
     App& a = c.a;
     const int mode = a.st.focusFx;
@@ -2747,6 +3054,11 @@ void drawFocusBackdrop(Ctx& c) {
     }
     if (mode == 13) {                                         // MIDNIGHT: artistic Prussian-velvet & moonlit champagne nocturne
         drawMidnightBackdropOnly(c, 0.f, true);
+        return;
+    }
+    if (mode == 14) {                                         // AURORA: multi-curtain Aurora Borealis over crisp nocturnal stars
+        if (!a.packTheme()) drawMidnightBackdropOnly(c, 0.25f, a.st.theme != THEME_MIDNIGHT && c.P.dark);
+        drawAurora(c, 1.0f, q, false);
         return;
     }
     const float heavy = (mode == 6 || mode == 11) ? 0.85f

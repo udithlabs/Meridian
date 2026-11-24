@@ -2,10 +2,11 @@
 // and full-track stereo jukebox for hidden Settings > About cheat codes.
 #pragma once
 #include <cstdint>
+#include <string>
 
 namespace ufoaudio {
 
-enum class Track { None = 0, HippyShit = 1, Researched = 2 };
+enum class Track { None = 0, HippyShit = 1, Researched = 2, AudioTest = 3 };
 
 // Audio is disabled by default (keeps screen saver, --shot / --bench and unit tests completely silent).
 void setEnabled(bool enabled);
@@ -25,6 +26,17 @@ bool isJukebox();
 void stopTrack();
 // Returns whichever hidden jukebox track is currently active (Track::None when idle).
 Track currentTrack();
+// Monotonic count of audio initialization or playback failures (cleared on shutdown).
+uint64_t failureSeq();
+// Last human-readable initialization or playback error (empty if none or cleared after successful start).
+std::string lastError();
+// Returns true once when an explicit track/jukebox request failed asynchronously, writing the reason to outError.
+bool consumeTrackFailure(std::string& outError);
+// Number of Media Foundation initialization attempts performed by the worker thread (diagnostic/test helper).
+uint64_t initAttemptCount();
+// Optional DLL loader override for unit tests (nullptr restores default LoadLibraryExW from System32).
+using LibraryLoaderFn = void* (*)(const wchar_t* dllName);
+void setLibraryLoaderForTest(LibraryLoaderFn fn);
 // Immediately stops all playback and joins the background audio thread (call on app exit).
 void shutdown();
 

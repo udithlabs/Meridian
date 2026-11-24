@@ -146,6 +146,7 @@ public:
     void drawBitmapRect(const Bitmap& b, float x, float y, float w, float h, float opacity = 1.f);
     // draws a rectangle (sx,sy,sw,sh, in the bitmap's own pixels) of a bitmap at (dx,dy) at its own size. On whole pixels this copies pixel for pixel, so thin lines stay crisp.
     void drawBitmapSub(const Bitmap& b, float dx, float dy, float sx, float sy, float sw, float sh, float opacity = 1.f);
+    void drawBitmapSubScaled(const Bitmap& b, float dx, float dy, float dw, float dh, float sx, float sy, float sw, float sh, float opacity = 1.f, bool flipY = false);
     void drawBitmapRot(const Bitmap& b, float x, float y, float w, float h, float pivotX, float pivotY, float rotDeg, float opacity = 1.f, bool flipX = false);
     // PNG, JPEG, BMP or GIF from disk; an empty Bitmap when it cannot be read. When maxPixelBytes is not 0, a picture whose decoded size
     // (width x height x 4) is larger is refused before any pixels are allocated, and *tooLarge (if given) says that was the reason.
@@ -186,6 +187,7 @@ private:
     ID2D1Layer* ringLayer_ = nullptr; ID2D1PathGeometry* ringGeom_ = nullptr;
     ID2D1Layer* circleLayer_ = nullptr; ID2D1EllipseGeometry* circleGeom_ = nullptr;
     float circleCx_ = -1e9f, circleCy_ = -1e9f, circleR_ = -1.f;
+    bool circlePushed_ = false;
     struct RRSlot {
         ID2D1Layer* layer = nullptr;
         ID2D1RoundedRectangleGeometry* geom = nullptr;

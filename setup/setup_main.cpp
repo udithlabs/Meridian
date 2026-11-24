@@ -28,8 +28,8 @@
 using gfx::Color; using gfx::rgb; using gfx::Align;
 using gfx::F_DISPLAY; using gfx::F_LIGHT; using gfx::F_MEDIUM; using gfx::F_SERIF; using gfx::F_SERIF_I; using gfx::F_MONO; using gfx::F_MONO_M;
 
-static const wchar_t* VERSION_W  = L"2.9.9";
-static const wchar_t* CODENAME_W = L"Nimbus";
+static const wchar_t* VERSION_W  = L"3.0.0";
+static const wchar_t* CODENAME_W = L"Aurora";
 
 // ------------------------------------------------------------------ look
 static const int   W = 860, H = 540;                  // the window, in 96-dpi units (it is scaled for the screen)
@@ -97,6 +97,7 @@ struct App {
     double workStart = 0, paceSec = 9;                          // the bar takes paceSec seconds (8 to 10) however fast the work really is
     bool songOpen = false; float songK = 0, toastT = 0; std::wstring toast;    // the hidden song panel, and the little note after pressing M
     bool workDone = false, errRunning = false; std::wstring errMsg;
+    std::vector<std::wstring> warnMsgs;
     HANDLE worker = nullptr; double doneAt = 0;
     bool failedOnce = false;
 
@@ -146,8 +147,9 @@ struct App {
     void loadPerson() {
         std::wstring name;
         typedef BOOLEAN (WINAPI *GetUserNameExWFn)(int, LPWSTR, PULONG);
-        if (HMODULE s = LoadLibraryW(L"secur32.dll")) {
-            if (auto fn = (GetUserNameExWFn)GetProcAddress(s, "GetUserNameExW")) { wchar_t b[256]; ULONG n = 256; if (fn(3 /*NameDisplay*/, b, &n) && n) name = b; }
+        if (HMODULE s = LoadLibraryExW(L"secur32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
+            if (auto fn = (GetUserNameExWFn)(void*)GetProcAddress(s, "GetUserNameExW")) { wchar_t b[256]; ULONG n = 256; if (fn(3 /*NameDisplay*/, b, &n) && n) name = b; }
+            FreeLibrary(s);
         }
         if (name.empty()) { wchar_t b[256]; DWORD n = 256; if (GetUserNameW(b, &n) && n) name = b; }
         size_t sp = name.find_first_of(L" \t"); if (sp != std::wstring::npos) name = name.substr(0, sp);
@@ -316,7 +318,7 @@ struct App {
 
         g.line(32, 452, LPW - 32, 452, {0.7f, 0.76f, 1.f, 0.14f}, 1.f, false);
         T(F_SERIF, 38.f, 30, 488, L"Sonnet", INK);
-        T(F_MONO_M, 10.f, 32, 510, std::wstring(L"EDITION  ·  ") + VERSION_W + L"  ·  GLASS", GOLD, Align::Left, 0.14f);
+        T(F_MONO_M, 10.f, 32, 510, std::wstring(L"EDITION  ·  ") + VERSION_W + L"  ·  AURORA", GOLD, Align::Left, 0.14f);
     }
 
     // ---------------------------------------------------------------- the song's hidden corner
@@ -632,18 +634,26 @@ struct App {
     std::vector<std::wstring> summary;
     void buildSummary() {
         summary.clear();
+        std::vector<std::wstring> warns;
+        EnterCriticalSection(&cs); warns = warnMsgs; LeaveCriticalSection(&cs);
         if (mode == Mode::Install) {
             summary.push_back(L"Installed in " + g.ellipsize(F_LIGHT, 14.f, opt.dir, RW - 130));
-            if (opt.startMenu && opt.desktop) summary.push_back(L"Shortcuts in the Start menu and on your desktop");
-            else if (opt.startMenu) summary.push_back(L"A shortcut in the Start menu");
-            else if (opt.desktop) summary.push_back(L"A shortcut on your desktop");
-            if (opt.runAtLogon) summary.push_back(L"Opens by itself when you sign in");
+            const bool smWarn = std::any_of(warns.begin(), warns.end(), [](const std::wstring& w) { return w.find(L"Start Menu") != std::wstring::npos; });
+            const bool dkWarn = std::any_of(warns.begin(), warns.end(), [](const std::wstring& w) { return w.find(L"Desktop") != std::wstring::npos; });
+            const bool runWarn = std::any_of(warns.begin(), warns.end(), [](const std::wstring& w) { return w.find(L"Start with Windows") != std::wstring::npos; });
+            if (opt.startMenu && opt.desktop && !smWarn && !dkWarn) summary.push_back(L"Shortcuts in the Start menu and on your desktop");
+            else {
+                if (opt.startMenu && !smWarn) summary.push_back(L"A shortcut in the Start menu");
+                if (opt.desktop && !dkWarn) summary.push_back(L"A shortcut on your desktop");
+            }
+            if (opt.runAtLogon && !runWarn) summary.push_back(L"Opens by itself when you sign in");
             if (opt.saver) summary.push_back(L"Turns on by itself after " + minutesText(opt.saverMinutes) + L" of no use");
             if (opt.saver && opt.sleep) summary.push_back(L"Then the PC sleeps after another " + minutesText(opt.sleepMinutes) + L" (" + std::to_wstring(opt.saverMinutes + opt.sleepMinutes) + L" in all)");
             if (opt.gta && opt.halloween) summary.push_back(L"Extra tabs: GTA VI and Halloween");
             else if (opt.gta) summary.push_back(L"An extra tab: GTA VI");
             else if (opt.halloween) summary.push_back(L"An extra tab: Halloween");
             summary.push_back(L"Added to Settings, Apps, so Windows can remove it");
+            for (const auto& w : warns) summary.push_back(L"Note: " + g.ellipsize(F_LIGHT, 14.f, w, RW - 70));
         } else {
             summary.push_back(L"Meridian's files, shortcuts and start-up entry are gone");
             if (ex.saver) summary.push_back(L"Your earlier screen saver is back");
@@ -712,16 +722,16 @@ struct App {
 
     // ---------------------------------------------------------------- the work (on its own thread, so the window keeps moving)
     static DWORD WINAPI workerProc(LPVOID p) {
-        App* a = (App*)p; bool running = false; std::wstring err;
+        App* a = (App*)p; bool running = false; std::wstring err; std::vector<std::wstring> warns;
         auto cb = [a](double f, const std::wstring& t) { EnterCriticalSection(&a->cs); a->progTarget = f; a->progLog.push_back({f, t}); LeaveCriticalSection(&a->cs); };
-        if (a->mode == Mode::Install) err = inst::install(a->pl, a->opt, cb, &running);
+        if (a->mode == Mode::Install) err = inst::install(a->pl, a->opt, cb, &running, &warns);
         else err = inst::uninstall(a->pl, a->targetDir, a->deleteSettings, cb, &running);
-        EnterCriticalSection(&a->cs); a->errMsg = err; a->errRunning = running; a->workDone = true; LeaveCriticalSection(&a->cs);
+        EnterCriticalSection(&a->cs); a->errMsg = err; a->warnMsgs = warns; a->errRunning = running; a->workDone = true; LeaveCriticalSection(&a->cs);
         return 0;
     }
     void startWork() {
         if (worker) { WaitForSingleObject(worker, INFINITE); CloseHandle(worker); worker = nullptr; }
-        EnterCriticalSection(&cs); progTarget = 0; progShown = 0; progLog.clear(); progLog.push_back({0.0, L"Getting ready"}); workDone = false; errMsg.clear(); LeaveCriticalSection(&cs);
+        EnterCriticalSection(&cs); progTarget = 0; progShown = 0; progLog.clear(); progLog.push_back({0.0, L"Getting ready"}); workDone = false; errMsg.clear(); warnMsgs.clear(); LeaveCriticalSection(&cs);
         doneAt = 0;
         workStart = nowSec(); paceSec = 8.0 + 2.0 * (double)(GetTickCount() % 1000) / 1000.0;     // 8 to 10 seconds, a different one each time
         song::start();
@@ -864,7 +874,7 @@ struct App {
             idx = shift ? (idx <= 0 ? (int)hits.size() - 1 : idx - 1) : (idx + 1) % (int)hits.size();
             focus = hits[idx].id;
         } else if (vk == VK_SPACE) { if (focus) click(focus); }
-        else if (vk == VK_RETURN) { if (focus) click(focus); else if (page != Page::Welcome || true) click(I_PRIMARY); }
+        else if (vk == VK_RETURN) { if (focus) click(focus); else click(I_PRIMARY); }
         else if (vk == VK_ESCAPE) {
             if (page == Page::Customise || page == Page::Away || page == Page::Notes) click(I_BACK);
             else if (page == Page::Welcome && uninstallFromSetup) cancelUninstall();
@@ -874,6 +884,7 @@ struct App {
             if (vk == VK_DOWN) scrollTarget += 44; else if (vk == VK_UP) scrollTarget -= 44;
             else if (vk == VK_NEXT) scrollTarget += vh - 40; else if (vk == VK_PRIOR) scrollTarget -= vh - 40;
             else if (vk == VK_HOME) scrollTarget = 0; else if (vk == VK_END) scrollTarget = scrollMax;
+            scrollTarget = std::max(0.f, std::min(scrollMax, scrollTarget));
         } else if (page == Page::Away && opt.saver && (vk == VK_UP || vk == VK_RIGHT || vk == VK_DOWN || vk == VK_LEFT)) {
             bool up = vk == VK_UP || vk == VK_RIGHT;
             if (inSleepGroup(focus) && opt.sleep) setSleep(up ? sleepUp(opt.sleepMinutes) : sleepDown(opt.sleepMinutes));
@@ -881,7 +892,9 @@ struct App {
         }
     }
     void wheel(int delta) {
-        if (page == Page::Notes && notesView.has(mx, my)) scrollTarget -= delta / 120.f * 54.f;
+        if (page == Page::Notes && notesView.has(mx, my)) {
+            scrollTarget = std::max(0.f, std::min(scrollMax, scrollTarget - delta / 120.f * 54.f));
+        }
         else if (page == Page::Away && opt.saver) {
             bool up = delta > 0;
             if (stepArea2.h > 0 && opt.sleep && (inSleepGroup(hover) || stepArea2.has(mx, my))) setSleep(up ? sleepUp(opt.sleepMinutes) : sleepDown(opt.sleepMinutes));
@@ -928,7 +941,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_SETCURSOR: if (LOWORD(l) == HTCLIENT && a && a->hover) { SetCursor(LoadCursorW(nullptr, IDC_HAND)); return TRUE; } break;
         case WM_DPICHANGED: if (a) {
             a->dpi = (float)HIWORD(w); fitWindow(h, a->dpi, (const RECT*)l);
-            RECT rc; GetClientRect(h, &rc); a->g.createWindowTarget(h, rc.right, rc.bottom); a->g.setDpi(a->dpi); a->g.freeBitmap(a->moonBmp); a->moonKey = -1;
+            RECT rc; GetClientRect(h, &rc);
+            a->g.freeBitmap(a->moonBmp); a->moonKey = -1;
+            a->g.invalidateDeviceResources();
+            a->g.createWindowTarget(h, rc.right, rc.bottom); a->g.setDpi(a->dpi);
         } return 0;
         case WM_CLOSE: if (a && a->page == Page::Working) return 0; DestroyWindow(h); return 0;
         case WM_DESTROY: KillTimer(h, 1); PostQuitMessage(0); return 0;
@@ -994,10 +1010,15 @@ static void signalSilentSync(const std::wstring& syncName, DWORD rc) {
 // then exits so the worker can finish removing uninstall.exe and the empty folder right afterwards.
 static bool startTempUninstaller(const std::wstring& self, const std::wstring& dir, bool silent, bool deleteSettings, int* silentRc) {
     if (self.empty()) return false;
-    wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
-    wchar_t nm[64]; swprintf(nm, 64, L"meridian-uninstall-%08lx.exe", (unsigned long)GetTickCount());
-    std::wstring copy = std::wstring(tmp) + nm;
+    wchar_t tmp[MAX_PATH];
+    const DWORD tn = GetTempPathW(MAX_PATH, tmp);
+    if (tn == 0 || tn >= MAX_PATH) return false;
+    wchar_t nm[80]; swprintf(nm, 80, L"meridian-uninstall-%lu-%08lx.exe", (unsigned long)GetCurrentProcessId(), (unsigned long)GetTickCount());
+    std::wstring copy = std::wstring(tmp, tn) + nm;
     if (!CopyFileW(self.c_str(), copy.c_str(), FALSE)) return false;
+
+    std::wstring cleanDir = dir;
+    while (cleanDir.size() > 3 && (cleanDir.back() == L'\\' || cleanDir.back() == L'/')) cleanDir.pop_back();
 
     std::wstring syncName;
     HANDLE hMap = nullptr, hEv = nullptr;
@@ -1009,7 +1030,7 @@ static bool startTempUninstaller(const std::wstring& self, const std::wstring& d
         hEv = CreateEventW(nullptr, TRUE, FALSE, (syncName + L"_ev").c_str());
     }
 
-    std::wstring cl = L"\"" + copy + L"\" /uninstall /_from \"/_dir=" + dir + L"\"" + (silent ? L" /S" : L"") + (deleteSettings ? L" /DeleteSettings" : L"");
+    std::wstring cl = L"\"" + copy + L"\" /uninstall /_from \"/_dir=" + cleanDir + L"\"" + (silent ? L" /S" : L"") + (deleteSettings ? L" /DeleteSettings" : L"");
     if (!syncName.empty() && hMap && rcPtr && hEv)
         cl += L" /_parent=" + std::to_wstring(GetCurrentProcessId()) + L" /_sync=" + syncName;
     std::vector<wchar_t> c(cl.begin(), cl.end()); c.push_back(0);
@@ -1133,15 +1154,23 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     RegisterClassExW(&wc);
     const wchar_t* title = args.uninstall ? L"Uninstall Meridian" : L"Meridian Setup  ·  Sonnet Edition";
     song::start();                                         // the song starts with the setup window (it decodes on its own thread while the window opens)
+    auto earlyCleanup = [&]() {
+        song::shutdown();
+        moonsprite::shutdown();
+        app.g.freeBitmap(app.moonBmp);
+        app.g.shutdown();
+        if (once) { CloseHandle(once); once = nullptr; }
+        CoUninitialize();
+    };
     app.hwnd = CreateWindowExW(0, CLASS_NAME, title, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, 900, 620, nullptr, nullptr, hInst, nullptr);
-    if (!app.hwnd) return 1;
+    if (!app.hwnd) { earlyCleanup(); return 1; }
     app.dpi = dpiOf(app.hwnd);
     fitWindow(app.hwnd, app.dpi, nullptr);
     { BOOL dark = TRUE; DwmSetWindowAttribute(app.hwnd, 20, &dark, sizeof(dark));
       COLORREF cap = RGB(0x08, 0x0B, 0x24), txt = RGB(0xB8, 0xC2, 0xE8), bor = RGB(0x1A, 0x1E, 0x4A);
       DwmSetWindowAttribute(app.hwnd, 35, &cap, sizeof(cap)); DwmSetWindowAttribute(app.hwnd, 36, &txt, sizeof(txt)); DwmSetWindowAttribute(app.hwnd, 34, &bor, sizeof(bor)); }
     RECT rc; GetClientRect(app.hwnd, &rc);
-    if (!app.g.createWindowTarget(app.hwnd, rc.right, rc.bottom)) { MessageBoxW(nullptr, L"Setup could not create its window surface.", L"Meridian Setup", MB_ICONERROR); return 1; }
+    if (!app.g.createWindowTarget(app.hwnd, rc.right, rc.bottom)) { MessageBoxW(nullptr, L"Setup could not create its window surface.", L"Meridian Setup", MB_ICONERROR); DestroyWindow(app.hwnd); earlyCleanup(); return 1; }
     app.g.setDpi(app.dpi);
     if (args.uninstall) app.opt.saver = false;
     app.init();

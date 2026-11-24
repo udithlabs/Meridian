@@ -18,9 +18,9 @@ float App::layoutScale(int w, int h) const {
 }
 
 void App::render(Gfx& g, int w, int h) {
-    hits.clear(); actions.clear(); packKeys.clear();
+    hits.clear(); actions.clear(); actionGlassKeys.clear(); packKeys.clear();
     spaceShipDrew = false;
-    if (!showSettings) { edInit = false; textTarget = nullptr; settingsFocus = -1; }
+    if (!showSettings) { edInit = false; textTarget = nullptr; settingsFocus = -1; settingsFocusStart = settingsFocusEnd = -1; settingsFocusKey.clear(); settingsFocusList.clear(); }
     if (!inAboutTab()) secretBuf.clear();
     eventsBeginFrame(*this);
     holidaysBeginFrame(*this);
@@ -146,12 +146,25 @@ void App::renderSky(Gfx& g, int w, int h) {
         R = 0; ringO = 0; domeCx = W * 0.5f; domeCy = 0; bandX = xL; bandW = wL; bandY = 0; capY = 0;
     }
 
-    // dome first so nothing of the left column is painted over by its mask
+    // dome or Solar System Orrery first so nothing of the left column is painted over by its mask
     if (!portrait) {
-        drawDome(c, domeCx, domeCy, R, true);
+        if (st.skyViewMode == 1) drawOrrery(c, domeCx, domeCy, R, true, false);
+        else drawDome(c, domeCx, domeCy, R, true);
         if (st.elBand) drawDayBand(c, bandX, bandY, bandW, 12 * s);
         if (st.evChips) drawEventChips(c, bandX, domeCy + ringO + 5 * s, bandW);
         if (st.elSunMoon) drawSunMoonLines(c, bandX, capY, bandW);
+        // Sleek unobtrusive top-right corner switcher: [SKY | ORRERY]
+        if (!isSaver) {
+            const float ph = 26.f * s, py = std::max(14.f * s, ty - 6.f * s);
+            const float wSky = 50.f * s, wOrr = 76.f * s, gap = 4.f * s;
+            const float totW = wSky + wOrr + gap;
+            const float sx0 = W - m - totW;
+            std::vector<SegItem> segs = {
+                {L"SKY", sx0, wSky, st.skyViewMode == 0, HIT_SKY_VIEW_DOME, (uint64_t)HIT_SKY_VIEW_DOME},
+                {L"ORRERY", sx0 + wSky + gap, wOrr, st.skyViewMode == 1, HIT_SKY_VIEW_ORRERY, (uint64_t)HIT_SKY_VIEW_ORRERY},
+            };
+            drawSlidingButtons(c, glassfx::SLIDE_SKY_VIEW, py, ph, segs, F_MONO_M, 10.5f, !showSettings && !showHelp);
+        }
     }
 
     // meta row
@@ -172,6 +185,18 @@ void App::renderSky(Gfx& g, int w, int h) {
                 const Color sc = tint(P, P.accent);
                 g.fillCircle(right - tw - 10 * s, ty + 14 * s - 5 * s, 4 * s, sc);
                 g.text(F_MONO, 15.f * s, right, ty + 14 * s, t, sc, Align::Right, 0.14f);
+            }
+        } else if (st.auroraAuto && spacewx::isLive(spaceWx, now) && spaceWx.kp >= 4.0) {
+            const std::wstring locT = g.ellipsize(F_MONO, 15.f * s, Ws(loc), wL * 0.72f, 0.14f);
+            const float right = xR - g.textWidth(F_MONO, 15.f * s, Ws(tz), 0.14f) - 26 * s, left = xL + g.textWidth(F_MONO, 15.f * s, locT, 0.14f) + 26 * s;
+            const float avail = right - left - 16 * s;
+            if (avail > 140 * s) {
+                const std::string kpLine = fmt("KP %.1f  \xC2\xB7  %s", spaceWx.kp, util::upper(spacewx::scaleLabel(spaceWx.kp)).c_str());
+                const std::wstring t = g.ellipsize(F_MONO, 14.f * s, Ws(kpLine), avail, 0.12f);
+                const float tw = g.textWidth(F_MONO, 14.f * s, t, 0.12f);
+                const Color ac = tint(P, rgb(spaceWx.kp >= 4.67 ? 0x46FFB4 : 0x5CE0D8));
+                g.fillCircle(right - tw - 10 * s, ty + 14 * s - 5 * s, 3.8f * s, ac);
+                g.text(F_MONO, 14.f * s, right, ty + 14 * s, t, ac, Align::Right, 0.12f);
             }
         }
     }
@@ -231,7 +256,21 @@ void App::renderSky(Gfx& g, int w, int h) {
         R = std::max(56.f * s, R);
         ringO = R + 36 * s;
         domeCy = listTop + ringO - 12 * s; domeCx = W * 0.5f;
-        drawDome(c, domeCx, domeCy, R, false);
+        if (st.skyViewMode == 1) drawOrrery(c, domeCx, domeCy, R, false, false);
+        else drawDome(c, domeCx, domeCy, R, false);
+        // Pointer-accessible [SKY | ORRERY] sliding switcher in portrait Sky (cleanly tucked into the upper-right flank beside the dome)
+        if (!isSaver) {
+            const float ph = std::max(22.f, 26.f * s);
+            const float py = std::max(dateBase + 16.f * s, listTop - 6.f * s);
+            const float wSky = std::max(40.f, 50.f * s), wOrr = std::max(60.f, 76.f * s), gap = std::max(3.f, 4.f * s);
+            const float sx0 = xR - (wSky + wOrr + gap);
+            const float fontSz = std::max(9.0f / std::max(0.35f, s), 10.5f);
+            std::vector<SegItem> segs = {
+                {L"SKY", sx0, wSky, st.skyViewMode == 0, HIT_SKY_VIEW_DOME, (uint64_t)HIT_SKY_VIEW_DOME},
+                {L"ORRERY", sx0 + wSky + gap, wOrr, st.skyViewMode == 1, HIT_SKY_VIEW_ORRERY, (uint64_t)HIT_SKY_VIEW_ORRERY},
+            };
+            drawSlidingButtons(c, glassfx::SLIDE_SKY_VIEW, py, ph, segs, F_MONO_M, fontSz, !showSettings && !showHelp);
+        }
         bandY = domeCy + ringO + 34 * s;
         if (st.elBand) drawDayBand(c, xL, bandY, wL, 12 * s);
         if (st.evChips) drawEventChips(c, xL, domeCy + ringO + 3 * s, wL);
@@ -248,7 +287,7 @@ void App::renderSky(Gfx& g, int w, int h) {
     float todayTop = listTop + 14 * s;
     drawSkyPanel(c, xL, todayTop, wL, weatherY - todayTop - 18 * s);
     if (st.elWeather) drawWeatherBlock(c, xL, weatherY, wL, weatherH);
-    drawSpaceFront(c);                                          // Midnight: once a day, a saucer
+    drawSpaceFront(c);                                          // Galaxy: once a day, a saucer
 }
 
 // ---------------------------------------------------------------- Quiet
@@ -287,8 +326,9 @@ void App::renderQuiet(Gfx& g, int w, int h) {
         g.glow(x0s + dotR, ys - fs * 0.36f, dotR * 4.5f, sc, 0.35f);
         g.text(F_MONO_M, fs, x0s + 2 * dotR + 14 * s, ys, t, sc, Align::Left, 0.14f);
     }
+    { Ctx c{g, *this, pal, W, H, s}; drawQuietWetReflection(c, x0, base, capH, em, cp.hm, db); }   // rain-slicked mirrored clock shimmer
     { Ctx c{g, *this, pal, W, H, s}; drawQuietFront(c, (base - capH + db) * 0.5f, db - (base - capH)); }   // one cloud passes in front, never hiding the time
-    { Ctx c{g, *this, pal, W, H, s}; drawSpaceFront(c); }        // Midnight: once a day, a saucer
+    { Ctx c{g, *this, pal, W, H, s}; drawSpaceFront(c); }        // Galaxy: once a day, a saucer
     (void)s;
 }
 
@@ -420,7 +460,7 @@ void App::renderOverlays(Gfx& g, int w, int h) {
     if (now < toastUntil && !toast.empty()) {
         float al = clamp01((float)(toastUntil - now) / 0.4f);
         float fs = 21 * s; float tw = g.textWidth(F_MEDIUM, fs, toast, 0.02f);
-        float bw = tw + 52 * s, bh = 46 * s, bx = (W - bw) * 0.5f, by = H - 120 * s;
+        float bw = tw + 52 * s, bh = 46 * s, bx = (W - bw) * 0.5f, by = H - 120.f * s;
         g.fillRoundRect(bx, by, bw, bh, bh * 0.5f, withA(P.plate, 0.94f * al));
         g.strokeRoundRect(bx + 0.5f, by + 0.5f, bw - 1, bh - 1, bh * 0.5f, mulA(P.line, al), std::max(1.f, s));
         g.text(F_MEDIUM, fs, W * 0.5f, by + bh * 0.5f + g.capHeight(F_MEDIUM, fs) * 0.5f, toast, mulA(P.ink, al), Align::Center, 0.02f);
@@ -433,7 +473,8 @@ void App::renderOverlays(Gfx& g, int w, int h) {
     struct K { const wchar_t* k; const wchar_t* d; };
     const bool packs = !livePacks().empty();
     const K ks[] = {
-        {L"T", packs ? L"Cycle theme: all ten, then your theme packs" : L"Cycle theme: all ten"},
+        {L"T", packs ? L"Cycle theme: all eleven, then your theme packs" : L"Cycle theme: all eleven"},
+        {L"O", L"Switch between Sky Dome and live 3D Solar System Orrery (on Sky)"},
         {L"Left  Right", packFaceKeys.empty() ? L"Switch face: Sky, Quiet, Timer, Almanac, Widgets, Focus  (1–6 also)" : L"Switch face: Sky, Quiet, Timer, Almanac, Widgets, Focus, then theme packs  (1–9 also)"},
         {L"F   F11", L"Fullscreen  (double-click too, Esc leaves)"}, {L"Space", L"Start / pause Focus, timer, stopwatch or alarm; dismiss a ringing one"},
         {L"R   L", L"Reset  ·  stopwatch lap"}, {L"0–9", L"Type a time on Focus, Timer or Alarm, like a microwave"},

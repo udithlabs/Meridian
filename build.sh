@@ -16,7 +16,7 @@ mkdir -p "$B"
 FP="$CXX $FLAGS"
 if [ "$(cat "$B/flags.txt" 2>/dev/null || true)" != "$FP" ]; then rm -f "$B"/*.o; printf '%s' "$FP" > "$B/flags.txt"; fi
 OBJS=()
-for f in astro skyevents holidays today weather storms locate robust saver moonsprite gfx app scene_common scene_events scene_widgets scene_settings scene_panel scene_quiet scene_space ufo_audio expr themes scene_theme scene scene_faces main; do
+for f in astro skyevents holidays today weather storms spacewx locate robust saver moonsprite gfx app scene_common scene_events scene_widgets scene_settings scene_panel scene_quiet scene_space ufo_audio expr themes scene_theme scene scene_faces main; do
   if [ ! -f $B/$f.o ] || [ src/$f.cpp -nt $B/$f.o ] || [ -n "$(find src -name '*.h' -newer $B/$f.o -print -quit)" ]; then
     echo "  CXX $f.cpp"; $CXX $FLAGS -c src/$f.cpp -o $B/$f.o
   fi

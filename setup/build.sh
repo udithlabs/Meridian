@@ -19,7 +19,7 @@ obj() { # name source
 obj astro ../src/astro.cpp; obj moonsprite ../src/moonsprite.cpp; obj gfx ../src/gfx.cpp
 obj install install.cpp; obj song song.cpp; obj setup_main setup_main.cpp
 echo "  RC  setup.rc"; cp "$B/payload.bin" "$B/notes.txt" . ; $RC -O coff -I . -I ../src setup.rc $B/setup_rc.o ; rm -f payload.bin notes.txt
-OUT=Meridian-Setup-2.9.9.exe
+OUT=Meridian-Setup-3.0.0.exe
 echo "  LD  $OUT"
 $CXX -static -mwindows -O2 -o "$OUT" $B/astro.o $B/moonsprite.o $B/gfx.o $B/install.o $B/song.o $B/setup_main.o $B/setup_rc.o \
   -ld2d1 -ldwrite -lwindowscodecs -ldwmapi -lole32 -loleaut32 -luuid -lshell32 -lgdi32 -luser32 -ladvapi32 -lwinmm

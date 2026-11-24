@@ -37,8 +37,8 @@ int main() {
 
     // 1. DST Today card appears ONLY in DST timezones within 48h, NEVER in Sri Lanka (non-DST)
     {
-        astro::Geo nyc{40.7128, -74.0060, "New York"};
-        astro::Geo cmb{6.9271, 79.8612, "Colombo"};
+        astro::Geo nyc{40.7128, -74.0060, "New York", ""};
+        astro::Geo cmb{6.9271, 79.8612, "Colombo", ""};
 
         today::Input in;
         in.geo = nyc; in.h24 = false; in.poya = false; in.tzAt = tzUsEastern;
@@ -124,7 +124,7 @@ int main() {
 
     // 3. Golden Hour (+6 deg) & Blue Hour (-4 deg) ordering + Today Golden Hour cue
     {
-        astro::Geo lon{51.5072, -0.1276, "London"};
+        astro::Geo lon{51.5072, -0.1276, "London", ""};
         const double mid = astro::daysFromCivil(2026, 3, 21) * 86400.0;
         const astro::DayEvents de = astro::dayEvents(mid, lon);
         CHECK(de.civil.hasRise && de.blue.hasRise && de.sun.hasRise && de.golden.hasRise);
@@ -183,13 +183,14 @@ int main() {
         CHECK(weather::parseAir(R"({"current":{"us_aqi":null,"european_aqi":35,"pm2_5":8.0}})", d2, err));
         CHECK(d2.hasAir && std::fabs(d2.aqi - 35.0) < 0.01);
         CHECK(weather::parseAir(R"({"current":{"us_aqi":null,"european_aqi":null,"pm2_5":12.0}})", d3, err));
-        CHECK(d3.hasAir && std::fabs(d3.aqi - 50.0) < 0.5);
+        CHECK(d3.hasAir && std::fabs(d3.aqi - 56.0) < 0.5 && d3.aqiScale == weather::AqiScale::Pm25Est);  // 2024 US EPA PM2.5: 12.0 ug/m3 = AQI 56
         // Open-Meteo hourly fallback when current is all null
-        CHECK(weather::parseAir(R"({"utc_offset_seconds":0,"current":{"us_aqi":null,"pm2_5":null},"hourly":{"time":["2026-11-21T12:00","2026-11-21T13:00"],"us_aqi":[null,58],"pm2_5":[null,15.2]}})", d4, err));
+        const double refNov21 = astro::daysFromCivil(2026, 11, 21) * 86400.0 + 14 * 3600.0;
+        CHECK(weather::parseAir(R"({"utc_offset_seconds":0,"current":{"us_aqi":null,"pm2_5":null},"hourly":{"time":["2026-11-21T12:00","2026-11-21T13:00"],"us_aqi":[null,58],"pm2_5":[null,15.2]}})", d4, err, 999.0, 999.0, refNov21));
         CHECK(d4.hasAir && std::fabs(d4.aqi - 58.0) < 0.1 && d4.airSource == "Open-Meteo");
         // WeatherAPI.com current.air_quality
         CHECK(weather::parseAir(R"({"current":{"air_quality":{"pm2_5":12.0,"pm10":20.0,"us-epa-index":1}}})", d5, err));
-        CHECK(d5.hasAir && std::fabs(d5.aqi - 50.0) < 0.5 && d5.airSource == "WeatherAPI.com");
+        CHECK(d5.hasAir && std::fabs(d5.aqi - 56.0) < 0.5 && d5.airSource == "WeatherAPI.com");
         // OpenWeatherMap Air Pollution
         CHECK(weather::parseAir(R"({"list":[{"main":{"aqi":2},"components":{"pm2_5":23.7,"pm10":31.0}}]})", d6, err));
         CHECK(d6.hasAir && d6.aqi >= 70.0 && d6.aqi <= 80.0 && d6.airSource == "OpenWeatherMap");
@@ -236,7 +237,7 @@ int main() {
             {"time_epoch":1795266000,"temp_c":15.0,"feelslike_c":14.4,"humidity":68,"chance_of_rain":10,"chance_of_snow":0,"precip_mm":0.0,"cloud":30,"wind_kph":14.0,"uv":2.0,"is_day":1,"condition":{"code":1000}}
         ]}]}})";
         CHECK(weather::parseProvider(weather::PV_WEATHERAPI, waJson, 51.51, -0.12, wa, err));
-        CHECK(wa.valid && wa.source == "WeatherAPI.com" && wa.hasAir && wa.airSource == "WeatherAPI.com" && wa.aqi >= 30.0 && wa.aqi <= 40.0);
+        CHECK(wa.valid && wa.source == "WeatherAPI.com" && wa.hasAir && wa.airSource == "WeatherAPI.com" && wa.aqi >= 44.0 && wa.aqi <= 50.0);  // 2024 US EPA: 8.4 ug/m3 -> AQI 47
 
         // OpenWeatherMap (5-day / 3-hour forecast)
         weather::Data ow;
@@ -268,7 +269,7 @@ int main() {
         const Site sites[3] = {{51.48, 0.0, 0}, {7.0, 80.0, 5}, {-33.87, 151.21, 10}};
         const int months[4] = {1, 4, 7, 11};
         for (const Site& st : sites) {
-            astro::Geo g{st.lat, st.lon, "Test"};
+            astro::Geo g{st.lat, st.lon, "Test", ""};
             for (int m : months) {
                 const double tMid = astro::daysFromCivil(2026, m, 21) * 86400.0 + (23 - st.tzH) * 3600.0;
                 int visibleCons = 0;

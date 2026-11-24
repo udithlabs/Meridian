@@ -15,17 +15,25 @@
 namespace util {
 
 inline std::wstring widen(const std::string& s) {
+    auto isCont = [&](size_t idx) -> bool { return idx < s.size() && (((unsigned char)s[idx] & 0xC0u) == 0x80u); };
     std::wstring w; w.reserve(s.size());
     for (size_t i = 0; i < s.size();) {
-        unsigned char c = (unsigned char)s[i];
-        uint32_t cp; int n;
-        if (c < 0x80) { cp = c; n = 1; }
-        else if ((c >> 5) == 6 && i + 1 < s.size()) { cp = ((c & 0x1F) << 6) | (s[i + 1] & 0x3F); n = 2; }
-        else if ((c >> 4) == 14 && i + 2 < s.size()) { cp = ((c & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F); n = 3; }
-        else if ((c >> 3) == 30 && i + 3 < s.size()) { cp = ((c & 0x07) << 18) | ((s[i + 1] & 0x3F) << 12) | ((s[i + 2] & 0x3F) << 6) | (s[i + 3] & 0x3F); n = 4; }
-        else { cp = '?'; n = 1; }
+        const unsigned char c = (unsigned char)s[i];
+        uint32_t cp = '?'; size_t n = 1;
+        if (c < 0x80u) {
+            cp = c; n = 1;
+        } else if ((c >> 5) == 0x06u && isCont(i + 1)) {
+            const uint32_t v = ((uint32_t)(c & 0x1Fu) << 6) | ((unsigned char)s[i + 1] & 0x3Fu);
+            if (v >= 0x80u) { cp = v; n = 2; }
+        } else if ((c >> 4) == 0x0Eu && isCont(i + 1) && isCont(i + 2)) {
+            const uint32_t v = ((uint32_t)(c & 0x0Fu) << 12) | (((unsigned char)s[i + 1] & 0x3Fu) << 6) | ((unsigned char)s[i + 2] & 0x3Fu);
+            if (v >= 0x800u && !(v >= 0xD800u && v <= 0xDFFFu)) { cp = v; n = 3; }
+        } else if ((c >> 3) == 0x1Eu && isCont(i + 1) && isCont(i + 2) && isCont(i + 3)) {
+            const uint32_t v = ((uint32_t)(c & 0x07u) << 18) | (((unsigned char)s[i + 1] & 0x3Fu) << 12) | (((unsigned char)s[i + 2] & 0x3Fu) << 6) | ((unsigned char)s[i + 3] & 0x3Fu);
+            if (v >= 0x10000u && v <= 0x10FFFFu) { cp = v; n = 4; }
+        }
         i += n;
-        if (cp >= 0x10000) { cp -= 0x10000; w.push_back((wchar_t)(0xD800 + (cp >> 10))); w.push_back((wchar_t)(0xDC00 + (cp & 0x3FF))); }
+        if (cp >= 0x10000u) { cp -= 0x10000u; w.push_back((wchar_t)(0xD800u + (cp >> 10))); w.push_back((wchar_t)(0xDC00u + (cp & 0x3FFu))); }
         else w.push_back((wchar_t)cp);
     }
     return w;
@@ -86,11 +94,14 @@ inline LocalTime toLocal(double unixSec, int tzOffSec) {
     double t = unixSec + tzOffSec;
     long long days = (long long)std::floor(t / 86400.0);
     double rem = t - days * 86400.0;
+    if (rem >= 86400.0) { rem -= 86400.0; ++days; }
+    else if (rem < 0.0) { rem += 86400.0; --days; if (rem >= 86400.0) { rem = 0.0; ++days; } }
     LocalTime L{};
     astro::civilFromDays(days, L.y, L.m, L.d);
-    L.hh = (int)(rem / 3600.0); rem -= L.hh * 3600.0;
-    L.mm = (int)(rem / 60.0); rem -= L.mm * 60.0;
-    L.ss = (int)rem; L.fracSec = rem - L.ss;
+    L.hh = std::max(0, std::min(23, (int)(rem / 3600.0))); rem -= L.hh * 3600.0;
+    L.mm = std::max(0, std::min(59, (int)(rem / 60.0))); rem -= L.mm * 60.0;
+    L.ss = std::max(0, std::min(59, (int)rem));
+    L.fracSec = std::max(0.0, std::min(0.999999999, rem - L.ss));
     L.wday = astro::dayOfWeek(L.y, L.m, L.d);
     L.dayIndex = days;
     return L;
@@ -171,17 +182,17 @@ inline std::string fmtClock(double unixSec, int tzOff, bool h24, bool withAmPm =
 }
 
 inline std::string fmtDuration(double sec) {
-    int s = (int)std::llround(std::fabs(sec));
-    int h = s / 3600, m = (s % 3600) / 60;
-    if (h > 0) return fmt("%dh %02dm", h, m);
-    return fmt("%dm", m);
+    long long s = std::llround(std::fabs(sec));
+    long long h = s / 3600, m = (s % 3600) / 60;
+    if (h > 0) return fmt("%lldh %02lldm", h, m);
+    return fmt("%lldm", m);
 }
 
 inline std::string fmtDeltaMinSec(double sec) {
-    int s = (int)std::llround(std::fabs(sec));
-    int m = s / 60, r = s % 60;
-    if (m > 0) return fmt("%dm %02ds", m, r);
-    return fmt("%ds", r);
+    long long s = std::llround(std::fabs(sec));
+    long long m = s / 60, r = s % 60;
+    if (m > 0) return fmt("%lldm %02llds", m, r);
+    return fmt("%llds", r);
 }
 
 inline std::string compass16(double az) {

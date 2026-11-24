@@ -17,6 +17,7 @@ struct Geo {
     double lat = 51.4779;  // degrees north (Greenwich, Prime Meridian)
     double lon = 0.0000;   // degrees east
     std::string name = "Greenwich";
+    std::string tz;        // optional Windows or IANA time zone id (e.g. "Eastern Standard Time")
 };
 
 // ---- time ----
@@ -88,6 +89,22 @@ struct PlanetInfo {
 };
 PlanetInfo planetInfo(int id, double unixSec, const Geo& g);
 const char* planetName(int id);
+
+// ---- Heliocentric Orrery (all 8 major planets: Mercury through Neptune) ----
+enum OrreryPlanet { OP_MERCURY = 0, OP_VENUS, OP_EARTH, OP_MARS, OP_JUPITER, OP_SATURN, OP_URANUS, OP_NEPTUNE, ORRERY_COUNT };
+struct HelioBody {
+    int id = 0;
+    const char* name = "";
+    double xAU = 0, yAU = 0, zAU = 0;   // heliocentric ecliptic coordinates (AU)
+    double rAU = 0;                      // distance from Sun (AU)
+    double lonDeg = 0;                   // heliocentric ecliptic longitude (0..360 deg)
+    double periodDays = 365.256;         // sidereal orbital period (days)
+    double semiMajorAU = 1.0;            // semi-major axis (AU)
+};
+HelioBody orreryBody(int id, double unixSec);
+// Geocentric ecliptic longitude of the Moon (degrees, 0..360) for plotting the Moon relative to Earth on the heliocentric Orrery.
+// At New Moon this equals sunGeoLon (Earth->Sun direction = earthLon + 180 deg); at Full Moon it equals earthLon (anti-solar).
+double orreryMoonLonDeg(double unixSec);
 
 // ---- Stars ----
 struct Star { const char* name; double raH; double decDeg; double mag; float bv = 0.0f; };

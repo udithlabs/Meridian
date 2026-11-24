@@ -347,7 +347,9 @@ template <class T> void rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 void Gfx::releaseTarget() {
     clearGlowCache();
     rel(ringLayer_); rel(ringGeom_);
-    rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f;
+    rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f; circlePushed_ = false;
+    for (int i = 0; i < 4; ++i) { rel(rrPool_[i].layer); rel(rrPool_[i].geom); rrPool_[i].w = -1.f; rrPushed_[i] = false; }
+    rrDepth_ = 0;
     rel(spriteRt_); savedRt_ = nullptr;
     rel(roundStroke_); rel(brush_);
     if (rt_ && rt_ != hrt_) rt_->Release();
@@ -455,7 +457,7 @@ void Gfx::clearGlowCache() { for (auto& kv : glowCache_) if (kv.second) kv.secon
 void Gfx::invalidateDeviceResources() {
     clearGlowCache();
     rel(ringLayer_); rel(ringGeom_);
-    rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f;
+    rel(circleLayer_); rel(circleGeom_); circleR_ = -1.f; circlePushed_ = false;
     for (int i = 0; i < 4; ++i) { rel(rrPool_[i].layer); rel(rrPool_[i].geom); rrPool_[i].w = -1.f; rrPushed_[i] = false; }
     rrDepth_ = 0;
     rel(spriteRt_); savedRt_ = nullptr; rel(brush_); rel(roundStroke_);
@@ -767,6 +769,7 @@ void Gfx::popRoundRectClip() {
 }
 
 void Gfx::pushCircleClip(float cx, float cy, float r) {
+    circlePushed_ = false;
     if (!rt_ || !d2d_ || r <= 0.f) return;
     if (!circleGeom_ || std::fabs(cx - circleCx_) > 0.01f || std::fabs(cy - circleCy_) > 0.01f || std::fabs(r - circleR_) > 0.01f) {
         rel(circleGeom_);
@@ -776,9 +779,11 @@ void Gfx::pushCircleClip(float cx, float cy, float r) {
     if (!circleLayer_ && FAILED(rt_->CreateLayer(nullptr, &circleLayer_))) { circleLayer_ = nullptr; return; }
     if (!circleLayer_ || !circleGeom_) return;
     rt_->PushLayer(D2D1::LayerParameters(RectF(cx - r - 1.f, cy - r - 1.f, cx + r + 1.f, cy + r + 1.f), circleGeom_), circleLayer_);
+    circlePushed_ = true;
 }
 void Gfx::popCircleClip() {
-    if (rt_ && circleLayer_ && circleGeom_) rt_->PopLayer();
+    if (circlePushed_ && rt_) rt_->PopLayer();
+    circlePushed_ = false;
 }
 
 // ---------------------------------------------------------------- text
@@ -967,6 +972,17 @@ void Gfx::drawBitmapRect(const Bitmap& b, float x, float y, float w, float h, fl
 void Gfx::drawBitmapSub(const Bitmap& b, float dx, float dy, float sx, float sy, float sw, float sh, float opacity) {
     if (!b.bmp || opacity <= 0.003f || sw <= 0.f || sh <= 0.f) return;
     rt_->DrawBitmap(b.bmp, RectF(dx, dy, dx + sw, dy + sh), clamp01(opacity), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, RectF(sx, sy, sx + sw, sy + sh));
+}
+
+void Gfx::drawBitmapSubScaled(const Bitmap& b, float dx, float dy, float dw, float dh, float sx, float sy, float sw, float sh, float opacity, bool flipY) {
+    if (!b.bmp || opacity <= 0.003f || sw <= 0.f || sh <= 0.f || dw <= 0.f || dh <= 0.f) return;
+    if (flipY) {
+        rt_->SetTransform(D2D1::Matrix3x2F::Scale(1.f, -1.f, Point2F(dx + dw * 0.5f, dy + dh * 0.5f)) * baseM(rsc_, rcx_, rcy_, ox_, oy_));
+        rt_->DrawBitmap(b.bmp, RectF(dx, dy, dx + dw, dy + dh), clamp01(opacity), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, RectF(sx, sy, sx + sw, sy + sh));
+        rt_->SetTransform(baseM(rsc_, rcx_, rcy_, ox_, oy_));
+    } else {
+        rt_->DrawBitmap(b.bmp, RectF(dx, dy, dx + dw, dy + dh), clamp01(opacity), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, RectF(sx, sy, sx + sw, sy + sh));
+    }
 }
 
 void Gfx::drawBitmapRot(const Bitmap& b, float x, float y, float w, float h, float px, float py, float rotDeg, float opacity, bool flipX) {

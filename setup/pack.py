@@ -44,7 +44,7 @@ def notes(cpp):
     body = src[src.index("static const std::vector<Release> r = {"):]
     body = body[:body.index("\n    };")]
     out = []
-    for m in re.finditer(r'\{"([0-9.x]+)", "([^"]*)", \{(.*?)\n        \}(?:, "([^"]*)")?\}', body, re.S):      # (a version may end with its release date: }, "15 Nov 2026"},)
+    for m in re.finditer(r'\{"([0-9.xA-Za-z -]+)", "([^"]*)", \{(.*?)\n        \}(?:, "([^"]*)")?\}', body, re.S):      # (a version may end with its release date: }, "15 Nov 2026"},)
         out.append(f"## {m.group(1)} | {m.group(2)}" + (f" | {m.group(4)}" if m.group(4) else ""))
         for s in re.finditer(r'"((?:[^"\\]|\\.)*)"', m.group(3)):
             out.append("- " + ast.literal_eval('"' + s.group(1) + '"'))

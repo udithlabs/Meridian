@@ -12,7 +12,7 @@ if defined MERIDIAN_DEV set FLAGS=%FLAGS% -DMERIDIAN_DEV& set BUILD=build-dev& s
 if not exist %BUILD% mkdir %BUILD%
 rem (every file is compiled again on each run, so objects made with other flags are never reused; the test build has its own folder anyway)
 set OBJS=
-for %%f in (astro skyevents holidays today weather storms locate robust saver moonsprite gfx app scene_common scene_events scene_widgets scene_settings scene_panel scene_quiet scene_space ufo_audio expr themes scene_theme scene scene_faces main) do (
+for %%f in (astro skyevents holidays today weather storms spacewx locate robust saver moonsprite gfx app scene_common scene_events scene_widgets scene_settings scene_panel scene_quiet scene_space ufo_audio expr themes scene_theme scene scene_faces main) do (
   echo CXX %%f.cpp
   g++ %FLAGS% -c src\%%f.cpp -o %BUILD%\%%f.o || exit /b 1
   call set OBJS=%%OBJS%% %BUILD%\%%f.o

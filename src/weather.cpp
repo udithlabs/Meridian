@@ -52,13 +52,48 @@ Kind describe(int code, bool isDay) {
     }
 }
 
-const char* aqiLabel(double a) {
-    if (a <= 50) return "Good";
-    if (a <= 100) return "Moderate";
-    if (a <= 150) return "Unhealthy for some";
-    if (a <= 200) return "Unhealthy";
-    if (a <= 300) return "Very unhealthy";
+const char* aqiLabel(double a, AqiScale scale) {
+    if (scale == AqiScale::Eu) {
+        // Official EEA / Open-Meteo European AQI bands (0..100+)
+        if (a <= 20.0) return "Good";
+        if (a <= 40.0) return "Fair";
+        if (a <= 60.0) return "Moderate";
+        if (a <= 80.0) return "Poor";
+        if (a <= 100.0) return "Very poor";
+        return "Extremely poor";
+    }
+    if (a <= 50.0) return "Good";
+    if (a <= 100.0) return "Moderate";
+    if (a <= 150.0) return "Unhealthy for some";
+    if (a <= 200.0) return "Unhealthy";
+    if (a <= 300.0) return "Very unhealthy";
     return "Hazardous";
+}
+
+const char* aqiScaleName(AqiScale scale) {
+    switch (scale) {
+        case AqiScale::Us: return "US AQI";
+        case AqiScale::Eu: return "EU AQI";
+        case AqiScale::Pm25Est: return "Est. US AQI (PM2.5)";
+        default: return "AQI";
+    }
+}
+
+const char* aqiScaleShort(AqiScale scale) {
+    switch (scale) {
+        case AqiScale::Us: return "US AQI";
+        case AqiScale::Eu: return "EU AQI";
+        case AqiScale::Pm25Est: return "EST AQI";
+        default: return "AQI";
+    }
+}
+
+bool airFresh(const Data& d, double now, double maxAgeSec) {
+    if (!d.hasAir) return false;
+    if (now <= 0.0 || maxAgeSec <= 0.0) return true;
+    const double ts = d.airObsTime > 0.0 ? d.airObsTime : d.fetched;
+    if (ts <= 0.0) return false;
+    return std::fabs(now - ts) <= maxAgeSec;
 }
 
 const char* uvLabel(double uv) {
@@ -82,9 +117,15 @@ std::string airPath(double lat, double lon) {
 }
 
 // "2026-10-18T07:00" or "2026-10-18" (local time of the forecast location) -> unix
+static bool validIsoDateTime(int y, int m, int d, int hh, int mm, int ss) {
+    return y >= 1970 && y <= 2200 && m >= 1 && m <= 12 && d >= 1 && d <= 31 &&
+           hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 && ss >= 0 && ss <= 59;
+}
+
 static bool parseLocalIso(const std::string& s, int utcOffset, double& out) {
-    int y, m, d, hh = 0, mm = 0;
+    int y = 0, m = 0, d = 0, hh = 0, mm = 0;
     if (sscanf(s.c_str(), "%d-%d-%dT%d:%d", &y, &m, &d, &hh, &mm) < 3) return false;
+    if (!validIsoDateTime(y, m, d, hh, mm, 0)) return false;
     out = astro::daysFromCivil(y, m, d) * 86400.0 + hh * 3600.0 + mm * 60.0 - utcOffset;
     return true;
 }
@@ -110,7 +151,9 @@ bool parseForecast(const std::string& json, Data& out, std::string& err) {
     if (root.type != mj::Value::Object) { err = "unexpected response"; return false; }
     if (const mj::Value* e = root.get("error")) { if (e->type == mj::Value::Bool && e->b) { const mj::Value* r = root.get("reason"); err = r ? r->str : "service error"; return false; } }
     Data d;
-    d.utcOffset = (int)num(&root, "utc_offset_seconds", 0);
+    double uoVal = 0.0;
+    d.hasUtcOffset = reqNum(&root, "utc_offset_seconds", uoVal);
+    d.utcOffset = (int)std::lround(uoVal);
     if (const mj::Value* tz = root.get("timezone")) d.timezone = tz->str;
 
     if (const mj::Value* c = sect(root, "current")) {
@@ -127,7 +170,7 @@ bool parseForecast(const std::string& json, Data& out, std::string& err) {
         d.cur.pressure = num(c, "pressure_msl", 0);
         d.cur.hasWind = reqNum(c, "wind_speed_10m", d.cur.wind);
         d.cur.windDir = num(c, "wind_direction_10m", 0);
-        d.cur.gust = num(c, "wind_gusts_10m", d.cur.wind);
+        d.cur.hasGust = reqNum(c, "wind_gusts_10m", d.cur.gust);
         d.cur.hasCloud = reqNum(c, "cloud_cover", d.cur.cloud);
         d.cur.precip = num(c, "precipitation", 0);
         d.cur.isDay = num(c, "is_day", 1) > 0.5;
@@ -170,18 +213,20 @@ bool parseForecast(const std::string& json, Data& out, std::string& err) {
         }
     }
     d.valid = true;
-    out.valid = true; out.utcOffset = d.utcOffset; out.timezone = d.timezone; out.cur = d.cur; out.hourly = d.hourly; out.daily = d.daily;
+    out.valid = true; out.utcOffset = d.utcOffset; out.hasUtcOffset = d.hasUtcOffset; out.timezone = d.timezone; out.cur = d.cur; out.hourly = d.hourly; out.daily = d.daily;
     out.hasUv = true; out.source = providerName(PV_OPENMETEO);
     return true;
 }
 
-// Standard US EPA breakpoint conversion from PM2.5 (ug/m3) when us_aqi is null in an API reply
+// Revised 2024 US EPA PM2.5 (ug/m3) breakpoint table (40 CFR Part 58 Appendix G):
+// Good 0.0-9.0 (0-50), Moderate 9.1-35.4 (51-100), USG 35.5-55.4 (101-150),
+// Unhealthy 55.5-125.4 (151-200), Very Unhealthy 125.5-225.4 (201-300), Hazardous 225.5-325.4+ (301-500).
 static double pm25ToUsAqi(double c) {
     if (c < 0.0) return 0.0;
     struct Bp { double clo, chi, ilo, ihi; };
     static constexpr Bp kBp[] = {
-        {0.0, 12.0, 0, 50}, {12.1, 35.4, 51, 100}, {35.5, 55.4, 101, 150},
-        {55.5, 150.4, 151, 200}, {150.5, 250.4, 201, 300}, {250.5, 500.4, 301, 500}
+        {0.0, 9.0, 0, 50}, {9.1, 35.4, 51, 100}, {35.5, 55.4, 101, 150},
+        {55.5, 125.4, 151, 200}, {125.5, 225.4, 201, 300}, {225.5, 325.4, 301, 500}
     };
     const double t = std::floor(c * 10.0) / 10.0;
     for (const Bp& b : kBp) {
@@ -213,17 +258,56 @@ static double owmIndexToUsAqi(int idx) {
     }
 }
 
-bool parseAir(const std::string& json, Data& out, std::string& err, double lat, double lon) {
+static AqiScale parseAqiScaleTag(const std::string& tag) {
+    if (tag == "us") return AqiScale::Us;
+    if (tag == "eu") return AqiScale::Eu;
+    if (tag == "pm25_est") return AqiScale::Pm25Est;
+    return AqiScale::None;
+}
+
+static const char* aqiScaleTag(AqiScale s) {
+    switch (s) {
+        case AqiScale::Us: return "us";
+        case AqiScale::Eu: return "eu";
+        case AqiScale::Pm25Est: return "pm25_est";
+        default: return "none";
+    }
+}
+
+bool parseAir(const std::string& json, Data& out, std::string& err, double lat, double lon, double nowOverride) {
     mj::Value root;
     if (!mj::parse(json, root, err)) return false;
     if (root.type != mj::Value::Object) { err = "unexpected air response"; return false; }
 
-    // 1. Normalized Meridian air cache snapshot
+    constexpr double kMaxObsAgeSec = 6.0 * 3600.0;
+    const double refNow = (nowOverride > 0.0) ? nowOverride : (double)time(nullptr);
+    auto obsAgeOk = [&](double obsTs) -> bool {
+        if (obsTs <= 0.0 || refNow <= 0.0) return true;
+        return std::fabs(refNow - obsTs) <= kMaxObsAgeSec;
+    };
+
+    // 1. Normalized Meridian air cache snapshot (v2 carries explicit scale + observation time; v1 carried us_aqi only)
     if (const mj::Value* mk = root.get("meridian_air")) {
         if (mk->type == mj::Value::Number && mk->num > 0.5) {
             double aq = 0.0;
-            if (!reqNum(&root, "us_aqi", aq)) { err = "no cached AQI"; return false; }
+            AqiScale sc = AqiScale::None;
+            if (const mj::Value* sv = root.get("scale"); sv && sv->type == mj::Value::String) {
+                sc = parseAqiScaleTag(sv->str);
+                if (sc == AqiScale::None || !reqNum(&root, "aqi", aq)) { err = "invalid cached AQI"; return false; }
+            } else if (reqNum(&root, "us_aqi", aq)) {
+                sc = AqiScale::Us;
+            } else {
+                err = "no cached AQI"; return false;
+            }
+            double obsTs = 0.0;
+            if (reqNum(&root, "obs_time", obsTs) && obsTs > 0.0) {
+                if (!obsAgeOk(obsTs)) { err = "cached air observation too old"; return false; }
+                out.airObsTime = obsTs;
+            } else {
+                out.airObsTime = 0.0;
+            }
             out.aqi = aq;
+            out.aqiScale = sc;
             out.pm25 = num(&root, "pm2_5", 0.0);
             out.pm10 = num(&root, "pm10", 0.0);
             if (const mj::Value* src = root.get("source"); src && src->type == mj::Value::String && !src->str.empty())
@@ -237,13 +321,18 @@ bool parseAir(const std::string& json, Data& out, std::string& err, double lat, 
     // 2. WeatherAPI.com ("current.air_quality")
     if (const mj::Value* cur = sect(root, "current")) {
         if (const mj::Value* aqObj = sect(*cur, "air_quality")) {
+            double obsTs = 0.0;
+            if (reqNum(cur, "last_updated_epoch", obsTs) && obsTs > 0.0 && !obsAgeOk(obsTs)) {
+                err = "WeatherAPI air reading too old"; return false;
+            }
             double p25 = 0.0, epa = 0.0;
             const bool hasP25 = reqNum(aqObj, "pm2_5", p25);
             out.pm25 = hasP25 ? p25 : 0.0;
             out.pm10 = num(aqObj, "pm10", 0.0);
-            if (hasP25) out.aqi = pm25ToUsAqi(p25);
-            else if (reqNum(aqObj, "us-epa-index", epa)) out.aqi = epaIndexToUsAqi((int)std::lround(epa));
+            if (hasP25) { out.aqi = pm25ToUsAqi(p25); out.aqiScale = AqiScale::Pm25Est; }
+            else if (reqNum(aqObj, "us-epa-index", epa)) { out.aqi = epaIndexToUsAqi((int)std::lround(epa)); out.aqiScale = AqiScale::Us; }
             else { err = "no WeatherAPI AQI"; return false; }
+            out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
             out.airSource = "WeatherAPI.com";
             out.hasAir = true;
             return true;
@@ -252,51 +341,75 @@ bool parseAir(const std::string& json, Data& out, std::string& err, double lat, 
 
     // 3. Open-Meteo Air Quality ("current" and/or "hourly" fallback)
     if (const mj::Value* c = sect(root, "current")) {
-        double aq = 0.0;
-        const bool hasPm25 = reqNum(c, "pm2_5", out.pm25);
-        out.pm10 = num(c, "pm10");
-        if (reqNum(c, "us_aqi", aq)) {
-            out.aqi = aq; out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+        const int uo = (int)num(&root, "utc_offset_seconds", out.utcOffset);
+        double obsTs = 0.0;
+        if (const mj::Value* ct = c->get("time"); ct && ct->type == mj::Value::String) {
+            parseLocalIso(ct->str, uo, obsTs);
         }
-        if (reqNum(c, "european_aqi", aq)) {
-            out.aqi = aq; out.airSource = "Open-Meteo"; out.hasAir = true; return true;
-        }
-        if (hasPm25) {
-            out.aqi = pm25ToUsAqi(out.pm25); out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+        if (obsTs <= 0.0 || obsAgeOk(obsTs)) {
+            double aq = 0.0;
+            const bool hasPm25 = reqNum(c, "pm2_5", out.pm25);
+            out.pm10 = num(c, "pm10");
+            if (reqNum(c, "us_aqi", aq)) {
+                out.aqi = aq; out.aqiScale = AqiScale::Us; out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
+                out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+            }
+            if (reqNum(c, "european_aqi", aq)) {
+                out.aqi = aq; out.aqiScale = AqiScale::Eu; out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
+                out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+            }
+            if (hasPm25) {
+                out.aqi = pm25ToUsAqi(out.pm25); out.aqiScale = AqiScale::Pm25Est; out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
+                out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+            }
         }
     }
     if (const mj::Value* h = sect(root, "hourly")) {
         const mj::Value* times = arr(h, "time");
         const mj::Value* ua = arr(h, "us_aqi");
+        const mj::Value* ea = arr(h, "european_aqi");
         const mj::Value* p2 = arr(h, "pm2_5");
-        if (times && (ua || p2)) {
+        if (times && (ua || ea || p2)) {
             const int uo = (int)num(&root, "utc_offset_seconds", out.utcOffset);
-            const double nowT = (double)time(nullptr);
-            double bestDist = 1e18, bestAqi = -1.0, bestPm25 = 0.0;
+            double bestDist = 1e18, bestAqi = -1.0, bestPm25 = 0.0, bestTs = 0.0;
+            AqiScale bestScale = AqiScale::None;
             for (size_t i = 0; i < times->arr.size(); ++i) {
                 double ts = 0.0;
                 if (times->arr[i].type != mj::Value::String || !parseLocalIso(times->arr[i].str, uo, ts)) continue;
-                const double dist = std::fabs(ts - nowT);
+                const double dist = std::fabs(ts - refNow);
+                if (refNow > 0.0 && dist > kMaxObsAgeSec) continue;    // reject stale historical samples (e.g., 2020 in 2026)
                 if (ua && i < ua->arr.size() && ua->arr[i].type == mj::Value::Number && std::isfinite(ua->arr[i].num)) {
                     if (dist < bestDist) {
-                        bestDist = dist; bestAqi = ua->arr[i].num;
+                        bestDist = dist; bestAqi = ua->arr[i].num; bestScale = AqiScale::Us; bestTs = ts;
+                        bestPm25 = (p2 && i < p2->arr.size() && p2->arr[i].type == mj::Value::Number) ? p2->arr[i].num : 0.0;
+                    }
+                } else if (ea && i < ea->arr.size() && ea->arr[i].type == mj::Value::Number && std::isfinite(ea->arr[i].num)) {
+                    if (dist < bestDist) {
+                        bestDist = dist; bestAqi = ea->arr[i].num; bestScale = AqiScale::Eu; bestTs = ts;
                         bestPm25 = (p2 && i < p2->arr.size() && p2->arr[i].type == mj::Value::Number) ? p2->arr[i].num : 0.0;
                     }
                 } else if (p2 && i < p2->arr.size() && p2->arr[i].type == mj::Value::Number && std::isfinite(p2->arr[i].num)) {
                     if (dist < bestDist) {
-                        bestDist = dist; bestPm25 = p2->arr[i].num; bestAqi = pm25ToUsAqi(bestPm25);
+                        bestDist = dist; bestPm25 = p2->arr[i].num; bestAqi = pm25ToUsAqi(bestPm25); bestScale = AqiScale::Pm25Est; bestTs = ts;
                     }
                 }
             }
-            if (bestAqi >= 0.0) {
-                out.aqi = bestAqi; out.pm25 = bestPm25; out.airSource = "Open-Meteo"; out.hasAir = true; return true;
+            if (bestAqi >= 0.0 && bestScale != AqiScale::None) {
+                out.aqi = bestAqi; out.aqiScale = bestScale; out.pm25 = bestPm25; out.airObsTime = bestTs;
+                out.airSource = "Open-Meteo"; out.hasAir = true; return true;
             }
+            err = "no fresh Open-Meteo air quality sample";
+            return false;
         }
     }
 
     // 4. OpenWeatherMap Air Pollution ("list[0].components")
     if (const mj::Value* lst = arr(&root, "list"); lst && !lst->arr.empty() && lst->arr[0].type == mj::Value::Object) {
         const mj::Value& it = lst->arr[0];
+        double obsTs = 0.0;
+        if (reqNum(&it, "dt", obsTs) && obsTs > 0.0 && !obsAgeOk(obsTs)) {
+            err = "OpenWeatherMap air reading too old"; return false;
+        }
         const mj::Value* comp = sect(it, "components");
         const mj::Value* mn = sect(it, "main");
         double p25 = 0.0, owmIdx = 0.0;
@@ -305,6 +418,8 @@ bool parseAir(const std::string& json, Data& out, std::string& err, double lat, 
             out.pm25 = hasP25 ? p25 : 0.0;
             out.pm10 = comp ? num(comp, "pm10", 0.0) : 0.0;
             out.aqi = hasP25 ? pm25ToUsAqi(p25) : owmIndexToUsAqi((int)std::lround(owmIdx));
+            out.aqiScale = hasP25 ? AqiScale::Pm25Est : AqiScale::Us;
+            out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
             out.airSource = "OpenWeatherMap";
             out.hasAir = true;
             return true;
@@ -328,9 +443,17 @@ bool parseAir(const std::string& json, Data& out, std::string& err, double lat, 
                     return false;
                 }
             }
+            double obsTs = 0.0;
+            if (const mj::Value* tm = sect(*dat, "time")) {
+                if (reqNum(tm, "v", obsTs) && obsTs > 0.0 && !obsAgeOk(obsTs)) {
+                    err = "WAQI reading too old"; return false;
+                }
+            }
             double aq = 0.0;
             if (!reqNum(dat, "aqi", aq) || aq < 0.0) { err = "no WAQI AQI value"; return false; }
             out.aqi = aq;
+            out.aqiScale = AqiScale::Us;
+            out.airObsTime = obsTs > 0.0 ? obsTs : refNow;
             if (const mj::Value* iaqi = sect(*dat, "iaqi")) {
                 if (const mj::Value* p25 = sect(*iaqi, "pm25")) out.pm25 = num(p25, "v", 0.0);
                 if (const mj::Value* p10 = sect(*iaqi, "pm10")) out.pm10 = num(p10, "v", 0.0);
@@ -355,8 +478,16 @@ static std::string jsonEsc(const std::string& s) {
 }
 
 std::string formatAirJson(const Data& d) {
-    return fmt("{\"meridian_air\":1,\"source\":\"%s\",\"us_aqi\":%.1f,\"pm2_5\":%.2f,\"pm10\":%.2f}",
-               jsonEsc(d.airSource.empty() ? "Open-Meteo" : d.airSource).c_str(), d.aqi, d.pm25, d.pm10);
+    const AqiScale sc = (d.aqiScale == AqiScale::None && d.hasAir) ? AqiScale::Us : d.aqiScale;
+    const std::string src = jsonEsc(d.airSource.empty() ? "Open-Meteo" : d.airSource);
+    const double obsTs = d.airObsTime > 0.0 ? d.airObsTime : d.fetched;
+    if (sc == AqiScale::Us) {
+        return fmt("{\"meridian_air\":2,\"source\":\"%s\",\"scale\":\"us\",\"aqi\":%.1f,\"us_aqi\":%.1f,\"obs_time\":%.0f,\"pm2_5\":%.2f,\"pm10\":%.2f}",
+                   src.c_str(), d.aqi, d.aqi, obsTs, d.pm25, d.pm10);
+    }
+    // Never mislabel European AQI or PM2.5 estimate under `us_aqi` on disk!
+    return fmt("{\"meridian_air\":2,\"source\":\"%s\",\"scale\":\"%s\",\"aqi\":%.1f,\"obs_time\":%.0f,\"pm2_5\":%.2f,\"pm10\":%.2f}",
+               src.c_str(), aqiScaleTag(sc), d.aqi, obsTs, d.pm25, d.pm10);
 }
 
 std::string formatAirCache(double lat, double lon, double fetched, const std::string& json) {
@@ -370,7 +501,14 @@ bool parseAirCache(const std::string& raw, double lat, double lon, double now, d
     if (sscanf(raw.c_str(), "%lf,%lf %lf", &la, &lo, &ts) != 3) { err = "air cache bad header"; return false; }
     if (std::fabs(la - lat) > 0.01 || std::fabs(lo - lon) > 0.01) { err = "air cache place mismatch"; return false; }
     if (maxAgeSec > 0 && (ts <= 0 || std::fabs(now - ts) > maxAgeSec)) { err = "air cache stale"; return false; }
-    return parseAir(raw.substr(nl + 1), out, err, lat, lon);
+    if (!parseAir(raw.substr(nl + 1), out, err, lat, lon, now)) return false;
+    if (maxAgeSec > 0 && out.airObsTime > 0.0 && now > 0.0 && std::fabs(now - out.airObsTime) > maxAgeSec) {
+        out.hasAir = false;
+        out.aqiScale = AqiScale::None;
+        err = "cached air observation stale";
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------- summary text
@@ -462,8 +600,9 @@ bool providerNeedsKey(int id) {
 
 // Parse ISO-8601 timestamp with Z or +/-HH:MM offset into unix UTC seconds (and optional local UTC offset seconds).
 static bool parseIso8601(const std::string& s, double& out, int* tzOut = nullptr) {
-    int y, m, d, hh = 0, mm = 0, ss = 0;
+    int y = 0, m = 0, d = 0, hh = 0, mm = 0, ss = 0;
     if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss) < 5) return false;
+    if (!validIsoDateTime(y, m, d, hh, mm, ss)) return false;
     int tzSec = 0;
     const size_t tpos = s.find('T');
     if (tpos != std::string::npos) {
@@ -488,8 +627,9 @@ static double compassDeg(const std::string& dir) {
 }
 
 static bool parseUtcIso(const std::string& s, double& out) {
-    int y, m, d, hh = 0, mm = 0, ss = 0;
+    int y = 0, m = 0, d = 0, hh = 0, mm = 0, ss = 0;
     if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss) < 5) return false;
+    if (!validIsoDateTime(y, m, d, hh, mm, ss)) return false;
     out = astro::daysFromCivil(y, m, d) * 86400.0 + hh * 3600.0 + mm * 60.0 + ss;
     return true;
 }
@@ -659,14 +799,28 @@ static bool parseMetNo(const std::string& json, double lat, double lon, Data& ou
         if (!haveCur) {
             haveCur = true;
             cur.time = t; cur.temp = h.temp; cur.feels = h.feels; cur.humidity = h.humidity; cur.pressure = num(det, "air_pressure_at_sea_level");
-            cur.wind = h.wind; cur.windDir = num(det, "wind_from_direction"); cur.gust = num(det, "wind_speed_of_gust", windVal) * 3.6; cur.cloud = h.cloud;
+            cur.wind = h.wind; cur.windDir = num(det, "wind_from_direction");
+            double gustMs = 0.0;
+            cur.hasGust = reqNum(det, "wind_speed_of_gust", gustMs);
+            cur.gust = cur.hasGust ? gustMs * 3.6 : 0.0;
+            cur.cloud = h.cloud;
             cur.hasHumidity = hasH; cur.hasWind = hasW; cur.hasCloud = hasC;
             cur.precip = h.precip; cur.code = h.code; cur.isDay = day;
         }
         raw.push_back(h);
     }
     if (raw.size() < 2) { err = "forecast too short"; return false; }
-    Data d; d.utcOffset = out.utcOffset;      // caller seeds the local UTC offset
+    // MET Norway is UTC-only and does not return a remote timezone offset.
+    // Never adopt an unrelated host PC offset (e.g. Colombo UTC+5:30 for New York); keep an explicit place offset only if caller marked hasUtcOffset, otherwise estimate solar zone from longitude.
+    Data d;
+    if (out.hasUtcOffset) {
+        d.utcOffset = out.utcOffset;
+        d.hasUtcOffset = true;
+    } else {
+        const double solarOff = lon * 240.0;
+        d.utcOffset = (std::fabs(out.utcOffset - solarOff) <= 3.5 * 3600.0) ? out.utcOffset : (int)(std::lround(lon / 15.0) * 3600);
+        d.hasUtcOffset = false;
+    }
     finishSeries(d, lat, lon, raw, cur);
     if (!d.valid) { err = "could not build forecast"; return false; }
     d.source = providerName(PV_METNO);
@@ -695,7 +849,8 @@ static bool parseWttr(const std::string& json, double lat, double lon, Data& out
     if (!cc || cc->arr.empty() || !wk || wk->arr.empty()) { err = "no forecast in response"; return false; }
     const mj::Value& c0 = cc->arr[0];
     // local UTC offset from "localObsDateTime" (local) vs "observation_time" (UTC)
-    int off = out.utcOffset;
+    int off = out.hasUtcOffset ? out.utcOffset : (int)(std::lround(lon / 15.0) * 3600);
+    bool parsedOff = false;
     {
         int y, m, d, h1, m1; char ap[4] = {0}; int h2, m2; char ap2[4] = {0};
         std::string lo = strAt(&c0, "localObsDateTime"), ob = strAt(&c0, "observation_time");
@@ -707,6 +862,7 @@ static bool parseWttr(const std::string& json, double lat, double lon, Data& out
             const double solarMin = lon * 4.0;
             if (std::fabs((diff - 1440) - solarMin) < std::fabs(diff - solarMin)) diff -= 1440;
             off = (int)(std::lround(diff / 15.0) * 15 * 60);
+            parsedOff = true;
         }
     }
     std::vector<Hour> raw;
@@ -747,7 +903,7 @@ static bool parseWttr(const std::string& json, double lat, double lon, Data& out
     cur.hasCloud = reqNumS(&c0, "cloudcover", cur.cloud);
     cur.precip = numS(&c0, "precipMM");
     cur.code = wwoToWmo((int)std::lround(wCode));
-    cur.gust = cur.wind;
+    cur.gust = 0.0; cur.hasGust = false;
     {   // observation time (UTC) -> unix, using the first day's date shifted by the offset
         int y, m, d, h1, m1; char ap[4] = {0};
         std::string lo = strAt(&c0, "localObsDateTime");
@@ -757,7 +913,7 @@ static bool parseWttr(const std::string& json, double lat, double lon, Data& out
         } else cur.time = raw.front().t;
     }
     cur.isDay = sunUp(cur.time, lat, lon);
-    Data dd; dd.utcOffset = off;
+    Data dd; dd.utcOffset = off; dd.hasUtcOffset = parsedOff || out.hasUtcOffset;
     // Find the raw 3h block closest to cur.time for current precipProb, and keep today's earlier blocks so daily tmax/tmin stay accurate.
     double curProb = raw.front().precipProb;
     { double bd = 1e18; for (const Hour& h : raw) { double d = std::fabs(h.t - cur.time); if (d < bd) { bd = d; curProb = h.precipProb; } } }
@@ -829,12 +985,18 @@ static bool parse7Timer(const std::string& json, double lat, double lon, Data& o
     double nowT = (double)time(nullptr);
     size_t best = 0; for (size_t i = 0; i < raw.size(); ++i) if (std::fabs(raw[i].t - nowT) < std::fabs(raw[best].t - nowT)) best = i;
     const Hour& b = raw[best];
-    Current cur; cur.time = b.t; cur.temp = b.temp; cur.feels = b.feels; cur.humidity = b.humidity; cur.wind = b.wind; cur.gust = b.wind;
+    Current cur; cur.time = b.t; cur.temp = b.temp; cur.feels = b.feels; cur.humidity = b.humidity; cur.wind = b.wind; cur.gust = 0.0; cur.hasGust = false;
     cur.cloud = b.cloud; cur.precip = b.precip; cur.code = b.code; cur.isDay = b.isDay;
     if (raw.front().t > nowT && raw.front().t - nowT <= 6 * 3600.0) {
         Hour h0 = raw.front(); h0.t = std::floor(nowT / 3600.0) * 3600.0; raw.insert(raw.begin(), h0);
     }
-    Data dd; dd.utcOffset = out.utcOffset;
+    Data dd;
+    if (out.hasUtcOffset) { dd.utcOffset = out.utcOffset; dd.hasUtcOffset = true; }
+    else {
+        const double solarOff = lon * 240.0;
+        dd.utcOffset = (std::fabs(out.utcOffset - solarOff) <= 3.5 * 3600.0) ? out.utcOffset : (int)(std::lround(lon / 15.0) * 3600);
+        dd.hasUtcOffset = false;
+    }
     finishSeries(dd, lat, lon, raw, cur);
     if (!dd.valid) { err = "could not build forecast"; return false; }
     dd.source = providerName(PV_7TIMER);
@@ -866,6 +1028,7 @@ static bool parseBrightSky(const std::string& json, double lat, double lon, Data
     if (!ws || ws->arr.empty()) { err = "no Bright Sky forecast"; return false; }
     std::vector<Hour> raw;
     std::vector<double> rawPres, rawDir, rawGust;
+    std::vector<bool> rawHasCloud, rawHasWind, rawHasGust, rawHasHum;
     raw.reserve(ws->arr.size());
     for (const mj::Value& e : ws->arr) {
         double ts = 0.0, tVal = 0.0;
@@ -874,9 +1037,14 @@ static bool parseBrightSky(const std::string& json, double lat, double lon, Data
         Hour h;
         h.t = ts;
         h.temp = tVal;
-        h.humidity = num(&e, "relative_humidity", 60.0);
-        h.cloud = num(&e, "cloud_cover", 40.0);
-        h.wind = num(&e, "wind_speed", 0.0);                 // Bright Sky default dwd units: km/h
+        double humV = 60.0, cldV = 40.0, wndV = 0.0, gstV = 0.0;
+        const bool hasH = reqNum(&e, "relative_humidity", humV);
+        const bool hasC = reqNum(&e, "cloud_cover", cldV);
+        const bool hasW = reqNum(&e, "wind_speed", wndV);
+        const bool hasG = reqNum(&e, "wind_gust_speed", gstV);
+        h.humidity = hasH ? humV : 60.0;
+        h.cloud = hasC ? cldV : 40.0;
+        h.wind = hasW ? wndV : 0.0;                 // Bright Sky default dwd units: km/h
         h.precip = num(&e, "precipitation", 0.0);
         const std::string cond = strAt(&e, "condition"), icon = strAt(&e, "icon");
         h.code = brightSkyCode(cond, icon, h.precip, h.cloud);
@@ -886,7 +1054,8 @@ static bool parseBrightSky(const std::string& json, double lat, double lon, Data
         raw.push_back(h);
         rawPres.push_back(num(&e, "pressure_msl", 0.0));
         rawDir.push_back(num(&e, "wind_direction", 0.0));
-        rawGust.push_back(num(&e, "wind_gust_speed", h.wind));
+        rawGust.push_back(hasG ? gstV : 0.0);
+        rawHasHum.push_back(hasH); rawHasCloud.push_back(hasC); rawHasWind.push_back(hasW); rawHasGust.push_back(hasG);
     }
     if (raw.size() < 2) { err = "Bright Sky forecast too short"; return false; }
     const double nowT = (double)time(nullptr);
@@ -896,8 +1065,15 @@ static bool parseBrightSky(const std::string& json, double lat, double lon, Data
     Current cur;
     cur.time = b.t; cur.temp = b.temp; cur.feels = b.feels; cur.humidity = b.humidity;
     cur.pressure = rawPres[best]; cur.wind = b.wind; cur.windDir = rawDir[best]; cur.gust = rawGust[best];
+    cur.hasHumidity = rawHasHum[best]; cur.hasCloud = rawHasCloud[best]; cur.hasWind = rawHasWind[best]; cur.hasGust = rawHasGust[best];
     cur.cloud = b.cloud; cur.precip = b.precip; cur.code = b.code; cur.isDay = b.isDay;
-    Data dd; dd.utcOffset = out.utcOffset;
+    Data dd;
+    if (out.hasUtcOffset) { dd.utcOffset = out.utcOffset; dd.hasUtcOffset = true; }
+    else {
+        const double solarOff = lon * 240.0;
+        dd.utcOffset = (std::fabs(out.utcOffset - solarOff) <= 3.5 * 3600.0) ? out.utcOffset : (int)(std::lround(lon / 15.0) * 3600);
+        dd.hasUtcOffset = false;
+    }
     finishSeries(dd, lat, lon, raw, cur);
     if (!dd.valid) { err = "could not build Bright Sky forecast"; return false; }
     dd.source = providerName(PV_BRIGHTSKY);
@@ -919,14 +1095,16 @@ static int nwsCode(const std::string& text, double pop, double& cloudOut, double
     if (has("DRIZZLE")) { cloudOut = 85.0; precipOut = 0.3; return 51; }
     if (has("RAIN")) { cloudOut = 88.0; precipOut = std::max(0.6, pop * 0.025); return has("LIGHT") || has("SLIGHT") ? 61 : 63; }
     if (has("FOG") || has("MIST") || has("HAZE")) { cloudOut = 85.0; return 45; }
-    if (has("OVERCAST") || has("MOSTLY CLOUDY") || has("CLOUDY")) { cloudOut = has("MOSTLY") ? 78.0 : 92.0; return 3; }
+    // Match specific cloud qualifiers BEFORE broad "CLOUDY" so "Partly Cloudy" yields WMO 2 (48%) instead of Overcast!
     if (has("PARTLY CLOUDY") || has("PARTLY SUNNY")) { cloudOut = 48.0; return 2; }
     if (has("MOSTLY CLEAR") || has("MOSTLY SUNNY")) { cloudOut = 20.0; return 1; }
+    if (has("MOSTLY CLOUDY")) { cloudOut = 78.0; return 3; }
+    if (has("OVERCAST") || has("CLOUDY")) { cloudOut = 92.0; return 3; }
     if (has("CLEAR") || has("SUNNY") || has("FAIR")) { cloudOut = 5.0; return 0; }
     return 2;
 }
 
-static double parseNwsWindKmh(const std::string& ws, double& gustOut) {
+static double parseNwsWindKmh(const std::string& ws, double& gustOut, bool& hasWindOut, bool& hasGustOut) {
     double vals[4] = {0}; int cnt = 0;
     const char* p = ws.c_str();
     while (*p && cnt < 4) {
@@ -936,11 +1114,13 @@ static double parseNwsWindKmh(const std::string& ws, double& gustOut) {
             p = e;
         } else ++p;
     }
+    hasWindOut = (cnt > 0);
+    hasGustOut = (cnt >= 2);
     double v = cnt == 0 ? 0.0 : (cnt == 1 ? vals[0] : (vals[0] + vals[cnt - 1]) * 0.5);
     double g = cnt >= 2 ? vals[cnt - 1] : v;
     const std::string u = util::upper(ws);
     const double scale = (u.find("KM") != std::string::npos) ? 1.0 : (u.find("KT") != std::string::npos ? 1.852 : 1.60934);
-    gustOut = g * scale;
+    gustOut = hasGustOut ? (g * scale) : 0.0;
     return v * scale;
 }
 
@@ -952,6 +1132,7 @@ static bool parseNws(const std::string& json, double lat, double lon, Data& out,
     if (!periods || periods->arr.empty()) { err = "no NWS forecast periods"; return false; }
     std::vector<Hour> raw;
     std::vector<double> rawDir, rawGust;
+    std::vector<unsigned char> rawHasHum, rawHasWind, rawHasGust;
     raw.reserve(periods->arr.size());
     int tzFromNws = out.utcOffset; bool haveTz = false;
     for (const mj::Value& p : periods->arr) {
@@ -966,11 +1147,12 @@ static bool parseNws(const std::string& json, double lat, double lon, Data& out,
         h.t = ts;
         h.temp = tVal;
         const mj::Value* rh = sect(p, "relativeHumidity");
-        h.humidity = (rh && rh->get("value") && rh->get("value")->type == mj::Value::Number) ? rh->get("value")->num : 55.0;
+        const bool hasH = (rh && rh->get("value") && rh->get("value")->type == mj::Value::Number);
+        h.humidity = hasH ? rh->get("value")->num : 55.0;
         const mj::Value* pop = sect(p, "probabilityOfPrecipitation");
         h.precipProb = (pop && pop->get("value") && pop->get("value")->type == mj::Value::Number) ? pop->get("value")->num : 0.0;
-        double gust = 0.0;
-        h.wind = parseNwsWindKmh(strAt(&p, "windSpeed"), gust);
+        double gust = 0.0; bool hasW = false, hasG = false;
+        h.wind = parseNwsWindKmh(strAt(&p, "windSpeed"), gust, hasW, hasG);
         h.code = nwsCode(strAt(&p, "shortForecast"), h.precipProb, h.cloud, h.precip);
         const mj::Value* iday = p.get("isDaytime");
         h.isDay = (iday && iday->type == mj::Value::Bool) ? iday->b : sunUp(ts, lat, lon);
@@ -978,6 +1160,9 @@ static bool parseNws(const std::string& json, double lat, double lon, Data& out,
         raw.push_back(h);
         rawDir.push_back(compassDeg(strAt(&p, "windDirection")));
         rawGust.push_back(gust);
+        rawHasHum.push_back(hasH ? 1 : 0);
+        rawHasWind.push_back(hasW ? 1 : 0);
+        rawHasGust.push_back(hasG ? 1 : 0);
     }
     if (raw.size() < 2) { err = "NWS forecast too short"; return false; }
     const double nowT = (double)time(nullptr);
@@ -987,8 +1172,11 @@ static bool parseNws(const std::string& json, double lat, double lon, Data& out,
     Current cur;
     cur.time = b.t; cur.temp = b.temp; cur.feels = b.feels; cur.humidity = b.humidity;
     cur.wind = b.wind; cur.windDir = rawDir[best]; cur.gust = rawGust[best];
+    cur.hasHumidity = rawHasHum[best] != 0;
+    cur.hasWind = rawHasWind[best] != 0;
+    cur.hasGust = rawHasGust[best] != 0;
     cur.cloud = b.cloud; cur.precip = b.precip; cur.code = b.code; cur.isDay = b.isDay;
-    Data dd; dd.utcOffset = tzFromNws;
+    Data dd; dd.utcOffset = tzFromNws; dd.hasUtcOffset = haveTz || out.hasUtcOffset;
     finishSeries(dd, lat, lon, raw, cur);
     if (!dd.valid) { err = "could not build NWS forecast"; return false; }
     dd.source = providerName(PV_NWS);
@@ -1037,6 +1225,7 @@ static bool parseWeatherApi(const std::string& json, double lat, double lon, Dat
     if (!c) { err = "no current WeatherAPI data"; return false; }
     Data dd;
     dd.utcOffset = out.utcOffset;
+    dd.hasUtcOffset = out.hasUtcOffset;
     if (const mj::Value* loc = sect(root, "location")) {
         dd.timezone = strAt(loc, "tz_id");
         const std::string lt = strAt(loc, "localtime");
@@ -1045,18 +1234,19 @@ static bool parseWeatherApi(const std::string& json, double lat, double lon, Dat
         if (lEpoch > 0 && sscanf(lt.c_str(), "%d-%d-%d %d:%d", &y, &m, &d, &hh, &mm) == 5) {
             const double localAsUtc = astro::daysFromCivil(y, m, d) * 86400.0 + hh * 3600.0 + mm * 60.0;
             dd.utcOffset = (int)(std::llround((localAsUtc - lEpoch) / 900.0) * 900LL);
+            dd.hasUtcOffset = true;
         }
     }
     Current cur;
     if (!reqNum(c, "temp_c", cur.temp)) { err = "missing WeatherAPI temp"; return false; }
     cur.time = num(c, "last_updated_epoch", (double)time(nullptr));
     cur.feels = num(c, "feelslike_c", cur.temp);
-    cur.humidity = num(c, "humidity", 55.0);
+    cur.hasHumidity = reqNum(c, "humidity", cur.humidity);
     cur.pressure = num(c, "pressure_mb", 0.0);
-    cur.wind = num(c, "wind_kph", 0.0);
+    cur.hasWind = reqNum(c, "wind_kph", cur.wind);
     cur.windDir = num(c, "wind_degree", 0.0);
-    cur.gust = num(c, "gust_kph", cur.wind);
-    cur.cloud = num(c, "cloud", 0.0);
+    cur.hasGust = reqNum(c, "gust_kph", cur.gust);
+    cur.hasCloud = reqNum(c, "cloud", cur.cloud);
     cur.precip = num(c, "precip_mm", 0.0);
     cur.isDay = num(c, "is_day", 1.0) > 0.5;
     if (const mj::Value* co = sect(*c, "condition")) cur.code = weatherApiCode((int)num(co, "code", 1003));
@@ -1067,8 +1257,8 @@ static bool parseWeatherApi(const std::string& json, double lat, double lon, Dat
         const bool hasP25 = reqNum(aqObj, "pm2_5", p25);
         dd.pm25 = hasP25 ? p25 : 0.0;
         dd.pm10 = num(aqObj, "pm10", 0.0);
-        if (hasP25) { dd.aqi = pm25ToUsAqi(p25); dd.hasAir = true; dd.airSource = "WeatherAPI.com"; }
-        else if (reqNum(aqObj, "us-epa-index", epa)) { dd.aqi = epaIndexToUsAqi((int)std::lround(epa)); dd.hasAir = true; dd.airSource = "WeatherAPI.com"; }
+        if (hasP25) { dd.aqi = pm25ToUsAqi(p25); dd.aqiScale = AqiScale::Pm25Est; dd.airObsTime = cur.time; dd.hasAir = true; dd.airSource = "WeatherAPI.com"; }
+        else if (reqNum(aqObj, "us-epa-index", epa)) { dd.aqi = epaIndexToUsAqi((int)std::lround(epa)); dd.aqiScale = AqiScale::Us; dd.airObsTime = cur.time; dd.hasAir = true; dd.airSource = "WeatherAPI.com"; }
     }
 
     std::vector<Hour> raw;
@@ -1145,10 +1335,15 @@ static bool parseOpenWeather(const std::string& json, double lat, double lon, Da
     if (!lst || lst->arr.empty()) { err = "no OpenWeatherMap forecast"; return false; }
     Data dd;
     dd.utcOffset = out.utcOffset;
-    if (const mj::Value* city = sect(root, "city")) dd.utcOffset = (int)num(city, "timezone", out.utcOffset);
+    dd.hasUtcOffset = out.hasUtcOffset;
+    if (const mj::Value* city = sect(root, "city")) {
+        double tzV = 0.0;
+        if (reqNum(city, "timezone", tzV)) { dd.utcOffset = (int)std::lround(tzV); dd.hasUtcOffset = true; }
+    }
 
     std::vector<Hour> raw;
     std::vector<double> rawPres, rawDir, rawGust;
+    std::vector<bool> rawHasHum, rawHasCloud, rawHasWind, rawHasGust;
     raw.reserve(lst->arr.size());
     for (const mj::Value& e : lst->arr) {
         const double ts = num(&e, "dt", 0.0);
@@ -1160,11 +1355,17 @@ static bool parseOpenWeather(const std::string& json, double lat, double lon, Da
         h.t = ts;
         h.temp = tVal;
         h.feels = num(mn, "feels_like", tVal);
-        h.humidity = num(mn, "humidity", 55.0);
+        double humVal = 55.0;
+        const bool hasH = reqNum(mn, "humidity", humVal);
+        h.humidity = hasH ? humVal : 55.0;
         const mj::Value* cl = sect(e, "clouds");
-        h.cloud = num(cl, "all", 0.0);
+        double cldVal = 0.0;
+        const bool hasC = reqNum(cl, "all", cldVal);
+        h.cloud = hasC ? cldVal : 0.0;
         const mj::Value* wi = sect(e, "wind");
-        h.wind = num(wi, "speed", 0.0) * 3.6;                // m/s -> km/h
+        double wMs = 0.0;
+        const bool hasW = reqNum(wi, "speed", wMs);
+        h.wind = hasW ? wMs * 3.6 : 0.0;                     // m/s -> km/h
         h.precipProb = num(&e, "pop", 0.0) * 100.0;
         double r3 = 0.0;
         if (const mj::Value* rn = sect(e, "rain")) r3 += num(rn, "3h", num(rn, "1h", 0.0));
@@ -1178,7 +1379,13 @@ static bool parseOpenWeather(const std::string& json, double lat, double lon, Da
         raw.push_back(h);
         rawPres.push_back(num(mn, "pressure", 0.0));
         rawDir.push_back(num(wi, "deg", 0.0));
-        rawGust.push_back(num(wi, "gust", num(wi, "speed", 0.0)) * 3.6);
+        double gMs = 0.0;
+        const bool hasG = reqNum(wi, "gust", gMs);
+        rawGust.push_back(hasG ? gMs * 3.6 : 0.0);
+        rawHasHum.push_back(hasH);
+        rawHasCloud.push_back(hasC);
+        rawHasWind.push_back(hasW);
+        rawHasGust.push_back(hasG);
     }
     if (raw.size() < 2) { err = "OpenWeatherMap forecast too short"; return false; }
     const double nowT = (double)time(nullptr);
@@ -1188,6 +1395,8 @@ static bool parseOpenWeather(const std::string& json, double lat, double lon, Da
     Current cur;
     cur.time = b.t; cur.temp = b.temp; cur.feels = b.feels; cur.humidity = b.humidity;
     cur.pressure = rawPres[best]; cur.wind = b.wind; cur.windDir = rawDir[best]; cur.gust = rawGust[best];
+    cur.hasHumidity = rawHasHum[best]; cur.hasCloud = rawHasCloud[best];
+    cur.hasWind = rawHasWind[best]; cur.hasGust = rawHasGust[best];
     cur.cloud = b.cloud; cur.precip = b.precip; cur.code = b.code; cur.isDay = b.isDay;
     finishSeries(dd, lat, lon, raw, cur);
     if (!dd.valid) { err = "could not build OpenWeatherMap forecast"; return false; }
@@ -1197,8 +1406,8 @@ static bool parseOpenWeather(const std::string& json, double lat, double lon, Da
 }
 
 bool parseProvider(int id, const std::string& body, double lat, double lon, Data& out, std::string& err) {
-    // `out.utcOffset` may be pre-set by the caller (local UTC offset in seconds) for providers that do not report one
-    Data seed; seed.utcOffset = out.utcOffset;
+    // `out.utcOffset` may be pre-set by the caller (`out.hasUtcOffset == true` when from an authoritative zone)
+    Data seed; seed.utcOffset = out.utcOffset; seed.hasUtcOffset = out.hasUtcOffset;
     bool ok = false;
     switch (id) {
         case PV_OPENMETEO: ok = parseForecast(body, seed, err); break;
@@ -1379,15 +1588,17 @@ bool httpOnce(int mode, bool fallbackTls12, const std::wstring& host, const std:
                     err = fmt("HTTP %lu", (unsigned long)status);
                 } else {
                     bool readErr = false;
+                    char chunk[65536];
                     for (;;) {
                         if (g_cancel) break;
                         DWORD avail = 0;
                         if (!WinHttpQueryDataAvailable(req, &avail)) { readErr = true; rawErr = GetLastError(); err = winErr(rawErr); break; }
                         if (avail == 0) break;
-                        std::string chunk(avail, '\0'); DWORD got = 0;
-                        if (!WinHttpReadData(req, &chunk[0], avail, &got)) { readErr = true; rawErr = GetLastError(); err = winErr(rawErr); break; }
+                        const DWORD toRead = std::min<DWORD>(avail, (DWORD)sizeof(chunk));
+                        DWORD got = 0;
+                        if (!WinHttpReadData(req, chunk, toRead, &got)) { readErr = true; rawErr = GetLastError(); err = winErr(rawErr); break; }
                         if (got == 0) break;
-                        body.append(chunk.data(), got);
+                        body.append(chunk, got);
                         if (body.size() > 6u * 1024 * 1024) { readErr = true; err = "response too large"; break; }
                     }
                     if (g_cancel) { body.clear(); err = "cancelled"; }
@@ -1523,8 +1734,11 @@ bool fetchAir(double lat, double lon, std::string& airBody, std::string& err, co
 bool fetchProvider(int id, double lat, double lon, const std::string& contact, std::string& body, std::string& airBody, std::string& err, const std::string& apiKey) {
     airBody.clear(); body.clear();
     // Contact in Settings > Weather is sent only to MET Norway and NWS (which ask apps to identify themselves).
+    std::string safeContact;
+    safeContact.reserve(contact.size());
+    for (unsigned char ch : contact) if (ch >= 0x20u && ch != 0x7Fu) safeContact.push_back((char)ch);
     const std::string ua = userAgentBase() + " (always-on clock)";
-    const std::string uaId = userAgentBase() + " (" + (contact.empty() ? std::string("always-on clock") : contact) + ")";
+    const std::string uaId = userAgentBase() + " (" + (safeContact.empty() ? std::string("always-on clock") : safeContact) + ")";
     // Two decimals (~1 km) protects exact location privacy while remaining finer than any forecast grid.
     lat = std::round(lat * 100.0) / 100.0; lon = std::round(lon * 100.0) / 100.0;
     switch (id) {

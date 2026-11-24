@@ -96,7 +96,7 @@ struct Frame {
     // The pointer is over a button that names a "hover" variable: give the variable its value (before anything is drawn, so no frame is half and half)
     void hoverPass(const themes::Scene& sc) {
         App& a = c.a;
-        if (a.mouseX < 0 || a.mouseY < 0) return;
+        if (a.showSettings || a.showHelp || a.isSaver || a.mouseX < 0 || a.mouseY < 0) return;
         bool any = false;
         const float mx = a.mouseX - a.shiftX, my = a.mouseY - a.shiftY;
         for (const Layer& L : sc.layers) {
@@ -734,7 +734,7 @@ void drawLayer(Frame& f, const Layer& L) {
         App& a = c.a;
         const float x = f.num(L.x) * W, y = f.num(L.y) * H, w = f.num(L.w) * W, h = f.num(L.h) * H, r = f.num(L.radius) * H;
         const float mx = a.mouseX - a.shiftX, my = a.mouseY - a.shiftY;
-        const bool hov = a.mouseX >= 0 && mx >= x && mx < x + w && my >= y && my < y + h;
+        const bool hov = !a.showSettings && !a.showHelp && !a.isSaver && a.mouseX >= 0 && mx >= x && mx < x + w && my >= y && my < y + h;
         if (hov && L.color.set) { const Color fc = fade(f.color(L.color, c.P.accent)); if (r > 0.5f) g.fillRoundRect(x, y, w, h, r, fc); else g.fillRect(x, y, w, h, fc); }
         if (hov && L.color2.set) g.strokeRoundRect(x, y, w, h, r, fade(f.color(L.color2, c.P.accent2)), std::max(1.f, 1.5f * s));
         if (L.slotSet >= 0) {

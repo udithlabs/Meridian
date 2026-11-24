@@ -8,13 +8,15 @@ namespace weather {
 
 enum class Icon { ClearDay, ClearNight, PartlyDay, PartlyNight, Cloudy, Fog, Drizzle, Rain, Showers, Thunder, Snow };
 
+enum class AqiScale { None = 0, Us = 1, Eu = 2, Pm25Est = 3 };
+
 struct Current {
     double time = 0;
     double temp = 0, feels = 0, humidity = 0, pressure = 0;
     double wind = 0, windDir = 0, gust = 0, cloud = 0, precip = 0;
     int code = 0;
     bool isDay = true;
-    bool hasHumidity = true, hasWind = true, hasCloud = true;
+    bool hasHumidity = true, hasWind = true, hasGust = true, hasCloud = true;
 };
 struct Hour {
     double t = 0;
@@ -34,12 +36,15 @@ struct Data {
     bool valid = false;
     double fetched = 0;               // unix time when downloaded
     int utcOffset = 0;                // seconds
+    bool hasUtcOffset = false;        // true only when the provider supplied the target location's own offset (never host PC fallback)
     std::string timezone;
     Current cur;
     std::vector<Hour> hourly;
     std::vector<Day> daily;
     bool hasAir = false;
+    AqiScale aqiScale = AqiScale::None;
     double aqi = 0, pm25 = 0, pm10 = 0;
+    double airObsTime = 0;            // unix time of the actual AQI observation sample (separate from `fetched`)
     std::string airSource;            // provider that supplied air quality (Open-Meteo, WeatherAPI.com, OpenWeatherMap, WAQI)
     bool hasUv = true;                // false when the provider does not report UV
     std::string source;               // provider that produced this data
@@ -74,14 +79,18 @@ bool parseProvider(int id, const std::string& body, double lat, double lon, Data
 
 struct Kind { Icon icon; const char* text; };
 Kind describe(int wmoCode, bool isDay);
-const char* aqiLabel(double usAqi);
+const char* aqiLabel(double aqi, AqiScale scale = AqiScale::Us);
+const char* aqiScaleName(AqiScale scale);
+const char* aqiScaleShort(AqiScale scale);
+bool airFresh(const Data& d, double now, double maxAgeSec = 6.0 * 3600.0);
 const char* uvLabel(double uv);
 
 bool parseForecast(const std::string& json, Data& out, std::string& err);
 // Parse air quality JSON from Open-Meteo, WeatherAPI.com, OpenWeatherMap, WAQI, or normalized cache.
 // When lat/lon are finite (within [-90,90]/[-180,180]), station-based feeds (WAQI) reject stations > 500 km away.
-bool parseAir(const std::string& json, Data& out, std::string& err, double lat = 999.0, double lon = 999.0);
-// Produce a compact normalized JSON snapshot of d's AQI fields so any AQI provider caches identically.
+// When `now > 0`, observation timestamps are verified against `now` (rejecting stale samples > 6 hours old).
+bool parseAir(const std::string& json, Data& out, std::string& err, double lat = 999.0, double lon = 999.0, double now = 0.0);
+// Produce a compact normalized JSON snapshot of d's AQI fields (preserving AQI standard + observation time).
 std::string formatAirJson(const Data& d);
 // Tagged air-quality cache: stores coordinates and fetch time so a previous city's AQI can never leak into a new city.
 std::string formatAirCache(double lat, double lon, double fetched, const std::string& json);

@@ -35,15 +35,28 @@ Existing detect();
 // Is this folder a Meridian install, even a half-removed one (Meridian.exe gone, but Meridian.scr or uninstall.exe left and Windows still listing it)?
 // The uninstaller uses it so that "try again" works after an uninstall that could not remove everything.
 bool looksInstalled(const std::wstring& dir);
+// Optional registry write hooks (defaults to real HKCU Win32 calls; injectable in tests to verify denied-write behavior).
+struct RegOps {
+    std::function<bool(const wchar_t* key, const wchar_t* name, const std::wstring& v, DWORD type)> setStr;
+    std::function<bool(const wchar_t* key, const wchar_t* name, DWORD v)> setDword;
+};
+
 // An empty string means success; otherwise one plain sentence about what went wrong. `stillRunning` is set when the only problem is that
-// Meridian would not close (the wizard then offers Retry).
-std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bool* stillRunning = nullptr);
+// Meridian would not close (the wizard then offers Retry). Optional non-fatal issues (such as unwritable shortcut folders) are appended to `warnings`.
+std::wstring install(const Payload& pl, const Options& o, const Progress& pr, bool* stillRunning = nullptr, std::vector<std::wstring>* warnings = nullptr);
 // When deferSelfUninstall is true, leaves <dir>\uninstall.exe in place so the parent silent uninstaller can receive the real exit code first;
 // call finishDeferredUninstall(dir) after the parent process exits.
 std::wstring uninstall(const Payload& pl, const std::wstring& dir, bool deleteSettings, const Progress& pr, bool* stillRunning = nullptr, bool deferSelfUninstall = false);
 void finishDeferredUninstall(const std::wstring& dir);
-// Transactional file swap with backup and full rollback on failure (used by install() and unit-tested directly).
+// Recovers any interrupted or partially rolled-back installation recorded in `<dir>\.meridian-tx.log`.
+// Empty return means clean (nothing pending, or recovery succeeded and removed owned transaction folders).
+std::wstring recoverPendingTransaction(const std::wstring& dir);
+// Removes owned staging/backup directories explicitly listed in `<dir>\.meridian-tx.log` and deletes the log (used by uninstall).
+void cleanupOwnedTxAt(const std::wstring& dir);
+// Transactional file swap with persistent journal, verified backup/restore rollback, and retryable lock recovery.
 std::wstring commitStagedFiles(const std::wstring& dir, const std::wstring& stageDir, const std::vector<std::wstring>& relFiles);
+// Writes required Windows registration entries and verifies every write before retiring any previous install folder.
+std::wstring registerAndRetireMove(const Payload& pl, const std::wstring& dir, const std::wstring& prevDir, DWORD estSizeKb, const RegOps* ops = nullptr);
 
 std::wstring settingsFolder(bool local);                    // %APPDATA%\Meridian or %LOCALAPPDATA%\Meridian
 std::wstring widen(const std::string& utf8);

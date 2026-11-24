@@ -11,7 +11,7 @@ using util::fmt;
 // ---------------------------------------------------------------- catalogue
 const char* widgetName(int id) {
     static const char* n[WG_COUNT] = {"World clocks", "Month calendar", "System", "Note", "Countdown", "Moon phases", "Week ahead",
-                                      "Today", "Holidays", "Weather", "Daylight", "Sky tonight", "Conditions", "Year"};
+                                      "Today", "Holidays", "Weather", "Daylight", "Sky tonight", "Conditions", "Year", "Solar system"};
     return (id >= 0 && id < WG_COUNT) ? n[id] : "";
 }
 const char* widgetBlurb(int id) {
@@ -28,38 +28,38 @@ const char* widgetBlurb(int id) {
                                       "Day length, sunrise, solar noon and sunset, with the day laid out as a strip",
                                       "The Moon, the planets that are up, and the next sky event",
                                       "Humidity, wind, pressure, UV, air quality and cloud cover",
-                                      "How far through the year it is, the week number and the next season"};
+                                      "How far through the year it is, the week number and the next season",
+                                      "Live heliocentric Solar System Orrery with all eight planets and Earth's Moon"};
     return (id >= 0 && id < WG_COUNT) ? n[id] : "";
 }
 
 namespace {
 
-struct City { const char* name; const wchar_t* key; int stdMin; };
+struct City { const char* name; const wchar_t* key; int stdMin; double lat; double lon; };
 const City CITIES[] = {
-    {"London", L"GMT Standard Time", 0}, {"New York", L"Eastern Standard Time", -300}, {"Tokyo", L"Tokyo Standard Time", 540},
-    {"Dubai", L"Arabian Standard Time", 240}, {"Singapore", L"Singapore Standard Time", 480}, {"Sydney", L"AUS Eastern Standard Time", 600},
-    {"Los Angeles", L"Pacific Standard Time", -480}, {"Paris", L"Romance Standard Time", 60}, {"Berlin", L"W. Europe Standard Time", 60},
-    {"Delhi", L"India Standard Time", 330}, {"Moscow", L"Russian Standard Time", 180}, {"Beijing", L"China Standard Time", 480},
-    {"Seoul", L"Korea Standard Time", 540}, {"Cairo", L"Egypt Standard Time", 120}, {"Johannesburg", L"South Africa Standard Time", 120},
-    {"Sao Paulo", L"E. South America Standard Time", -180}, {"Chicago", L"Central Standard Time", -360}, {"Auckland", L"New Zealand Standard Time", 720},
-    {"Istanbul", L"Turkey Standard Time", 180}, {"Riyadh", L"Arab Standard Time", 180}, {"Karachi", L"Pakistan Standard Time", 300},
-    {"Dhaka", L"Bangladesh Standard Time", 360}, {"Bangkok", L"SE Asia Standard Time", 420}, {"Colombo", L"Sri Lanka Standard Time", 330},
-    {"San Francisco", L"Pacific Standard Time", -480}, {"Denver", L"Mountain Standard Time", -420}, {"Phoenix", L"US Mountain Standard Time", -420},
-    {"Toronto", L"Eastern Standard Time", -300}, {"Zurich", L"W. Europe Standard Time", 60}, {"Hong Kong", L"China Standard Time", 480},
-    {"Melbourne", L"AUS Eastern Standard Time", 600},
+    {"London", L"GMT Standard Time", 0, 51.5074, -0.1278}, {"New York", L"Eastern Standard Time", -300, 40.7128, -74.0060}, {"Tokyo", L"Tokyo Standard Time", 540, 35.6762, 139.6503},
+    {"Dubai", L"Arabian Standard Time", 240, 25.2048, 55.2708}, {"Singapore", L"Singapore Standard Time", 480, 1.3521, 103.8198}, {"Sydney", L"AUS Eastern Standard Time", 600, -33.8688, 151.2093},
+    {"Los Angeles", L"Pacific Standard Time", -480, 34.0522, -118.2437}, {"Paris", L"Romance Standard Time", 60, 48.8566, 2.3522}, {"Berlin", L"W. Europe Standard Time", 60, 52.5200, 13.4050},
+    {"Delhi", L"India Standard Time", 330, 28.6139, 77.2090}, {"Moscow", L"Russian Standard Time", 180, 55.7558, 37.6173}, {"Beijing", L"China Standard Time", 480, 39.9042, 116.4074},
+    {"Seoul", L"Korea Standard Time", 540, 37.5665, 126.9780}, {"Cairo", L"Egypt Standard Time", 120, 30.0444, 31.2357}, {"Johannesburg", L"South Africa Standard Time", 120, -26.2041, 28.0473},
+    {"Sao Paulo", L"E. South America Standard Time", -180, -23.5505, -46.6333}, {"Chicago", L"Central Standard Time", -360, 41.8781, -87.6298}, {"Auckland", L"New Zealand Standard Time", 720, -36.8485, 174.7633},
+    {"Istanbul", L"Turkey Standard Time", 180, 41.0082, 28.9784}, {"Riyadh", L"Arab Standard Time", 180, 24.7136, 46.6753}, {"Karachi", L"Pakistan Standard Time", 300, 24.8607, 67.0011},
+    {"Dhaka", L"Bangladesh Standard Time", 360, 23.8103, 90.4125}, {"Bangkok", L"SE Asia Standard Time", 420, 13.7563, 100.5018}, {"Colombo", L"Sri Lanka Standard Time", 330, 6.9271, 79.8612},
+    {"San Francisco", L"Pacific Standard Time", -480, 37.7749, -122.4194}, {"Denver", L"Mountain Standard Time", -420, 39.7392, -104.9903}, {"Phoenix", L"US Mountain Standard Time", -420, 33.4484, -112.0740},
+    {"Toronto", L"Eastern Standard Time", -300, 43.6532, -79.3832}, {"Zurich", L"W. Europe Standard Time", 60, 47.3769, 8.5417}, {"Hong Kong", L"China Standard Time", 480, 22.3193, 114.1694},
+    {"Melbourne", L"AUS Eastern Standard Time", 600, -37.8136, 144.9631},
 };
 const int NCITY = (int)(sizeof(CITIES) / sizeof(CITIES[0]));
 
-// UTC offset of a city at a moment, from the Windows time zone database (Dynamic DST per year when present, else TZI; fixed offset as fallback)
-int zoneOffset(int idx, double unixSec) {
-    static int cachedYear[64] = {};
-    static bool ok[64] = {};
-    static TIME_ZONE_INFORMATION tz[64];
-    if (idx < 0 || idx >= NCITY) return 0;
+static bool winTzRegOffset(const std::wstring& winKey, double unixSec, int& offSecOut) {
+    if (winKey.empty() || winKey.size() > 120) return false;
+    struct CacheEntry { int year = 0; bool ok = false; TIME_ZONE_INFORMATION tzi{}; };
+    static std::unordered_map<std::wstring, CacheEntry> cache;
     const util::LocalTime utcNow = util::toLocal(unixSec, 0);
-    if (cachedYear[idx] != utcNow.y) {
-        cachedYear[idx] = utcNow.y;
-        ok[idx] = false;
+    CacheEntry& ce = cache[winKey];
+    if (ce.year != utcNow.y) {
+        ce.year = utcNow.y;
+        ce.ok = false;
         auto parseTzi = [](const unsigned char* buf, TIME_ZONE_INFORMATION& out) {
             memset(&out, 0, sizeof(TIME_ZONE_INFORMATION));
             LONG bias, sb, db; memcpy(&bias, buf, 4); memcpy(&sb, buf + 4, 4); memcpy(&db, buf + 8, 4);
@@ -67,40 +67,49 @@ int zoneOffset(int idx, double unixSec) {
             memcpy(&out.StandardDate, buf + 12, 16); memcpy(&out.DaylightDate, buf + 28, 16);
         };
         wchar_t path[256];
-        _snwprintf(path, 255, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\%ls\\Dynamic DST", CITIES[idx].key);
+        _snwprintf(path, 255, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\%ls\\Dynamic DST", winKey.c_str());
         HKEY h;
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ, &h) == ERROR_SUCCESS) {
             wchar_t yrKey[16];
             _snwprintf(yrKey, 15, L"%d", utcNow.y);
             unsigned char buf[44]; DWORD sz = sizeof buf, type = 0;
             if (RegQueryValueExW(h, yrKey, nullptr, &type, buf, &sz) == ERROR_SUCCESS && sz >= 44) {
-                parseTzi(buf, tz[idx]);
-                ok[idx] = true;
+                parseTzi(buf, ce.tzi);
+                ce.ok = true;
             }
             RegCloseKey(h);
         }
-        if (!ok[idx]) {
-            _snwprintf(path, 255, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\%ls", CITIES[idx].key);
+        if (!ce.ok) {
+            _snwprintf(path, 255, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\%ls", winKey.c_str());
             if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ, &h) == ERROR_SUCCESS) {
                 unsigned char buf[44]; DWORD sz = sizeof buf, type = 0;
                 if (RegQueryValueExW(h, L"TZI", nullptr, &type, buf, &sz) == ERROR_SUCCESS && sz >= 44) {
-                    parseTzi(buf, tz[idx]);
-                    ok[idx] = true;
+                    parseTzi(buf, ce.tzi);
+                    ce.ok = true;
                 }
                 RegCloseKey(h);
             }
         }
     }
-    if (ok[idx]) {
-        unsigned long long t100 = (unsigned long long)((unixSec + 11644473600.0) * 1e7);
-        FILETIME ft; ft.dwLowDateTime = (DWORD)(t100 & 0xFFFFFFFFu); ft.dwHighDateTime = (DWORD)(t100 >> 32);
-        SYSTEMTIME ut, lt;
-        if (FileTimeToSystemTime(&ft, &ut) && SystemTimeToTzSpecificLocalTime(&tz[idx], &ut, &lt)) {
-            double a = astro::daysFromCivil(ut.wYear, ut.wMonth, ut.wDay) * 86400.0 + ut.wHour * 3600 + ut.wMinute * 60 + ut.wSecond;
-            double b = astro::daysFromCivil(lt.wYear, lt.wMonth, lt.wDay) * 86400.0 + lt.wHour * 3600 + lt.wMinute * 60 + lt.wSecond;
-            return (int)std::lround(b - a);
-        }
+    if (!ce.ok) return false;
+    if (!std::isfinite(unixSec) || unixSec < -11644473600.0 || unixSec > 253402300799.0) return false;
+    unsigned long long t100 = (unsigned long long)((unixSec + 11644473600.0) * 1e7);
+    FILETIME ft; ft.dwLowDateTime = (DWORD)(t100 & 0xFFFFFFFFu); ft.dwHighDateTime = (DWORD)(t100 >> 32);
+    SYSTEMTIME ut, lt;
+    if (FileTimeToSystemTime(&ft, &ut) && SystemTimeToTzSpecificLocalTime(&ce.tzi, &ut, &lt)) {
+        double a = astro::daysFromCivil(ut.wYear, ut.wMonth, ut.wDay) * 86400.0 + ut.wHour * 3600 + ut.wMinute * 60 + ut.wSecond;
+        double b = astro::daysFromCivil(lt.wYear, lt.wMonth, lt.wDay) * 86400.0 + lt.wHour * 3600 + lt.wMinute * 60 + lt.wSecond;
+        offSecOut = (int)std::lround(b - a);
+        return true;
     }
+    return false;
+}
+
+// UTC offset of a city at a moment, from the Windows time zone database (Dynamic DST per year when present, else TZI; fixed offset as fallback)
+int zoneOffset(int idx, double unixSec) {
+    if (idx < 0 || idx >= NCITY) return 0;
+    int off = 0;
+    if (winTzRegOffset(CITIES[idx].key, unixSec, off)) return off;
     return CITIES[idx].stdMin * 60;
 }
 
@@ -245,7 +254,7 @@ void drawMonth(Ctx& c, float x, float y, float w, float h) {
         // hover: a soft disc, and the holiday card
         if (!hs.empty()) {
             const float cx0 = x + cw * col, cy0 = gy + rowH * (row + 1);
-            const bool hv = a.mouseX >= 0 && mx >= cx0 && mx < cx0 + cw && my >= cy0 && my < cy0 + rowH;
+            const bool hv = !a.showSettings && !a.showHelp && !a.isSaver && a.mouseX >= 0 && mx >= cx0 && mx < cx0 + cw && my >= cy0 && my < cy0 + rowH;
             Color hc = holidayColor(P, holiday::group(hs[0]));
             if (!today) g.fillCircle(px, py - fs * 0.33f, rr, withA(hc, hv ? 0.30f : 0.13f));
             else if (hv) g.strokeCircle(px, py - fs * 0.33f, rr + 3 * s, withA(hc, 0.9f), std::max(1.5f, 2.f * s));
@@ -637,7 +646,9 @@ void drawConditions(Ctx& c, float x, float y, float w, float h) {
     const bool hasPres = cu.pressure > 100.0;
     cells.push_back({"PRESSURE", hasPres ? fmt("%.0f", cu.pressure) : "\xE2\x80\x94", hasPres ? "hPa" : "", hasPres ? (cu.pressure < 1005 ? "Low" : cu.pressure > 1022 ? "High" : "Steady") : "Not reported", hasPres ? (float)clamp01((float)((cu.pressure - 980.0) / 60.0)) : 0.f});
     cells.push_back({"UV INDEX", uv >= 0 ? fmt("%.0f", uv) : "\xE2\x80\x94", "", uv >= 0 ? weather::uvLabel(uv) : "Not reported", uv >= 0 ? (float)std::min(1.0, uv / 11.0) : 0.f});
-    cells.push_back({"AIR QUALITY", d.hasAir ? fmt("%.0f", d.aqi) : "\xE2\x80\x94", d.hasAir ? "AQI" : "", d.hasAir ? weather::aqiLabel(d.aqi) : "Not reported", d.hasAir ? (float)std::min(1.0, d.aqi / 200.0) : 0.f});
+    const bool aqOk = weather::airFresh(d, a.now);
+    const double aqNorm = (d.aqiScale == weather::AqiScale::Eu) ? 100.0 : 200.0;
+    cells.push_back({"AIR QUALITY", aqOk ? fmt("%.0f", d.aqi) : "\xE2\x80\x94", aqOk ? weather::aqiScaleShort(d.aqiScale) : "", aqOk ? weather::aqiLabel(d.aqi, d.aqiScale) : "Not reported", aqOk ? (float)std::min(1.0, d.aqi / aqNorm) : 0.f});
     cells.push_back({"CLOUD COVER", cu.hasCloud ? fmt("%.0f", cu.cloud) : "\xE2\x80\x94", cu.hasCloud ? "%" : "", cu.hasCloud ? (cu.cloud < 15 ? "Clear" : cu.cloud < 50 ? "Partly cloudy" : cu.cloud < 85 ? "Mostly cloudy" : "Overcast") : "Not reported", cu.hasCloud ? (float)cu.cloud / 100.f : 0.f});
     const int cols = w >= 380 * s ? 3 : 2;
     int rows = ((int)cells.size() + cols - 1) / cols;
@@ -694,7 +705,10 @@ void drawYear(Ctx& c, float x, float y, float w, float h) {
         if (bestT < 1e17) {
             int dd = (int)std::floor((bestT - a.now) / 86400.0);
             util::LocalTime S = util::toLocal(bestT, a.tzOff);
-            g.text(F_LIGHT, std::min(25.f * s, tw * 0.07f), tx, ty + 100 * s, g.ellipsize(F_LIGHT, std::min(25.f * s, tw * 0.07f), Ws(fmt("%s \xC2\xB7 %d %s \xC2\xB7 in %d days", SN[best], S.d, util::MONTHS3[S.m - 1], dd)), tw), P.ink2, Align::Left);
+            const float sfs = std::min(22.5f * s, tw * 0.065f);
+            std::wstring full = Ws(fmt("%s \xC2\xB7 %d %s \xC2\xB7 in %d days", SN[best], S.d, util::MONTHS3[S.m - 1], dd));
+            if (g.textWidth(F_LIGHT, sfs, full) > tw) full = Ws(fmt("%s \xC2\xB7 %d %s \xC2\xB7 %dd", SN[best], S.d, util::MONTHS3[S.m - 1], dd));
+            g.text(F_LIGHT, sfs, tx, ty + 100 * s, g.ellipsize(F_LIGHT, sfs, full, tw), P.ink2, Align::Left);
         }
     }
     // twelve months: full ones filled, the current one partly
@@ -715,6 +729,105 @@ void drawYear(Ctx& c, float x, float y, float w, float h) {
 
 int cityCount() { return NCITY; }
 const char* cityName(int i) { return (i >= 0 && i < NCITY) ? CITIES[i].name : ""; }
+
+std::string ianaToWinTz(const std::string& ianaIn) {
+    const std::string s = util::trim(ianaIn);
+    if (s.empty()) return "";
+    struct MapEntry { const char* iana; const char* win; };
+    static const MapEntry kMap[] = {
+        {"UTC", "UTC"}, {"GMT", "UTC"}, {"Etc/UTC", "UTC"}, {"Etc/GMT", "UTC"},
+        {"Europe/London", "GMT Standard Time"}, {"Europe/Dublin", "GMT Standard Time"}, {"Europe/Lisbon", "GMT Standard Time"},
+        {"Atlantic/Reykjavik", "Greenwich Standard Time"},
+        {"Europe/Paris", "Romance Standard Time"}, {"Europe/Madrid", "Romance Standard Time"}, {"Europe/Brussels", "Romance Standard Time"},
+        {"Europe/Berlin", "W. Europe Standard Time"}, {"Europe/Zurich", "W. Europe Standard Time"}, {"Europe/Rome", "W. Europe Standard Time"},
+        {"Europe/Amsterdam", "W. Europe Standard Time"}, {"Europe/Vienna", "W. Europe Standard Time"}, {"Europe/Stockholm", "W. Europe Standard Time"},
+        {"Europe/Oslo", "W. Europe Standard Time"}, {"Europe/Warsaw", "Central European Standard Time"}, {"Europe/Prague", "Central Europe Standard Time"},
+        {"Europe/Athens", "GTB Standard Time"}, {"Europe/Helsinki", "FLE Standard Time"}, {"Europe/Kyiv", "FLE Standard Time"},
+        {"Europe/Istanbul", "Turkey Standard Time"}, {"Europe/Moscow", "Russian Standard Time"},
+        {"America/New_York", "Eastern Standard Time"}, {"America/Toronto", "Eastern Standard Time"}, {"America/Detroit", "Eastern Standard Time"},
+        {"America/Chicago", "Central Standard Time"}, {"America/Winnipeg", "Central Standard Time"}, {"America/Mexico_City", "Central Standard Time (Mexico)"},
+        {"America/Denver", "Mountain Standard Time"}, {"America/Edmonton", "Mountain Standard Time"}, {"America/Phoenix", "US Mountain Standard Time"},
+        {"America/Los_Angeles", "Pacific Standard Time"}, {"America/Vancouver", "Pacific Standard Time"}, {"America/Tijuana", "Pacific Standard Time (Mexico)"},
+        {"America/Anchorage", "Alaskan Standard Time"}, {"Pacific/Honolulu", "Hawaiian Standard Time"}, {"America/Halifax", "Atlantic Standard Time"},
+        {"America/St_Johns", "Newfoundland Standard Time"}, {"America/Sao_Paulo", "E. South America Standard Time"}, {"America/Argentina/Buenos_Aires", "Argentina Standard Time"},
+        {"America/Bogota", "SA Pacific Standard Time"}, {"America/Lima", "SA Pacific Standard Time"}, {"America/Santiago", "Pacific SA Standard Time"},
+        {"Africa/Cairo", "Egypt Standard Time"}, {"Africa/Johannesburg", "South Africa Standard Time"}, {"Africa/Nairobi", "E. Africa Standard Time"}, {"Africa/Lagos", "W. Central Africa Standard Time"},
+        {"Asia/Riyadh", "Arab Standard Time"}, {"Asia/Dubai", "Arabian Standard Time"}, {"Asia/Tehran", "Iran Standard Time"},
+        {"Asia/Karachi", "Pakistan Standard Time"}, {"Asia/Kolkata", "India Standard Time"}, {"Asia/Calcutta", "India Standard Time"},
+        {"Asia/Colombo", "Sri Lanka Standard Time"}, {"Asia/Kathmandu", "Nepal Standard Time"}, {"Asia/Dhaka", "Bangladesh Standard Time"},
+        {"Asia/Bangkok", "SE Asia Standard Time"}, {"Asia/Jakarta", "SE Asia Standard Time"}, {"Asia/Ho_Chi_Minh", "SE Asia Standard Time"},
+        {"Asia/Singapore", "Singapore Standard Time"}, {"Asia/Kuala_Lumpur", "Singapore Standard Time"}, {"Asia/Manila", "Singapore Standard Time"},
+        {"Asia/Shanghai", "China Standard Time"}, {"Asia/Hong_Kong", "China Standard Time"}, {"Asia/Taipei", "Taipei Standard Time"},
+        {"Asia/Tokyo", "Tokyo Standard Time"}, {"Asia/Seoul", "Korea Standard Time"},
+        {"Australia/Perth", "W. Australia Standard Time"}, {"Australia/Adelaide", "Cen. Australia Standard Time"}, {"Australia/Brisbane", "E. Australia Standard Time"},
+        {"Australia/Sydney", "AUS Eastern Standard Time"}, {"Australia/Melbourne", "AUS Eastern Standard Time"},
+        {"Pacific/Auckland", "New Zealand Standard Time"},
+    };
+    for (const auto& m : kMap) {
+        if (_stricmp(s.c_str(), m.iana) == 0) return m.win;
+    }
+    return "";
+}
+
+bool lookupWinTzOffset(const std::string& winOrIanaTz, double unixSec, int& offSecOut) {
+    std::string key = util::trim(winOrIanaTz);
+    if (key.empty()) return false;
+    if (key.find('/') != std::string::npos || _stricmp(key.c_str(), "GMT") == 0 || _stricmp(key.c_str(), "UTC") == 0) {
+        std::string mapped = ianaToWinTz(key);
+        if (!mapped.empty()) key = mapped;
+    }
+    if (_stricmp(key.c_str(), "UTC") == 0) { offSecOut = 0; return true; }
+    if (winTzRegOffset(Ws(key), unixSec, offSecOut)) return true;
+    // Fallback to built-in city standard offset if a Windows registry query is unavailable
+    for (int i = 0; i < NCITY; ++i) {
+        if (_wcsicmp(CITIES[i].key, Ws(key).c_str()) == 0) {
+            offSecOut = CITIES[i].stdMin * 60;
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string resolvePlaceWinTz(const std::string& name, double lat, double lon) {
+    const std::string lo = util::upper(util::trim(name));
+    auto narrowKey = [](const wchar_t* w) -> std::string {
+        std::string s;
+        while (*w) { s.push_back((char)(*w & 0x7F)); ++w; }
+        return s;
+    };
+    if (!lo.empty()) {
+        for (int i = 0; i < NCITY; ++i) {
+            if (lo == util::upper(CITIES[i].name)) return narrowKey(CITIES[i].key);
+        }
+        struct Alias { const char* name; const char* win; };
+        static const Alias kAliases[] = {
+            {"GREENWICH", "GMT Standard Time"}, {"EDINBURGH", "GMT Standard Time"}, {"MANCHESTER", "GMT Standard Time"}, {"BELFAST", "GMT Standard Time"},
+            {"NYC", "Eastern Standard Time"}, {"NEW YORK CITY", "Eastern Standard Time"}, {"BOSTON", "Eastern Standard Time"}, {"MIAMI", "Eastern Standard Time"}, {"WASHINGTON", "Eastern Standard Time"},
+            {"SEATTLE", "Pacific Standard Time"}, {"PORTLAND", "Pacific Standard Time"}, {"SAN DIEGO", "Pacific Standard Time"},
+            {"AUSTIN", "Central Standard Time"}, {"DALLAS", "Central Standard Time"}, {"HOUSTON", "Central Standard Time"},
+            {"HONOLULU", "Hawaiian Standard Time"}, {"ANCHORAGE", "Alaskan Standard Time"},
+            {"MUMBAI", "India Standard Time"}, {"BENGALURU", "India Standard Time"}, {"BANGALORE", "India Standard Time"}, {"NEW DELHI", "India Standard Time"},
+            {"KANDY", "Sri Lanka Standard Time"}, {"GALLE", "Sri Lanka Standard Time"}, {"JAFFNA", "Sri Lanka Standard Time"},
+            {"DUBLIN", "GMT Standard Time"}, {"MADRID", "Romance Standard Time"}, {"ROME", "W. Europe Standard Time"}, {"AMSTERDAM", "W. Europe Standard Time"},
+            {"STOCKHOLM", "W. Europe Standard Time"}, {"OSLO", "W. Europe Standard Time"}, {"REYKJAVIK", "Greenwich Standard Time"},
+        };
+        for (const auto& a : kAliases) {
+            if (lo == a.name) return a.win;
+        }
+    }
+    // Match by close coordinate proximity (< 120 km) to any known city in our Windows TZ table
+    double bestKm = 120.0;
+    int bestIdx = -1;
+    for (int i = 0; i < NCITY; ++i) {
+        const double dLat = astro::rad(lat - CITIES[i].lat), dLon = astro::rad(lon - CITIES[i].lon);
+        const double h = std::sin(dLat * 0.5) * std::sin(dLat * 0.5) +
+                         std::cos(astro::rad(lat)) * std::cos(astro::rad(CITIES[i].lat)) * std::sin(dLon * 0.5) * std::sin(dLon * 0.5);
+        const double km = 6371.0 * 2.0 * std::atan2(std::sqrt(std::max(0.0, h)), std::sqrt(std::max(0.0, 1.0 - h)));
+        if (km < bestKm) { bestKm = km; bestIdx = i; }
+    }
+    if (bestIdx >= 0) return narrowKey(CITIES[bestIdx].key);
+    return "";
+}
 
 void App::pollSystem() {
     if (now - sys.polledAt < 2.0 && now >= sys.polledAt) return;
@@ -764,6 +877,13 @@ void drawWidgetTile(Ctx& c, int id, float x, float y, float w, float h) {
         case WG_SKY: drawSkyTonight(c, cx, cy, cw, ch); break;
         case WG_AIR: drawConditions(c, cx, cy, cw, ch); break;
         case WG_YEAR: drawYear(c, cx, cy, cw, ch); break;
+        case WG_ORRERY: {
+            const float R = std::max(44.f * c.s, std::min(cw, ch - 28.f * c.s) * 0.455f);
+            drawOrrery(c, cx + cw * 0.5f, cy + (ch - 20.f * c.s) * 0.5f, R, R >= 84.f * c.s, true);
+            const util::LocalTime L = util::toLocal(c.a.now, c.a.tzOff);
+            const std::wstring cap = Ws(fmt("HELIOCENTRIC ECLIPTIC  \xC2\xB7  %d %s %d", L.d, util::MONTHS3[L.m - 1], L.y));
+            c.g.text(F_MONO, 10.5f * c.s, cx + cw * 0.5f, cy + ch - 4.f * c.s, cap, c.P.ink3, Align::Center, 0.12f);
+        } break;
         default: break;
     }
     c.g.popClip();
@@ -811,7 +931,7 @@ void App::renderWidgets(Gfx& g, int w, int h) {
     for (int i = 0; i < wgPages; ++i) pages.push_back(i);
 
     const float mx = mouseX - shiftX, my = mouseY - shiftY;
-    const bool over = st.panelHold && mouseX >= 0 && (now - lastMouseMove) < 8.0 && mx >= m - 10 * s && mx <= W - m + 10 * s && my >= top - 40 * s && my <= bottom + 10 * s;
+    const bool over = st.panelHold && !showSettings && !showHelp && !isSaver && mouseX >= 0 && (now - lastMouseMove) < 8.0 && mx >= m - 10 * s && mx <= W - m + 10 * s && my >= top - 40 * s && my <= bottom + 10 * s;
     rotorUpdate(*this, wgtRot, pages, st.wgSecs, over);
 
     auto drawPage = [&](Ctx& cc, int page) {

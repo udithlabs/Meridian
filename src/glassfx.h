@@ -31,6 +31,7 @@ enum SlideSlot {
     SLIDE_TIMER_PRESET,
     SLIDE_FOCUS_PRESET,
     SLIDE_DOCK_FACE,
+    SLIDE_SKY_VIEW,
     SLIDE_COUNT
 };
 
